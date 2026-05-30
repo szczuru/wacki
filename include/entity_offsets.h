@@ -33,12 +33,13 @@
 #define ENT_OFF_DRAWN_Y         0x0C    /* drawn anchor Y */
 #define ENT_OFF_WIDTH           0x0E    /* current frame width */
 #define ENT_OFF_HEIGHT          0x10    /* current frame height */
-#define ENT_OFF_FOOT_Y          0x12    /* foot_y / cached verb on click descs */
+#define ENT_OFF_CLICK_FOOT_Y    0x12    /* hit-test owner foot_y (≠ ENT_OFF_FOOT_Y below) */
 #define ENT_OFF_PIXELS_SLOT     0x14    /* pixels ptr / mask flag (kind=3) */
 #define ENT_OFF_PIXEL_SLOT_ALT  0x16    /* pixel data ptr (kind=3 mask) */
 #define ENT_OFF_ANCHOR_X        0x22    /* script-writable anchor X */
 #define ENT_OFF_ANCHOR_Y        0x24    /* script-writable anchor Y */
-#define ENT_OFF_FADE_Z          0x26    /* fade / z_perspective_off (post-VM foot_y) */
+#define ENT_OFF_FOOT_Y          0x26    /* foot_y after VM post-exec bake (z-sort key) */
+#define ENT_OFF_FADE_Z          ENT_OFF_FOOT_Y   /* alias — same byte; fade state when EFLAG_FADE_OR_BG set */
 #define ENT_OFF_ATLAS_SLOT      0x28    /* AnimAsset * (interned) */
 #define ENT_OFF_BYTECODE_SLOT   0x2C    /* per-entity script bytecode (interned) */
 #define ENT_OFF_FRAME           0x30    /* current frame index */
@@ -75,8 +76,9 @@
 /* Primary flags (byte at ENT_OFF_FLAGS1 / +0x08, accessed as u16). */
 #define EFLAG_RENDERABLE        0x0001
 #define EFLAG_DOUBLED           0x0004    /* sprite drawn at 2× */
-#define EFLAG_FADE_OR_BG        0x0040
-#define EFLAG_FOOT_BAKED        0x0020
+#define EFLAG_ONESHOT_BG_PEND   0x0020    /* paired with FADE_OR_BG for one-shot blit */
+#define EFLAG_FOOT_BAKED        EFLAG_ONESHOT_BG_PEND    /* alias — set when fade-out clears +0x26 */
+#define EFLAG_FADE_OR_BG        0x0040    /* fade-out or one-shot BG paint */
 #define EFLAG_HIDDEN            0x0080
 #define EFLAG_ALPHA_PLANE       0x0100
 #define EFLAG_NO_FOOT_BAKE      0x0200
@@ -84,9 +86,13 @@
 #define EFLAG_SKY               0x2000
 #define EFLAG_PENDING_FREE      0x8000
 
+/* Subset accessed via byte ENT_OFF_FLAGS1 (8-bit). */
+#define EFLAGS1_HIDDEN          0x80
+
 /* State flags (byte at ENT_OFF_STATE_FLAGS / +0x3A). */
 #define ESTATE_FRAME_READY      0x01
 #define ESTATE_ANIM_ACTIVE      0x02
+#define ESTATE_FOOT_ANCHORED    ESTATE_ANIM_ACTIVE   /* alias used by render path */
 #define ESTATE_WALKER_FRESH     0x04
 
 /* Scale clamp: drawn scale_pct at +0x58 may not exceed 160 %. */

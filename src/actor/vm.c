@@ -93,39 +93,10 @@ enum {
 #define ENT_PFLAG_PERSPECTIVE   0x0400   /* foot anchor uses scale_pct from +0x58 */
 
 /* Scaling clamp: drawn scale_pct at +0x58 may not exceed 0xA0 (160%). */
-#define ENT_SCALE_MAX           0xA0
 
 /* Field offsets used by the post-exec block (the opcode bodies still
  * use raw constants — they read closer to the original bytecode that
  * way). */
-#define ENT_OFF_DRAWN_X         0x0A
-#define ENT_OFF_DRAWN_Y         0x0C
-#define ENT_OFF_WIDTH           0x0E
-#define ENT_OFF_HEIGHT          0x10
-#define ENT_OFF_ANCHOR_X        0x22
-#define ENT_OFF_ANCHOR_Y        0x24
-#define ENT_OFF_FOOT_Y          0x26
-#define ENT_OFF_ATLAS_SLOT      0x28
-#define ENT_OFF_BYTECODE_SLOT   0x2C
-#define ENT_OFF_FRAME           0x30
-#define ENT_OFF_PC              0x32
-#define ENT_OFF_LOOP_A          0x34
-#define ENT_OFF_LOOP_B          0x36
-#define ENT_OFF_LOOP_C          0x38
-#define ENT_OFF_STATE_FLAGS     0x3A
-#define ENT_OFF_DELAY           0x3C
-#define ENT_OFF_DELAY_RESET     0x3E
-#define ENT_OFF_LOOP_D          0x40
-#define ENT_OFF_LOOP_E          0x42
-#define ENT_OFF_WALKER_X        0x44
-#define ENT_OFF_WALKER_X_HI     0x46
-#define ENT_OFF_WALKER_Y        0x48
-#define ENT_OFF_WALKER_Y_HI     0x4A
-#define ENT_OFF_WALKER_DX_REM   0x4C
-#define ENT_OFF_WALKER_DY_REM   0x50
-#define ENT_OFF_WALKER_TGT_X    0x54
-#define ENT_OFF_WALKER_TGT_Y    0x56
-#define ENT_OFF_SCALE_PCT       0x58
 
 extern const void *xlat_binary_ptr(uint32_t addr);
 extern int         PeLoaderContainsVA(uint32_t va);

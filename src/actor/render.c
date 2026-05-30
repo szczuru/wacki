@@ -43,27 +43,10 @@
 extern Entity *g_actor[2];
 
 /* ---- entity primary-flag bits at +0x08 ----------------------------- */
-#define EFLAG_HIDDEN          0x0080   /* HIDE_ENTITY sets, SHOW clears */
-#define EFLAG_FADE_OR_BG      0x0040   /* fade-out OR one-shot BG paint */
-#define EFLAG_ONESHOT_BG_PEND 0x0020   /* paired with EFLAG_FADE_OR_BG */
-#define EFLAG_DOUBLED         0x0004   /* sprite drawn at 2× (flip alt) */
-#define EFLAG_ALPHA_PLANE     0x0100   /* alpha-plane blit */
-#define EFLAG_SKY             0x2000   /* genuine sky entity (walk-behind) */
-#define EFLAG_PENDING_FREE    0x8000
 
 /* ---- entity state-flag bits at +0x3A ------------------------------- */
-#define ESTATE_FOOT_ANCHORED  0x02
 
 /* ---- field offsets used here ---------------------------------------- */
-#define ENT_OFF_DRAWN_X       0x0A
-#define ENT_OFF_DRAWN_Y       0x0C
-#define ENT_OFF_ANCHOR_X      0x22
-#define ENT_OFF_ANCHOR_Y      0x24
-#define ENT_OFF_FOOT_Y        0x26
-#define ENT_OFF_ATLAS_SLOT    0x28
-#define ENT_OFF_FRAME         0x30
-#define ENT_OFF_STATE_FLAGS   0x3A
-#define ENT_OFF_SCALE_PCT     0x58
 
 /* ---- z-sort settings ------------------------------------------------ */
 #define MAX_RENDER_ENTITIES   128

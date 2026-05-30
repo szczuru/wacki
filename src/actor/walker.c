@@ -46,14 +46,7 @@ extern void           PlayActorAnimByPath(Entity *e, const char *path,
                                           int16_t target_x, int16_t target_y);
 
 /* ---- entity field offsets used here -------------------------------- */
-#define ENT_OFF_FLAGS1          0x08
-#define ENT_OFF_ANCHOR_X        0x22
-#define ENT_OFF_ANCHOR_Y        0x24
-#define ENT_OFF_SCALE_PCT       0x58
-#define ENT_OFF_WALKER_DX_REM   0x4C
-#define ENT_OFF_WALKER_DY_REM   0x50
 
-#define EFLAGS1_HIDDEN          0x80
 
 /* ---- settings flag bits at g_settings_anim_active ----------------- */
 #define ANIM_ACTIVE_ACTORS_ALIVE 0x02

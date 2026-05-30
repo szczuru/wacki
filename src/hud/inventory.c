@@ -63,9 +63,6 @@ extern uint32_t g_scene_snapshot[0x1E];     /* backing storage for inventory */
 #define INV_DROP_OFFSCREEN         1000
 
 /* Entity field offsets used by InventoryDropItem. */
-#define ENT_OFF_DRAWN_X            0x0A
-#define ENT_OFF_ANCHOR_X           0x22
-#define ENT_OFF_BYTECODE_SLOT      0x2C
 
 /* ---- module state -------------------------------------------------- */
 
