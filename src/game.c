@@ -167,6 +167,7 @@ extern void ProcessGameFrameTickInner(void);
 extern void PaintCursor(void);
 extern void UpdateCursorState(void);
 extern int  PreloadCommonAssets(void);
+extern int  is_walkable_at(int sx, int sy);
 
 /* Cursor state + paint (UpdateCursorState, PaintCursor) moved to src/hud/cursor.c. */
 
@@ -2506,22 +2507,7 @@ int SelTloRefreshButtons(void)
     return all_done;
 }
 
-/* T2 phase B: walkability test using globals (set by play_demo_scene at
- * scene load). 1bpp packed .fld mask if loaded, else fallback bbox.
- * Replaces the IS_WALKABLE macro that was a play_demo_scene-local. */
-int is_walkable_at(int sx, int sy)
-{
-    if (g_walk_fld_pixels) {
-        if (sx < g_walk_fld_ox || sx >= g_walk_fld_ox + g_walk_fld_w) return 0;
-        if (sy < g_walk_fld_oy || sy >= g_walk_fld_oy + g_walk_fld_h) return 0;
-        size_t byte_idx = (size_t)(sy - g_walk_fld_oy) * g_walk_fld_stride
-                        + (sx - g_walk_fld_ox) / 8;
-        uint8_t bit = (uint8_t)(0x80u >> ((sx - g_walk_fld_ox) & 7));
-        return (g_walk_fld_pixels[byte_idx] & bit) != 0;
-    }
-    return (sx >= g_walk_x0 && sx < g_walk_x1 &&
-            sy >= g_walk_y0 && sy < g_walk_y1);
-}
+/* is_walkable_at moved to src/scene/walkability.c. */
 
 /* HandleSceneInput — RMB toggle + hotspot scan + LMB click dispatch.
  *

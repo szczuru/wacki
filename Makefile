@@ -51,6 +51,7 @@ ENGINE_SRCS = \
 	src/scene/bg_mask.c src/scene/spawn.c src/scene/komnata.c     \
 	src/scene/preload.c src/scene/hud_paint.c src/scene/frame_tick.c \
 	src/scene/dispatch.c src/hud/cursor.c                            \
+	src/scene/walkability.c                                          \
 	src/audio/sound_queue.c                                       \
 	src/script_bridge/palette.c src/script_bridge/entity.c        \
 	src/text/balloon.c src/anim/resolver.c src/util/screenshot.c
