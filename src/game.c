@@ -1903,6 +1903,50 @@ static SceneDef g_pytanie_scene = {
  * default sprite), so the text isn't overdrawn except by the actively-
  * hovered hover sprite (acceptable — the highlight indicates focus). */
 
+/* ---- slot-list UI constants -------------------------------------- *
+ *
+ * Button trigger codes (verb ids attached to each SceneDef button).
+ * Used by both SaveSlotClick and LoadSlotClick. */
+#define SLOT_BTN_CANCEL              0x12
+#define SLOT_BTN_COMMIT              0x13
+#define SLOT_BTN_FIRST_SLOT_TRIGGER  0x14   /* slot 0 → 0x14, slot 9 → 0x1d */
+
+/* SceneDef button-frame index for slot N (Load.wyc atlas frames 2..11). */
+#define SLOT_BUTTON_FRAME_OFFSET     2
+
+/* Inline-edit keyboard handling. */
+#define KEY_ENTER                    0x0D
+#define KEY_BACKSPACE                0x08
+#define KEY_PRINTABLE_FIRST          0x20   /* ' ' */
+#define KEY_PRINTABLE_LAST           0x7F   /* exclusive — DEL excluded */
+#define EDIT_NAME_MAX_CHARS          20
+
+/* Slot-row text layout. */
+#define SLOT_ROW_INSET_PX            4      /* fill+text inset from row border */
+#define SLOT_ROW_TEXT_X_INSET_PX     4      /* extra text X offset past the fill rect */
+#define SLOT_ROW_BG_FILL_COLOR       0x01   /* indexed-palette grey/brown */
+#define SLOT_ROW_TEXT_COLOR          0x12   /* normal slot-name colour */
+#define SLOT_ROW_EDIT_TEXT_COLOR     0xFD   /* highlight palette slot used while editing */
+
+/* Cursor blink rate: ~2 Hz (toggle every 500 ms). */
+#define EDIT_CURSOR_BLINK_MS         500
+
+/* RGB for the yellow we force into palette slot 0xFD while editing — see
+ * the comment above the palette mutation for why we override here. */
+#define EDIT_CURSOR_PALETTE_R        0xFF
+#define EDIT_CURSOR_PALETTE_G        0xE0
+#define EDIT_CURSOR_PALETTE_B        0x00
+
+/* Click-handler return codes. */
+#define CLICK_RET_STAY               0      /* stay on this menu */
+#define CLICK_RET_LOAD_COMPLETED     3      /* close menu + resume gameplay */
+#define CLICK_RET_USER_CANCELLED     4      /* close menu w/o action */
+
+/* Thumbnail preview pane is at frame 1's draw rect, inset 3 px from the
+ * top-left corner. */
+#define SLOT_THUMB_FRAME_INDEX       1
+#define SLOT_THUMB_INSET_PX          3
+
 static int s_slot_selected = -1;        /* 0..9 = chosen slot; -1 = none */
 /* Inline-edit (Save menu only)'s keyboard-input
  * branch ( tracks the slot, the local string buffer
@@ -1956,101 +2000,133 @@ static void slot_display_name(int slot, char *out, size_t out_sz)
  * Storage for both is declared at the top of this file; only repeated
  * here as a forward-decl comment so the menu code is readable. */
 
+/* Externs used by all the slot-list helpers below. */
+extern AnimAsset *g_menu_asset_10;
+extern FontHandle *g_default_font;
+extern uint8_t *g_back_shadow;
+
+/* Blit the thumbnail preview for the currently-selected slot (or slot
+ * 0 if nothing is selected) into the frame-1 box of the slot-list
+ * atlas. The thumbnail source is the slot's saved
+ * world_default_snapshot — captured scene for filled slots, TV-test
+ * pattern for empty slots. */
+static void paint_slot_thumbnail(AnimAsset *atlas)
+{
+    if (atlas->frame_count <= SLOT_THUMB_FRAME_INDEX) return;
+
+    int16_t tx = (int16_t)(atlas->off_drawX[SLOT_THUMB_FRAME_INDEX]
+                           + SLOT_THUMB_INSET_PX);
+    int16_t ty = (int16_t)(atlas->off_drawY[SLOT_THUMB_FRAME_INDEX]
+                           + SLOT_THUMB_INSET_PX);
+    int show_slot = (s_slot_selected >= 0 && s_slot_selected < WACKI_SAVE_SLOTS)
+                  ? s_slot_selected : 0;
+    const uint8_t *thumb_src = g_save.slots[show_slot].world_default_snapshot;
+
+    if (tx >= 0 && ty >= 0 &&
+        tx + SAVE_THUMB_W <= WACKI_SCREEN_W &&
+        ty + SAVE_THUMB_H <= WACKI_SCREEN_H)
+    {
+        PaintImageToBackbuffer((uint16_t)tx, (uint16_t)ty,
+                               SAVE_THUMB_W, SAVE_THUMB_H, thumb_src);
+    }
+}
+
+/* Compute the inner fill rectangle (background colour) for slot row
+ * `slot`. Returns 0 if the row geometry is out of bounds. */
+static int slot_row_fill_rect(AnimAsset *atlas, int slot,
+                              int *rx, int *ry, int *rw, int *rh)
+{
+    uint16_t f = slot_hover_frame(slot);
+    if (f >= atlas->frame_count) return 0;
+
+    int x = (int)atlas->off_drawX[f] + SLOT_ROW_INSET_PX;
+    int y = (int)atlas->off_drawY[f] + SLOT_ROW_INSET_PX;
+    int w = (int)atlas->off_widths [f] - 2 * SLOT_ROW_INSET_PX;
+    int h = (int)atlas->off_heights[f] - 2 * SLOT_ROW_INSET_PX;
+
+    if (x < 0 || y < 0 || x >= WACKI_SCREEN_W || y >= WACKI_SCREEN_H) return 0;
+    if (w <= 0 || h <= 0) return 0;
+    if (x + w > WACKI_SCREEN_W) w = WACKI_SCREEN_W - x;
+    if (y + h > WACKI_SCREEN_H) h = WACKI_SCREEN_H - y;
+
+    *rx = x;  *ry = y;  *rw = w;  *rh = h;
+    return 1;
+}
+
+/* Fill the slot row's inner rectangle with the configured background
+ * colour. The sejw.pic palette has slot 0x01 = a visible grey/brown
+ * that contrasts with the row border; using any other colour leaks
+ * transparency through to the underlying menu image. */
+static void fill_slot_row_bg(int rx, int ry, int rw, int rh)
+{
+    for (int yy = 0; yy < rh; ++yy) {
+        uint8_t *row = g_back_shadow + (size_t)(ry + yy) * WACKI_SCREEN_W + rx;
+        memset(row, SLOT_ROW_BG_FILL_COLOR, (size_t)rw);
+    }
+}
+
+/* Force a known-bright yellow into the high palette slot the editing
+ * text uses. The sejw.pic palette doesn't normally have a bright
+ * colour at 0xFD; without this the editing text comes out near-black
+ * and unreadable. The next scene's InstallPalette refresh will
+ * overwrite this slot, so the mutation is non-persistent. */
+static void install_edit_cursor_palette(void)
+{
+    extern uint8_t g_palette_rgb[256 * 3];
+    g_palette_rgb[SLOT_ROW_EDIT_TEXT_COLOR * 3 + 0] = EDIT_CURSOR_PALETTE_R;
+    g_palette_rgb[SLOT_ROW_EDIT_TEXT_COLOR * 3 + 1] = EDIT_CURSOR_PALETTE_G;
+    g_palette_rgb[SLOT_ROW_EDIT_TEXT_COLOR * 3 + 2] = EDIT_CURSOR_PALETTE_B;
+}
+
+/* Compose the line of text for slot `slot` — either the display name
+ * or, if the slot is in inline-edit mode, the editing buffer plus a
+ * blinking cursor. Returns the colour-base index for the text render. */
+static uint8_t compose_slot_row_text(int slot, char *out, size_t out_sz)
+{
+    if (slot != s_edit_slot) {
+        slot_display_name(slot, out, out_sz);
+        return SLOT_ROW_TEXT_COLOR;
+    }
+
+    install_edit_cursor_palette();
+    int cursor_on = ((SDL_GetTicks() / EDIT_CURSOR_BLINK_MS) & 1u) == 0;
+    snprintf(out, out_sz, "%.*s%c",
+             s_edit_len, s_edit_buf,
+             cursor_on ? '_' : ' ');
+    return SLOT_ROW_EDIT_TEXT_COLOR;
+}
+
+/* Paint slot row `slot`: fill the inner rectangle then render the
+ * display name (or editing buffer) into it. */
+static void paint_slot_row(AnimAsset *atlas, int slot)
+{
+    int rx, ry, rw, rh;
+    if (!slot_row_fill_rect(atlas, slot, &rx, &ry, &rw, &rh)) return;
+
+    fill_slot_row_bg(rx, ry, rw, rh);
+
+    char    line[40];
+    uint8_t color_base = compose_slot_row_text(slot, line, sizeof line);
+
+    TextRenderTarget t = {
+        .stride     = WACKI_SCREEN_W,
+        .x          = (uint16_t)(rx + SLOT_ROW_TEXT_X_INSET_PX),
+        .color_base = color_base,
+        .pixels     = g_back_shadow + (size_t)ry * WACKI_SCREEN_W,
+        .font       = g_default_font,
+    };
+    RenderTextLineToBuffer(&t, (const uint8_t *)line);
+}
+
 static void paint_slot_list(void)
 {
-    extern AnimAsset *g_menu_asset_10;
-    extern FontHandle *g_default_font;
-    extern uint8_t *g_back_shadow;
     AnimAsset *atlas = g_menu_asset_10;
     if (!atlas || !g_default_font || !g_back_shadow) return;
     if (!atlas->off_drawX || !atlas->off_drawY) return;
 
-    /* Thumbnail preview pane — init
- * branch: blits 126×78 indexed pixels at (off_drawX[1]+3,
- * off_drawY[1]+3). Frame 1 of Load.wyc atlas defines the preview
- * box position. Source: ALWAYS the selected slot's
- * world_default_snapshot — for filled slots that's the captured
- * scene at save time, for empty slots that's the TV-test-pattern
- * default copied from g_default_world_state at LoadSaveStateOrInit.
- * No selection → fall back to slot 0's content (matches original
- * init branch which always paints slot 0). */
-    if (atlas->frame_count > 1) {
-        int16_t tx = (int16_t)(atlas->off_drawX[1] + 3);
-        int16_t ty = (int16_t)(atlas->off_drawY[1] + 3);
-        int show_slot = (s_slot_selected >= 0 &&
-                         s_slot_selected < WACKI_SAVE_SLOTS)
-                      ? s_slot_selected : 0;
-        const WackiSlot *s = &g_save.slots[show_slot];
-        const uint8_t *thumb_src = s->world_default_snapshot;
-        if (tx >= 0 && ty >= 0 &&
-            tx + SAVE_THUMB_W <= WACKI_SCREEN_W &&
-            ty + SAVE_THUMB_H <= WACKI_SCREEN_H) {
-            PaintImageToBackbuffer((uint16_t)tx, (uint16_t)ty,
-                                   SAVE_THUMB_W, SAVE_THUMB_H, thumb_src);
-        }
-    }
-
-
+    paint_slot_thumbnail(atlas);
     for (int i = 0; i < WACKI_SAVE_SLOTS; ++i) {
-        uint16_t f = slot_hover_frame(i);
-        if (f >= atlas->frame_count) continue;
-        /* call @ 0x0040AA75: original fills a
- * `(w-8) × (h-8)` rectangle at `(drawX[f]+4, drawY[f]+4)` with
- * bg color 0x01, then renders text 0x12 into it. The 4-pixel
- * inset matches the slot row's frame border. */
-        int16_t rx = (int16_t)(atlas->off_drawX[f] + 4);
-        int16_t ry = (int16_t)(atlas->off_drawY[f] + 4);
-        int rw = (int)atlas->off_widths[f]  - 8;
-        int rh = (int)atlas->off_heights[f] - 8;
-        if (rx < 0 || ry < 0 || rx >= WACKI_SCREEN_W || ry >= WACKI_SCREEN_H) continue;
-        if (rw <= 0 || rh <= 0) continue;
-        if (rx + rw > WACKI_SCREEN_W) rw = WACKI_SCREEN_W - rx;
-        if (ry + rh > WACKI_SCREEN_H) rh = WACKI_SCREEN_H - ry;
-        /* Fill bg rectangle: PUSH 0x01 = bg color
- * index. sejw.pic palette has 0x01 = visible (some grey/brown
- * highlight color). DON'T try other indices — palette is
- * scene-specific and merged unpredictably across transitions. */
-        for (int yy = 0; yy < rh; ++yy) {
-            uint8_t *row = g_back_shadow + (size_t)(ry + yy) * WACKI_SCREEN_W + rx;
-            memset(row, 0x01, (size_t)rw);
-        }
-        char line[40];
-        uint8_t color_base = 0x12;      /* PUSH 0x12. */
-        if (i == s_edit_slot) {
-            /* Editing this slot — render the buffer + blinking cursor
- * in YELLOW. Original used 0xFE / 0xFD but
- * both come out near-black under the merged Sejw.pic
- * palette in our port. Force a known-bright yellow into
- * a high palette slot (0xFD) right before rendering — the
- * next scene's InstallPalette refresh will overwrite it,
- * so this is non-persistent. NOTE (refer
- * inline-edit branch). */
-            extern uint8_t g_palette_rgb[256*3];
-            g_palette_rgb[0xFD * 3 + 0] = 0xFF;  /* R */
-            g_palette_rgb[0xFD * 3 + 1] = 0xE0;  /* G */
-            g_palette_rgb[0xFD * 3 + 2] = 0x00;  /* B */
-            int cursor_on = ((SDL_GetTicks() / 500u) & 1u) == 0;
-            snprintf(line, sizeof line, "%.*s%c",
-                     s_edit_len, s_edit_buf,
-                     cursor_on ? '_' : ' ');
-            color_base = 0xFD;
-        } else {
-            slot_display_name(i, line, sizeof line);
-        }
-
-        /* NOTE — small extra left text inset (+4 px past the bg
- * rect edge). The original starts text flush at rx; in our port
- * the font advance is slightly different so a flush start visually
- * crowds the slot border. Keeps the bg rect at the original +4
- * position; only the text origin shifts. */
-        TextRenderTarget t = {
-            .stride     = WACKI_SCREEN_W,
-            .x          = (uint16_t)(rx + 4),
-            .color_base = color_base,
-            .pixels     = g_back_shadow + (size_t)ry * WACKI_SCREEN_W,
-            .font       = g_default_font,
-        };
-        RenderTextLineToBuffer(&t, (const uint8_t *)line);
+        paint_slot_row(atlas, i);
     }
 }
 
@@ -2132,87 +2208,99 @@ static int save_commit_selected(void)
     return 3;
 }
 
-static int SaveSlotClick(int trigger)
+/* Trigger code → slot index conversion (or -1 if not a slot trigger). */
+static int slot_index_from_trigger(int trigger)
 {
-    /* Slot row click — single click selects AND enters edit mode straight
- * away (deviates from the original's "click to select, click again to
- * edit" — user prefers immediate typing). Clicking a different slot
- * mid-edit commits the previous edit first. */
-    if (trigger >= 0x14 && trigger <= 0x14 + WACKI_SAVE_SLOTS - 1) {
-        int slot = trigger - 0x14;
-        if (s_edit_slot >= 0 && s_edit_slot != slot) {
-            end_edit_commit();
-        }
-        s_slot_selected = slot;
-        if (s_edit_slot != slot) {
-            begin_edit(slot);
-        }
-        fprintf(stderr, "[save-menu] slot %d editing\n", slot);
-    } else if (trigger == 0x12) {
-        /* Anuluj — drop any in-progress edit without committing. */
-        PlatformSetTextInput(0);
-        s_edit_slot = -1;
-        s_edit_len = 0;
-        s_slot_selected = -1;
-        return 4;
-    } else if (trigger == 0x13) {
-        /* Zapisz button — same path as Enter-in-edit. */
-        return save_commit_selected();
-    } else {
-        /* Idle frame: consume typed chars if we're in edit mode, then
- * keep the slot list painted on the BG. Enter commits the
- * save AND closes the menu (= Zapisz button). */
-        if (s_edit_slot >= 0) {
-            uint8_t c;
-            int commit_now = 0;
-            while ((c = PlatformPollTypedChar()) != 0) {
-                if (c == 0x0D) {              /* Enter — save + close */
-                    commit_now = 1;
-                    break;
-                } else if (c == 0x08) {       /* Backspace */
-                    if (s_edit_len > 0) {
-                        s_edit_buf[--s_edit_len] = 0;
-                    }
-                } else if (c >= 0x20 && c < 0x7F) {
-                    /* 20-char cap — slot row pixel width can't fit much
- * more without overflowing into the thumbnail/buttons. */
-                    enum { EDIT_MAX_CHARS = 20 };
-                    if (s_edit_len < EDIT_MAX_CHARS) {
-                        s_edit_buf[s_edit_len++] = (char)c;
-                        s_edit_buf[s_edit_len] = 0;
-                    }
-                }
+    int slot = trigger - SLOT_BTN_FIRST_SLOT_TRIGGER;
+    if (slot < 0 || slot >= WACKI_SAVE_SLOTS) return -1;
+    return slot;
+}
+
+/* Drain typed characters into the edit buffer. Returns 1 if the user
+ * pressed Enter (signalling commit-now), 0 otherwise. */
+static int process_typed_chars(void)
+{
+    uint8_t c;
+    while ((c = PlatformPollTypedChar()) != 0) {
+        if (c == KEY_ENTER) return 1;
+
+        if (c == KEY_BACKSPACE) {
+            if (s_edit_len > 0) s_edit_buf[--s_edit_len] = 0;
+        } else if (c >= KEY_PRINTABLE_FIRST && c < KEY_PRINTABLE_LAST) {
+            if (s_edit_len < EDIT_NAME_MAX_CHARS) {
+                s_edit_buf[s_edit_len++] = (char)c;
+                s_edit_buf[s_edit_len]   = 0;
             }
-            if (commit_now) return save_commit_selected();
         }
-        paint_slot_list();
     }
     return 0;
 }
 
-/* LoadSlotClick — (Load.pic handler).
- * Loads selected slot via LoadSaveSlot, then triggers LoadKomnataScene
- * for the loaded komnata so the caller (opszyns dispatcher) returns to
- * the running game in the right room. */
-extern void LoadKomnataScene(uint16_t id);    /* in this file */
+static int SaveSlotClick(int trigger)
+{
+    int slot = slot_index_from_trigger(trigger);
+
+    if (slot >= 0) {
+        /* Single click selects + enters edit mode (slight deviation from
+         * the original "click then click again" UX — user prefers
+         * immediate typing). Switching to another slot mid-edit commits
+         * the prior edit first. */
+        if (s_edit_slot >= 0 && s_edit_slot != slot) end_edit_commit();
+        s_slot_selected = slot;
+        if (s_edit_slot != slot) begin_edit(slot);
+        fprintf(stderr, "[save-menu] slot %d editing\n", slot);
+        return CLICK_RET_STAY;
+    }
+
+    if (trigger == SLOT_BTN_CANCEL) {
+        /* Drop any in-progress edit without committing. */
+        PlatformSetTextInput(0);
+        s_edit_slot     = -1;
+        s_edit_len      = 0;
+        s_slot_selected = -1;
+        return CLICK_RET_USER_CANCELLED;
+    }
+
+    if (trigger == SLOT_BTN_COMMIT) {
+        return save_commit_selected();
+    }
+
+    /* Idle frame — drain typed chars (Enter commits + closes), then
+     * repaint slot rows so the editing slot's cursor blinks. */
+    if (s_edit_slot >= 0 && process_typed_chars()) {
+        return save_commit_selected();
+    }
+    paint_slot_list();
+    return CLICK_RET_STAY;
+}
+
+/* LoadSlotClick (Load.pic handler). Reads the selected slot via
+ * LoadSaveSlot then triggers LoadKomnataScene to re-enter the room
+ * the save was made in. */
+extern void LoadKomnataScene(uint16_t id);
 static int LoadSlotClick(int trigger)
 {
-    if (trigger >= 0x14 && trigger <= 0x14 + WACKI_SAVE_SLOTS - 1) {
-        s_slot_selected = trigger - 0x14;
-        fprintf(stderr, "[load-menu] slot %d selected\n", s_slot_selected);
-    } else if (trigger == 0x12) {
+    int slot = slot_index_from_trigger(trigger);
+
+    if (slot >= 0) {
+        s_slot_selected = slot;
+        fprintf(stderr, "[load-menu] slot %d selected\n", slot);
+        return CLICK_RET_STAY;
+    }
+
+    if (trigger == SLOT_BTN_CANCEL) {
         s_slot_selected = -1;
-        return 4;
-    } else if (trigger == 0x13) {
-        /* Wczytaj — read slot into globals + re-enter the loaded komnata.
- * LoadSaveSlot returns 0 for empty/invalid slots. */
+        return CLICK_RET_USER_CANCELLED;
+    }
+
+    if (trigger == SLOT_BTN_COMMIT) {
         if (s_slot_selected < 0) {
             fprintf(stderr, "[load-menu] commit ignored (no slot selected)\n");
-            return 0;
+            return CLICK_RET_STAY;
         }
         if (g_save.slots[s_slot_selected].stage_indicator == 0) {
             fprintf(stderr, "[load-menu] slot %d is empty\n", s_slot_selected);
-            return 0;
+            return CLICK_RET_STAY;
         }
         if (LoadSaveSlot((uint16_t)s_slot_selected)) {
             LoadKomnataScene(g_cur_komnata);
@@ -2220,13 +2308,13 @@ static int LoadSlotClick(int trigger)
                     s_slot_selected,
                     (unsigned)g_cur_etap, (unsigned)g_cur_komnata);
             s_slot_selected = -1;
-            return 3;       /* exit menu, resume game in loaded state */
+            return CLICK_RET_LOAD_COMPLETED;
         }
-        return 0;
-    } else {
-        paint_slot_list();
+        return CLICK_RET_STAY;
     }
-    return 0;
+
+    paint_slot_list();
+    return CLICK_RET_STAY;
 }
 
 /* (bg="Sejw.pic"). Handler
