@@ -1,101 +1,50 @@
-/*
- * actor.c — Entities (sprites with state) and movement of the two
- * controllable actors (Ebek and Fjej).
+/* src/actor/walker.c — actor motion + waypoint path-finding.
  *
- * Original addresses:
- *   AllocEntity                0x00405A00
- *   InitEntityBitmap           0x00405920
- *   FreeEntity                 0x004058F0
- *   RegisterEntityForUpdate    0x00405E30
- *   UpdateActorMovement        0x004061D0
- *   ResolveAnimByName          0x00401240 (FindKeyInTaggedTable)
+ * Drives the two controllable actors (Ebek, Fjej):
+ *
+ *   - Per-frame work (UpdateActorMovement): refresh perspective scale
+ *     so actors shrink as they walk into scene depth.
+ *
+ *   - On-click binding (BindActorWalker / BindActorWalkerDirect):
+ *     given a target click position, choose a directional walk anim
+ *     (L/R/U/D) and patch op 0x15 in the walker bytecode so the per-
+ *     entity VM steps the actor toward the target on its next tick.
+ *     If a straight-line path is blocked by scene geometry, fall back
+ *     to a waypoint chain via the scene's perspective bands.
+ *
+ *   - Per-frame waypoint advance (PerActorWaypointAdvanceTick): when
+ *     a waypoint-routed walker reaches the current leg's target,
+ *     bind the next leg. Continues until the walker is on the final
+ *     (originally-requested) target leg.
+ *
+ * The waypoint graph (ActorWaypoints) is built once per scene from
+ * the FILD body's perspective bands. Nodes are bands, edges connect
+ * band pairs whose straight line is fully walkable. Per-click work
+ * adds source/target pseudo-nodes (band IDs 0xFE / 0xFF), then runs
+ * a BFS from the target frontier and picks the source-connected
+ * band with minimum total cost.
  */
+
 #include "wacki.h"
-#include <SDL.h>
-#include <string.h>
-#include <stdlib.h>
+#include "internal.h"
 
-extern void *xmalloc(uint32_t sz);
-extern void  xfree  (void *p);
+#include <stdint.h>
+#include <stddef.h>
 
-/* ent_ptr_intern / ent_ptr_resolve moved to src/actor/intern.c.
- * Registration table + Find/Register/Unregister moved to
- * src/actor/registration.c (storage there, declarations in
- * src/actor/internal.h). */
+extern Entity            *g_actor[2];
+extern const char        *g_actor_walk_anim[2][6];
+extern uint16_t           g_active_actor;
+extern uint16_t           g_cursor_speed;
+extern uint16_t           g_perspective_min;
+extern uint16_t           g_perspective_step;
+extern uint16_t           g_settings_anim_active;
+extern int16_t            g_persp_profile[];
+extern int                g_persp_band_count;
 
-#include "actor/internal.h"
+extern int                is_walkable_at(int sx, int sy);
+extern void               PlayActorAnimByPath(Entity *e, const char *path,
+                                              int16_t target_x, int16_t target_y);
 
-/* Entity list management (Link/Unlink/ClearAll, iterators, head globals)
- * moved to src/actor/list.c. */
-
-/* Per-entity VM (scan_for_label, ExecEntityScript, EntityWalkerTick)
- * moved to src/actor/vm.c. EOFF / EOFF8 macros moved to src/actor/internal.h. */
-
-
-/* EntityRenderAll, cmp_entity_y, and walk-behind paint mask
- * moved to src/actor/render.c. */
-
-
-/* perspective globals owned by assets.c */
-extern int16_t g_persp_profile[];
-extern int     g_persp_band_count;
-extern uint16_t g_cursor_speed;            /* DAT_0044A198 — undefined2 in Ghidra */
-extern uint16_t g_perspective_min;
-extern uint16_t g_perspective_step;
-extern uint16_t g_active_actor;
-extern uint16_t g_active_target_y;        /* DAT_0044E5A8 — last mouse Y */
-
-/* shared "is there a click this tick?" flag (graphics.c sets it via WndProc) */
-extern uint8_t g_lmb_clicked;
-extern uint8_t g_lmb_handled;             /* DAT_0044E5A4 */
-extern uint16_t g_settings_anim_active;   /* DAT_0044E448 (T121) */
-/* g_game_over_code = macro alias for g_script_vars[14]; defined in wacki.h. */
-
-/* Entity lifecycle (AllocEntity / FreeEntity / init_entity_bitmap)
- * moved to src/actor/alloc.c. */
-
-/* Register/Unregister/UnregisterFirstKindIdMatch/UnregisterEntityByPtr
- * moved to src/actor/registration.c. */
-
-/* ------------------------------------------------------------------------- *
- * Per-actor walk-anim selector (directional sprite table is at
- * StageDef::ebek_wyc + 0xC, [0]=L, [1]=R, [2]=U, [3]=D in the original).
- *
- * 1:1 with UpdateActorMovement tail @ 0x004061D0 line 1054+:
- *     sVar11 = psVar3[2] - *(short *)(iVar2 + 0x22);   // target - anchor X
- *     sVar8  = psVar3[3] - *(short *)(iVar2 + 0x24);   // target - anchor Y
- *     if (sVar8 < sVar11) horizontal else vertical.
- *
- * Earlier port read `actor->target_anim_x` (named field in trailing zone,
- * never initialised) so dx/dy always reduced to (target - 0) → ALWAYS picked
- * dir_anims[1] (right) for positive target — actors visibly walked-right
- * regardless of click position.                                            */
-/* (select_walk_anim removed — same algorithm lives inline in
- * BindActorWalker below, the sole consumer after UpdateActorMovement's
- * auto-bind branch was removed in fix #10.) */
-
-/* helpers from script.c / game.c */
-extern uint16_t FindKeyInTaggedTable(const char *table, char tag, int16_t key); /* 0x00401240 */
-extern void     PlayActorAnimByPath(Entity *e, const char *path,
-                                    int16_t target_x, int16_t target_y);
-
-/* ------------------------------------------------------------------------- *
- * UpdateActorMovement — 0x004061D0
- *
- * Earlier port used NAMED Entity struct fields (target_anim_x/y,
- * z_perspective_off, walk_dx_remaining, walk_dy_remaining, state_flags) —
- * all of which sit in the trailing zone (byte 0xE0+) since #100 and are
- * NEVER initialised by the rest of the port. Reads returned 0, writes
- * went to dead memory. Effect:
- *   - perspective scale at +0x58 never updated (renderer fell back to
- *     constant scale, perspective Y rescaling broken)
- *   - walker mid-walk re-triggered on every click (no skip)
- *   - script-bound walk path (+0x3A bit 2) never honoured
- *   - direction selector saw dx = target-0, dy = target-0 → right-walk
- *     anim for every click position
- *
- * Fix: switch to raw byte access via EOFF() matching original FUN_004061D0.
- * ------------------------------------------------------------------------- */
 void UpdateActorMovement(int16_t target_x, int16_t target_y)
 {
     extern Entity *g_actor[2];                /* DAT_0044E724/0728 */
