@@ -1,16 +1,17 @@
 /* src/scene/hud_paint.c — per-frame HUD overlay paint.
  *
  * Called once per frame from ProcessGameFrameTickInner, after the
- * scene render but before the cursor and back-buffer flush.
- * Composites three things in order:
+ * scene render but before the cursor and back-buffer flush. Composites
+ * five things in order:
  *
- * 1. The verb panel itself (panel.wyc): blit the panel atlas at
- * its scene-baked position.
- * 2. Inventory item icons: for each non-empty slot on the current
- * page, blit the corresponding icon from g_items_atlas.
- * 3. The held-item drag-ghost: if the player is currently dragging
- * a verb (g_held_item != 0x26), interpolate its position toward
- * the cursor and draw a dimmed copy of the icon there.
+ *   1. Verb panel (panel.wyc): the bottom-of-screen verb bar.
+ *   2. Inventory item icons: one per non-empty panel slot.
+ *   3. Actor portraits + active-frame indicator (ebfj.wyc).
+ *   4. Fjej glasses-on/off portrait overlay (script-var driven, since
+ *      the entity lifetime for the script-spawned glasses sprite is
+ *      currently broken).
+ *   5. Health bar (pasek#N.wyc) re-painted above the panel.
+ *   6. Held-item drag-ghost: the icon trailing the cursor.
  */
 
 #include "wacki.h"
@@ -21,229 +22,259 @@
 #include <string.h>
 
 extern AnimAsset *g_ebfj_atlas;
+extern AnimAsset *g_panel_asset;
+extern AnimAsset *g_items_atlas;
+extern uint16_t   g_panel_verb_tab[6];
+extern uint16_t   g_active_actor;
+extern int16_t    s_mouse_x, s_mouse_y;
+extern uint32_t   g_frame_delta_ms;
 
 /* Forward decls for helpers still owned by game.c. */
 extern void paint_anim_button_at(AnimAsset *atlas, uint16_t frame,
                                  int16_t base_x, int16_t base_y, int paint);
 
-/* PaintHudOverlay — panel + inventory icons + held-item ghost paint.
- * Runs AFTER EntityRenderAll inside ProcessGameFrameTickInner so HUD
- * sits on top of scene entities. Reads globals: g_panel_asset (panel
- * atlas), g_items_atlas (inventory icon atlas), g_panel_verb_tab[6]
- * (verb in each panel slot), g_held_item, g_settings_anim_active. */
-void PaintHudOverlay(void)
+/* ---- constants ---------------------------------------------------- */
+
+/* Panel layout. */
+#define PANEL_SLOT_COUNT            6
+#define PANEL_TOP_Y                 400   /* base Y for paint_anim_button_at */
+#define PANEL_BUTTON_SIZE         0x28    /* 40 px cells (used elsewhere) */
+
+/* Inventory verb-id range. */
+#define ITEM_VERB_FIRST           0x29
+#define NEUTRAL_VERB              0x26
+
+/* Panel visibility bit on g_settings_anim_active. */
+#define PANEL_VISIBLE_BIT         0x0001
+
+/* Actor portrait atlas — 4 frames: 0/1 active, 2/3 inactive. */
+#define ACTOR_PORTRAIT_MIN_FRAMES   4
+#define PORTRAIT_INACTIVE_BASE      2     /* OR with (active ^ 1) → 2 or 3 */
+#define ACTOR_INDEX_MASK            0x01u
+
+/* Glasses-on/off portrait — driven by a script var. */
+#define GLASSES_SCRIPT_VAR_INDEX  0x67
+#define GLASSES_TAKEN_VALUE         1
+#define GLASSES_DEFAULT_X         172
+#define GLASSES_DEFAULT_Y         427
+
+/* Health-bar entity uses asset names starting with "pasek". */
+#define HEALTH_BAR_NAME_PREFIX     "pasek"
+#define HEALTH_BAR_NAME_PREFIX_LEN  5
+#define HEALTH_BAR_DEFAULT_X        7
+#define HEALTH_BAR_DEFAULT_Y      403
+
+/* Held-item drag ghost. */
+#define HELD_ITEM_GHOST_MISSING   0xFFFF
+#define HELD_ITEM_GHOST_X_OFFSET  0x22    /* cursor offset where the icon trails */
+#define HELD_ITEM_GHOST_Y_OFFSET     7
+#define HELD_ITEM_GHOST_STEP_MAX    64    /* per-frame ghost step cap */
+
+/* Per-slot panel-button origins (top-left), in panel-local coords. */
+static const int16_t s_btn_x[PANEL_SLOT_COUNT] = { 300, 345, 390, 435, 480, 525 };
+static const int16_t s_btn_y[PANEL_SLOT_COUNT] = {  20,  20,  20,  20,  20,  20 };
+
+/* ---- helpers ------------------------------------------------------- */
+
+static int panel_is_visible(void)
 {
-    extern AnimAsset *g_panel_asset;
-    extern AnimAsset *g_items_atlas;
-    extern uint16_t   g_panel_verb_tab[6];
-    extern int16_t    s_mouse_x, s_mouse_y;
-    extern uint32_t   g_frame_delta_ms;
+    return (g_settings_anim_active & PANEL_VISIBLE_BIT) != 0;
+}
 
-    AnimAsset *panel = g_panel_asset;
-    if (panel) paint_anim_button_at(panel, 0, 0, 400, 1);
+/* Blit one frame of an atlas at the given screen coords. Skips
+ * gracefully on missing tables / zero dimensions. */
+static void blit_atlas_frame(AnimAsset *atlas, uint16_t frame,
+                             int16_t dx, int16_t dy)
+{
+    if (!atlas || !atlas->pixel_ptrs ||
+        !atlas->off_widths || !atlas->off_heights) return;
+    if (frame >= atlas->frame_count) return;
 
-    /* Inventory / dialog-choice icon overlay @
- * 0x00407045: pixels = przedm.pixel_ptrs[verb - 0x29]; blit at
- * (panel_x + btn_x[i], panel_y + btn_y[i]), 0x28×0x28 cell. */
-    if (g_items_atlas && (g_settings_anim_active & 1) && panel
-        && panel->off_drawX && panel->off_drawY)
-    {
-        int16_t panel_x = (int16_t)panel->off_drawX[0];
-        int16_t panel_y = (int16_t)panel->off_drawY[0];
-        static const int16_t btn_x[6] = { 300, 345, 390, 435, 480, 525 };
-        static const int16_t btn_y[6] = {  20,  20,  20,  20,  20,  20 };
-        for (int i = 0; i < 6; ++i) {
-            uint16_t verb = g_panel_verb_tab[i];
-            if (verb == 0x26) continue;
-            if ((uint16_t)(verb - 0x29) >= g_items_atlas->frame_count) continue;
-            uint16_t idx = (uint16_t)(verb - 0x29);
-            uint8_t *px = g_items_atlas->pixel_ptrs
-                          ? g_items_atlas->pixel_ptrs[idx] : NULL;
-            if (!px) continue;
-            uint16_t fw = g_items_atlas->off_widths
-                          ? g_items_atlas->off_widths[idx] : 0;
-            uint16_t fh = g_items_atlas->off_heights
-                          ? g_items_atlas->off_heights[idx] : 0;
-            if (!fw || !fh) continue;
-            int16_t dx = (int16_t)(panel_x + btn_x[i]);
-            int16_t dy = (int16_t)(panel_y + btn_y[i]);
-            BlitSpriteToBackbuffer((uint16_t)dx, (uint16_t)dy, 0, 0,
-                                   fw, fh, fw, fh, px, 0);
-        }
+    uint8_t *px = atlas->pixel_ptrs[frame];
+    uint16_t fw = atlas->off_widths [frame];
+    uint16_t fh = atlas->off_heights[frame];
+    if (!px || !fw || !fh) return;
+
+    BlitSpriteToBackbuffer((uint16_t)dx, (uint16_t)dy, 0, 0,
+                           fw, fh, fw, fh, px, 0);
+}
+
+/* Paint the inventory item icons over the panel slots. */
+static void paint_inventory_icons(AnimAsset *panel)
+{
+    if (!g_items_atlas || !panel_is_visible() ||
+        !panel || !panel->off_drawX || !panel->off_drawY) return;
+
+    int16_t panel_x = (int16_t)panel->off_drawX[0];
+    int16_t panel_y = (int16_t)panel->off_drawY[0];
+
+    for (int i = 0; i < PANEL_SLOT_COUNT; ++i) {
+        uint16_t verb = g_panel_verb_tab[i];
+        if (verb == NEUTRAL_VERB) continue;
+
+        uint16_t idx = (uint16_t)(verb - ITEM_VERB_FIRST);
+        if (idx >= g_items_atlas->frame_count) continue;
+
+        int16_t dx = (int16_t)(panel_x + s_btn_x[i]);
+        int16_t dy = (int16_t)(panel_y + s_btn_y[i]);
+        blit_atlas_frame(g_items_atlas, idx, dx, dy);
     }
+}
 
-    /* Actor portrait + active-frame indicator
- * 0x00407130. The ebfj.wyc atlas has 4 frames stored at fixed positions
- * (each frame's own off_drawX/Y): 0/1 = Ebek/Fjej "active" portraits
- * (with frame/border), 2/3 = "inactive" portraits (without frame).
- *
- * Original gates on a cached active-actor != current — it only repaints
- * when SPACE toggles, because the panel background is sticky in the
- * original's dirty-rect framework. Our PaintHudOverlay repaints the
- * whole panel every frame, so we always paint both portraits.
- *
- * Order matches original: inactive first (uVar2 ^ 3), active on top
- * (uVar2). With active=0 (Ebek) → paint frame 3 (Fjej inactive), then
- * frame 0 (Ebek with frame). With active=1 → frame 2, then frame 1. */
-    if (g_ebfj_atlas && g_ebfj_atlas->pixel_ptrs && g_ebfj_atlas->frame_count >= 4
-        && (g_settings_anim_active & 1))
-    {
-        extern uint16_t g_active_actor;
-        unsigned a   = g_active_actor & 1u;
-        unsigned f_i = (a ^ 1u) | 2u;       /* inactive: 2 or 3 */
-        unsigned f_a = a;                   /* active: 0 or 1 */
-        for (int pass = 0; pass < 2; ++pass) {
-            unsigned f = (pass == 0) ? f_i : f_a;
-            uint8_t *px = g_ebfj_atlas->pixel_ptrs[f];
-            if (!px) continue;
-            uint16_t fw = g_ebfj_atlas->off_widths  ? g_ebfj_atlas->off_widths [f] : 0;
-            uint16_t fh = g_ebfj_atlas->off_heights ? g_ebfj_atlas->off_heights[f] : 0;
-            uint16_t dx = g_ebfj_atlas->off_drawX   ? g_ebfj_atlas->off_drawX  [f] : 0;
-            uint16_t dy = g_ebfj_atlas->off_drawY   ? g_ebfj_atlas->off_drawY  [f] : 0;
-            if (!fw || !fh) continue;
-            BlitSpriteToBackbuffer(dx, dy, 0, 0, fw, fh, fw, fh, px, 0);
-        }
+/* Paint the two actor portraits (inactive first so the active one
+ * with its frame ends up on top). */
+static void paint_actor_portraits(void)
+{
+    if (!g_ebfj_atlas ||
+        g_ebfj_atlas->frame_count < ACTOR_PORTRAIT_MIN_FRAMES ||
+        !panel_is_visible()) return;
+
+    unsigned active   = g_active_actor & ACTOR_INDEX_MASK;
+    unsigned f_inact  = (active ^ ACTOR_INDEX_MASK) | PORTRAIT_INACTIVE_BASE;
+    unsigned f_active = active;
+
+    for (int pass = 0; pass < 2; ++pass) {
+        unsigned f = (pass == 0) ? f_inact : f_active;
+        uint16_t dx = g_ebfj_atlas->off_drawX ? g_ebfj_atlas->off_drawX[f] : 0;
+        uint16_t dy = g_ebfj_atlas->off_drawY ? g_ebfj_atlas->off_drawY[f] : 0;
+        blit_atlas_frame(g_ebfj_atlas, (uint16_t)f, (int16_t)dx, (int16_t)dy);
     }
+}
 
-    /* Fjej portrait glasses-on/off overlay — state-driven paint.
- *
- * The original verb-script @ 0x00423EE0 / 0x00432C40 SPAWNS an entity
- * (id=87, asset=fjbezoku.wyc or fjzoku.wyc) at (172,427) when the user
- * takes/returns the glasses. Our entity-render path doesn't keep that
- * entity alive long enough — something (likely a per-frame Item.scr
- * trigger for verb 0x67 or stage 3's verb-script chain) destroys the
- * spawned entity in the same tick. Render-list scan saw the entity
- * for only 1 frame.
- *
- * Workaround: read the script variable the verb-script writes
- * (var[0x67] = 1 when glasses taken, 0 when on portrait) and paint
- * the matching atlas directly. Skips the SPAWN/DESTROY race entirely.
- * Cached load on first use; both atlases stay resident (small —
- * ~2KB each). NOTE:
- * we drive the visual from the script var rather than the spawned
- * entity, since the entity lifetime is currently broken. */
-    {
-        extern uint32_t g_script_vars[0x129];
-        static AnimAsset *s_fjbezoku = NULL;       /* without glasses */
-        static int s_load_attempted = 0;
-        if (!s_load_attempted) {
-            s_load_attempted = 1;
-            s_fjbezoku = LoadAssetFromDtaBase("fjbezoku.wyc");
-        }
-        if (s_fjbezoku && s_fjbezoku->pixel_ptrs
-            && s_fjbezoku->off_widths && s_fjbezoku->off_heights
-            && s_fjbezoku->frame_count > 0
-            && g_script_vars[0x67] == 1)
-        {
-            uint8_t *px = s_fjbezoku->pixel_ptrs[0];
-            uint16_t fw = s_fjbezoku->off_widths [0];
-            uint16_t fh = s_fjbezoku->off_heights[0];
-            uint16_t dx = s_fjbezoku->off_drawX  ? s_fjbezoku->off_drawX [0] : 172;
-            uint16_t dy = s_fjbezoku->off_drawY  ? s_fjbezoku->off_drawY [0] : 427;
-            if (px && fw && fh)
-                BlitSpriteToBackbuffer(dx, dy, 0, 0, fw, fh, fw, fh, px, 0);
-        }
+/* Paint the glasses-on Fjej portrait overlay when var[0x67] == 1.
+ * Cached load on first use so the asset stays resident (~2 KB). */
+static void paint_glasses_overlay(void)
+{
+    static AnimAsset *s_fjbezoku       = NULL;
+    static int        s_load_attempted = 0;
+
+    if (!s_load_attempted) {
+        s_load_attempted = 1;
+        s_fjbezoku = LoadAssetFromDtaBase("fjbezoku.wyc");
     }
+    if (!s_fjbezoku) return;
+    if (g_script_vars[GLASSES_SCRIPT_VAR_INDEX] != GLASSES_TAKEN_VALUE) return;
+    if (s_fjbezoku->frame_count == 0) return;
 
-    /* Health bar overlay — pasek#N.wyc entity, drawn near the TOP of the
- * HUD panel at atlas-native (drawX, drawY) = (7, 403). The stage
- * enter-script spawns this entity (id=101, asset="pasek#1.wyc" for
- * stage 1); EntityRenderAll draws it at the same position BEFORE
- * the panel paint, so panel.wyc frame 0 covers it. We re-paint it
- * here AFTER panel so it stays visible.
- *
- * Frame index = health level 0..23 (0=full green, ~12=yellow, ~18=red,
- * 23=empty). The entity's per-tick script (0x00423528) advances frame
- * from a script var we haven't identified yet; until wired, bar shows
- * whatever frame the entity script last set (typically 0 = full).
- *
- * Gated on `g_settings_anim_active & 1` (= HUD panel visible). Stage 5
- * (Monter finale) sets this bit to 0 in play_demo_scene, so the pasek
- * leftover from the previous stage (if any survived EntityListClearAll
- * via the entry-chain script re-spawning) doesn't show during the
- * ACME assembly cutscene. Same gate as the portrait + inventory paints
- * above — pasek is a panel-scope overlay. */
-    if (g_settings_anim_active & 1)
-    {
-        extern Entity *EntityListAt(int, int);
-        extern int     EntityListCount(int);
-        extern void   *ent_ptr_resolve(uint32_t);
-        int n = EntityListCount(0);
-        for (int i = 0; i < n; ++i) {
-            Entity *e = EntityListAt(0, i);
-            if (!e) continue;
-            uint8_t *eb = (uint8_t *)e;
-            AnimAsset *atlas = (AnimAsset *)ent_ptr_resolve(*(uint32_t *)(eb + 0x28));
-            if (!atlas || !atlas->name[0]) continue;
-            if (strncmp(atlas->name, "pasek", 5) != 0) continue;
-            if (!atlas->pixel_ptrs || !atlas->off_widths || !atlas->off_heights)
-                break;
-            uint16_t f = *(uint16_t *)(eb + 0x30);
-            if (f >= atlas->frame_count) f = 0;
-            uint8_t *px = atlas->pixel_ptrs[f];
-            if (!px) break;
-            uint16_t fw = atlas->off_widths[f];
-            uint16_t fh = atlas->off_heights[f];
-            if (!fw || !fh) break;
-            uint16_t dx = atlas->off_drawX ? atlas->off_drawX[f] : 7;
-            uint16_t dy = atlas->off_drawY ? atlas->off_drawY[f] : 403;
-            BlitSpriteToBackbuffer(dx, dy, 0, 0, fw, fh, fw, fh, px, 0);
-            break;
-        }
+    uint16_t dx = s_fjbezoku->off_drawX ? s_fjbezoku->off_drawX[0]
+                                        : GLASSES_DEFAULT_X;
+    uint16_t dy = s_fjbezoku->off_drawY ? s_fjbezoku->off_drawY[0]
+                                        : GLASSES_DEFAULT_Y;
+    blit_atlas_frame(s_fjbezoku, 0, (int16_t)dx, (int16_t)dy);
+}
+
+/* Walk the render list looking for the health-bar entity and re-paint
+ * it AFTER the panel (the entity-render pass drew it before the panel
+ * overlay, so the panel covered it). */
+static void paint_health_bar(void)
+{
+    if (!panel_is_visible()) return;
+
+    int n = EntityListCount(0);
+    for (int i = 0; i < n; ++i) {
+        Entity *e = EntityListAt(0, i);
+        if (!e) continue;
+
+        AnimAsset *atlas =
+            (AnimAsset *)ent_ptr_resolve(EOFF(e, ENT_OFF_ATLAS_SLOT, uint32_t));
+        if (!atlas || !atlas->name[0]) continue;
+        if (strncmp(atlas->name, HEALTH_BAR_NAME_PREFIX,
+                    HEALTH_BAR_NAME_PREFIX_LEN) != 0) continue;
+
+        uint16_t frame = EOFF(e, ENT_OFF_FRAME, uint16_t);
+        if (atlas->frame_count == 0) break;
+        if (frame >= atlas->frame_count) frame = 0;
+
+        uint16_t dx = atlas->off_drawX ? atlas->off_drawX[frame]
+                                       : HEALTH_BAR_DEFAULT_X;
+        uint16_t dy = atlas->off_drawY ? atlas->off_drawY[frame]
+                                       : HEALTH_BAR_DEFAULT_Y;
+        blit_atlas_frame(atlas, frame, (int16_t)dx, (int16_t)dy);
+        break;
     }
+}
 
-    /* Held-item ghost */
-    static int16_t  s_ghost_x = 0, s_ghost_y = 0;
-    static uint16_t s_ghost_item = 0xFFFF;
-    if (g_held_item != 0x26 && g_items_atlas &&
-        (uint16_t)(g_held_item - 0x29) < g_items_atlas->frame_count)
+/* Advance the held-item ghost position by one frame-tick toward
+ * (target_x, target_y) using a step-cap'd Bresenham. */
+static void step_ghost_toward(int16_t *ghost_x, int16_t *ghost_y,
+                              int16_t target_x, int16_t target_y)
+{
+    int steps = (int)g_frame_delta_ms;
+    if (steps > HELD_ITEM_GHOST_STEP_MAX) steps = HELD_ITEM_GHOST_STEP_MAX;
+
+    for (int i = 0;
+         i < steps && (*ghost_x != target_x || *ghost_y != target_y);
+         ++i)
     {
-        uint16_t idx = (uint16_t)(g_held_item - 0x29);
-        uint8_t *px = g_items_atlas->pixel_ptrs
-                      ? g_items_atlas->pixel_ptrs[idx] : NULL;
-        if (px && g_items_atlas->off_widths && g_items_atlas->off_heights) {
-            uint16_t fw = g_items_atlas->off_widths [idx];
-            uint16_t fh = g_items_atlas->off_heights[idx];
-            int16_t tx = (int16_t)(s_mouse_x - 0x22);
-            int16_t ty = (int16_t)(s_mouse_y - 7);
-            if (g_held_item != s_ghost_item) {
-                s_ghost_x = tx; s_ghost_y = ty;
-                s_ghost_item = g_held_item;
-            } else if ((s_ghost_x != tx || s_ghost_y != ty) &&
-                       g_frame_delta_ms != 0) {
-                int steps = (int)g_frame_delta_ms;
-                if (steps > 64) steps = 64;
-                for (int i = 0; i < steps && (s_ghost_x != tx || s_ghost_y != ty); ++i) {
-                    int dx = (int)tx - (int)s_ghost_x;
-                    int dy = (int)ty - (int)s_ghost_y;
-                    int adx = dx < 0 ? -dx : dx;
-                    int ady = dy < 0 ? -dy : dy;
-                    int stepx = 0, stepy = 0;
-                    if (adx >= ady) {
-                        stepx = (dx > 0) ? 1 : -1;
-                        if (ady > 0) {
-                            int ratio_num = ady;
-                            if (((i * ratio_num) % (adx ? adx : 1)) <
-                                (((i + 1) * ratio_num) % (adx ? adx : 1)))
-                                stepy = (dy > 0) ? 1 : (dy < 0 ? -1 : 0);
-                        }
-                    } else {
-                        stepy = (dy > 0) ? 1 : -1;
-                        if (adx > 0) {
-                            int ratio_num = adx;
-                            if (((i * ratio_num) % (ady ? ady : 1)) <
-                                (((i + 1) * ratio_num) % (ady ? ady : 1)))
-                                stepx = (dx > 0) ? 1 : (dx < 0 ? -1 : 0);
-                        }
-                    }
-                    s_ghost_x = (int16_t)(s_ghost_x + stepx);
-                    s_ghost_y = (int16_t)(s_ghost_y + stepy);
+        int dx     = (int)target_x - (int)*ghost_x;
+        int dy     = (int)target_y - (int)*ghost_y;
+        int abs_dx = dx < 0 ? -dx : dx;
+        int abs_dy = dy < 0 ? -dy : dy;
+        int stepx  = 0, stepy = 0;
+
+        if (abs_dx >= abs_dy) {
+            stepx = (dx > 0) ? 1 : -1;
+            if (abs_dy > 0) {
+                int r = abs_dy;
+                int d = abs_dx ? abs_dx : 1;
+                if (((i * r) % d) < (((i + 1) * r) % d)) {
+                    stepy = (dy > 0) ? 1 : (dy < 0 ? -1 : 0);
                 }
             }
-            BlitSpriteToBackbuffer((uint16_t)s_ghost_x, (uint16_t)s_ghost_y,
-                                   0, 0, fw, fh, fw, fh, px, 0);
+        } else {
+            stepy = (dy > 0) ? 1 : -1;
+            if (abs_dx > 0) {
+                int r = abs_dx;
+                int d = abs_dy ? abs_dy : 1;
+                if (((i * r) % d) < (((i + 1) * r) % d)) {
+                    stepx = (dx > 0) ? 1 : (dx < 0 ? -1 : 0);
+                }
+            }
         }
-    } else {
-        s_ghost_item = 0xFFFF;
+        *ghost_x = (int16_t)(*ghost_x + stepx);
+        *ghost_y = (int16_t)(*ghost_y + stepy);
     }
+}
+
+/* Paint the held-item drag ghost that trails the cursor. */
+static void paint_held_item_ghost(void)
+{
+    static int16_t  s_ghost_x    = 0;
+    static int16_t  s_ghost_y    = 0;
+    static uint16_t s_ghost_item = HELD_ITEM_GHOST_MISSING;
+
+    if (g_held_item == NEUTRAL_VERB || !g_items_atlas) {
+        s_ghost_item = HELD_ITEM_GHOST_MISSING;
+        return;
+    }
+    uint16_t idx = (uint16_t)(g_held_item - ITEM_VERB_FIRST);
+    if (idx >= g_items_atlas->frame_count) return;
+
+    int16_t target_x = (int16_t)(s_mouse_x - HELD_ITEM_GHOST_X_OFFSET);
+    int16_t target_y = (int16_t)(s_mouse_y - HELD_ITEM_GHOST_Y_OFFSET);
+
+    if (g_held_item != s_ghost_item) {
+        s_ghost_x    = target_x;
+        s_ghost_y    = target_y;
+        s_ghost_item = g_held_item;
+    } else if ((s_ghost_x != target_x || s_ghost_y != target_y) &&
+               g_frame_delta_ms != 0) {
+        step_ghost_toward(&s_ghost_x, &s_ghost_y, target_x, target_y);
+    }
+
+    blit_atlas_frame(g_items_atlas, idx, s_ghost_x, s_ghost_y);
+}
+
+/* ---- public entry point ------------------------------------------- */
+
+void PaintHudOverlay(void)
+{
+    AnimAsset *panel = g_panel_asset;
+    if (panel) paint_anim_button_at(panel, 0, 0, PANEL_TOP_Y, 1);
+
+    paint_inventory_icons(panel);
+    paint_actor_portraits();
+    paint_glasses_overlay();
+    paint_health_bar();
+    paint_held_item_ghost();
 }
