@@ -35,7 +35,7 @@ DEBUG_LDFLAGS = -fsanitize=address -fsanitize=undefined
 # ---- modules ----------------------------------------------------------------
 ENGINE_SRCS = \
 	src/main.c     src/game.c    src/graphics.c  src/audio.c     \
-	src/archive.c  src/depack.c  src/assets.c    src/script.c    \
+	src/archive.c  src/depack.c  src/assets.c    src/vm/main.c   \
 	src/actor/intern.c    src/actor/registration.c \
 	src/actor/list.c src/actor/vm.c \
 	src/actor/render.c src/actor/alloc.c \
@@ -86,7 +86,7 @@ TEST_ENGINE_SRCS = \
 	src/depack.c    src/archive.c  src/graphics.c \
 	src/pe_loader.c src/heap.c     src/cygio.c    \
 	src/assets.c    src/font.c     src/save.c     \
-	src/binary_data.c src/timer.c  src/script.c   \
+	src/binary_data.c src/timer.c  src/vm/main.c  \
 	src/vm/script_obj.c src/vm/parser.c          \
 	src/stubs.c     src/actor/intern.c    src/actor/registration.c \
 	src/actor/list.c src/actor/vm.c \
