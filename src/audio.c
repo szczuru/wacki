@@ -867,6 +867,77 @@ static void sfx_handle_end_frames(const char *asset_name, int frame)
     }
 }
 
+/* ---- TriggerFrameSfx constants + helpers -------------------------- */
+
+/* `[sampl] WAV1 WAV2 .. (F,M)` — at most this many WAVs can sit in a
+ * random pool for one (asset, frame) pair. Matches the static cap in
+ * ParseSamplTagsForKomnata's per-tag wav_count. */
+#define SFX_RANDOM_POOL_MAX     8
+
+/* Frame-end sentinel — `(F,)` with no second arg encodes "no end
+ * frame", which means the wav plays once (no loop) instead of looping
+ * until a matching end-frame trigger stops it. */
+#define SFX_FRAME_END_NONE      0xFFFF
+
+/* Collect every dynamic SFX entry whose (asset, frame_start) matches
+ * the current trigger. Returns the pool size (0..SFX_RANDOM_POOL_MAX). */
+static int collect_random_sfx_pool(const char *asset_name, int frame,
+                                   const char **pool, int *pool_end)
+{
+    int n = 0;
+    for (int i = 0;
+         i < g_dynamic_sfx_count && n < SFX_RANDOM_POOL_MAX;
+         ++i)
+    {
+        if (g_dynamic_sfx[i].frame_start == frame &&
+            strcmp(g_dynamic_sfx[i].asset, asset_name) == 0)
+        {
+            pool[n]     = g_dynamic_sfx[i].wav;
+            pool_end[n] = g_dynamic_sfx[i].frame_end;
+            ++n;
+        }
+    }
+    return n;
+}
+
+/* Stop any previously-picked WAV from the same asset's pool that's
+ * still active on its mixer channel. Used when the random pick swaps
+ * mid-stream to a different WAV. */
+static void stop_previous_pool_pick(const char *asset_name, int frame,
+                                    const char **pool, int pool_n)
+{
+    if (g_sfx_cur_asset != asset_name) return;
+    if (g_sfx_cur_wav < 0 || g_sfx_cur_wav >= pool_n) return;
+    struct SfxState *prev = sfx_state_for(asset_name, frame,
+                                          pool[g_sfx_cur_wav]);
+    if (!prev) return;
+    prev->playing_flag = 0;
+    if (prev->channel >= 0) {
+        mixer_stop_channel(prev->channel);
+        prev->channel = -1;
+    }
+}
+
+/* True iff `st` is currently active on its mixer channel playing
+ * exactly `wav`. The lock is held only for the channel snapshot. */
+static int sfx_is_currently_playing(struct SfxState *st, const char *wav)
+{
+    if (st->channel < MIX_CHAN_SFX_START ||
+        st->channel >= MIX_CHANNEL_COUNT)
+    {
+        return 0;
+    }
+    int playing = 0;
+    SDL_LockAudioDevice(s_mix_dev);
+    if (s_mix[st->channel].active &&
+        strcmp(s_mix[st->channel].name, wav) == 0)
+    {
+        playing = 1;
+    }
+    SDL_UnlockAudioDevice(s_mix_dev);
+    return playing;
+}
+
 void TriggerFrameSfx(const char *asset_name, int frame)
 {
     if (!asset_name) return;
@@ -874,83 +945,36 @@ void TriggerFrameSfx(const char *asset_name, int frame)
     /* Pass 1: stop any (N,M) loops whose M matches this frame. */
     sfx_handle_end_frames(asset_name, frame);
 
-    /* Pass 2: collect random pool for (asset, start=frame).
- * `[sampl] WAV1 WAV2 .. (F,)` semantics: at frame F, pick one of
- * WAV1..WAVk at random. Also track frame_end of the picked entry
- * → if non-0xFFFF we play with loop=1 so the wav loops until
- * sfx_handle_end_frames stops it. */
-    const char *pool[8];
-    int pool_end[8];
-    int n = 0;
-    for (int i = 0; i < g_dynamic_sfx_count && n < 8; ++i) {
-        if (g_dynamic_sfx[i].frame_start == frame &&
-            strcmp(g_dynamic_sfx[i].asset, asset_name) == 0) {
-            pool[n]     = g_dynamic_sfx[i].wav;
-            pool_end[n] = g_dynamic_sfx[i].frame_end;
-            ++n;
-        }
-    }
+    /* Pass 2: collect the random pool for (asset, start=frame). */
+    const char *pool[SFX_RANDOM_POOL_MAX];
+    int         pool_end[SFX_RANDOM_POOL_MAX];
+    int         n = collect_random_sfx_pool(asset_name, frame, pool, pool_end);
     if (n == 0) return;
 
-    /*(count) — uniform random in [0, count). */
-    int random_idx = (int)WackiRand((uint16_t)n);
-    const char *wav = pool[random_idx];
+    /* Uniform random pick in [0, n). */
+    int         random_idx = (int)WackiRand((uint16_t)n);
+    const char *wav        = pool[random_idx];
 
-    /*:
- * if a different wav from the pool is currently "playing" for
- * this asset, clear its flag AND stop the mixer channel it's on
- * ('s stop call). */
+    /* If the previous pick was a different wav from this asset, stop
+     * it on its mixer channel before launching the new one. */
     if (g_sfx_cur_asset == asset_name && g_sfx_cur_wav != random_idx) {
-        if (g_sfx_cur_wav >= 0 && g_sfx_cur_wav < n) {
-            struct SfxState *prev = sfx_state_for(asset_name, frame, pool[g_sfx_cur_wav]);
-            if (prev) {
-                prev->playing_flag = 0;
-                if (prev->channel >= 0) {
-                    mixer_stop_channel(prev->channel);
-                    prev->channel = -1;
-                }
-            }
-        }
+        stop_previous_pool_pick(asset_name, frame, pool, n);
     }
     g_sfx_cur_asset = asset_name;
     g_sfx_cur_wav   = random_idx;
 
-    /* Play guard —:
- * MOV CL, [wav_state[i] + 0x3] ; "currently-playing" indicator
- * TEST CL, CL ; JZ → play
- * MOV CL, [wav_state[i] + 0x2] ; sticky play_flag
- * TEST CL, CL ; JNZ → skip; else play
- *
- * Decision: play iff `byte+3 == 0 || byte+2 == 0` — i.e. SKIP only
- * when the wav is BOTH currently still playing AND has fired at
- * least once. The sticky `byte+2` alone does NOT block replay;
- * it just records that we've started this trigger before.
- *
- * In the original, `byte+3` is set by (DSound start)
- * and cleared by DSound notification when the buffer drains.
- * Our port mirror: `byte+3 != 0` ≡ "the same wav is still actively
- * playing on the mixer channel we last assigned it to". After the
- * SFX naturally ends (mixer callback flips `ch->active = 0`), the
- * condition flips and the next frame-trigger replays. */
+    /* Replay guard: skip ONLY when the same wav is BOTH still actively
+     * playing on its mixer channel AND has fired at least once. The
+     * sticky playing_flag alone never blocks replay — it just records
+     * that we've started this trigger before. */
     struct SfxState *st = sfx_state_for(asset_name, frame, wav);
     if (!st) return;
-    int currently_playing = 0;
-    if (st->channel >= MIX_CHAN_SFX_START && st->channel < MIX_CHANNEL_COUNT) {
-        SDL_LockAudioDevice(s_mix_dev);
-        if (s_mix[st->channel].active &&
-            strcmp(s_mix[st->channel].name, wav) == 0) {
-            currently_playing = 1;
-        }
-        SDL_UnlockAudioDevice(s_mix_dev);
-    }
-    if (st->playing_flag && currently_playing) return;
+    if (st->playing_flag && sfx_is_currently_playing(st, wav)) return;
     st->playing_flag = 1;
-    /* PlaySfxLoopAndGetChannel returns the channel index so we can
- * (a) stop-in-flight when cur_wav swaps and
- * (b) detect drain via s_mix[channel].active above.
- * loop=1 for (N,M) entries — the wav loops until the M-frame
- * trigger calls sfx_handle_end_frames → mixer_stop_channel. */
-    int want_loop = (pool_end[random_idx] != 0xFFFF);
+
+    /* loop=1 for (N,M) entries — the wav loops until the M-frame
+     * trigger calls sfx_handle_end_frames → mixer_stop_channel. */
+    int want_loop = (pool_end[random_idx] != SFX_FRAME_END_NONE);
     extern int PlaySfxLoopAndGetChannel(const char *wav_name, int loop);
     st->channel = (int8_t)PlaySfxLoopAndGetChannel(wav, want_loop);
 }
