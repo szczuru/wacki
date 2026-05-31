@@ -58,11 +58,9 @@ extern uint32_t g_scene_snapshot[0x1E];     /* backing storage for inventory */
 
 #define PANEL_VISIBLE_BIT          0x0001
 
-/* Drop-an-item parks the item entity off-screen at this coordinate so
- * it stops drawing without needing to be destroyed. */
+/* Drop-an-item parks the item entity off-screen at this coordinate
+ * so it stops drawing without needing to be destroyed. */
 #define INV_DROP_OFFSCREEN         1000
-
-/* Entity field offsets used by InventoryDropItem. */
 
 /* ---- module state -------------------------------------------------- */
 
@@ -211,10 +209,9 @@ void InventoryDropItem(uint16_t item_verb)
     Entity *e = FindEntityByVerbId(item_verb);
     if (!e) return;
 
-    uint8_t *eb = (uint8_t *)e;
-    *(uint32_t *)(eb + ENT_OFF_BYTECODE_SLOT) = 0;
-    *(int16_t  *)(eb + ENT_OFF_ANCHOR_X)      = INV_DROP_OFFSCREEN;
-    *(int16_t  *)(eb + ENT_OFF_DRAWN_X)       = INV_DROP_OFFSCREEN;
+    EOFF(e, ENT_OFF_BYTECODE_SLOT, uint32_t) = 0;
+    EOFF(e, ENT_OFF_ANCHOR_X,      int16_t)  = INV_DROP_OFFSCREEN;
+    EOFF(e, ENT_OFF_DRAWN_X,       int16_t)  = INV_DROP_OFFSCREEN;
 }
 
 int InventoryHasItem(uint16_t item_verb)

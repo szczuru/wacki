@@ -1,33 +1,23 @@
-/*
- * script.c — Wacki bytecode VM and .scr loader.
- *
- * Original addresses:
- * RunScriptInterpreter 0x00407820
- * LoadScriptFile 0x00409690
- * FindScriptByStageAndRoom 0x004097E0
- * FindTagInScript 0x00409840
- * ScanTextTag 0x00409760
+/* src/vm/main.c — Wacki bytecode VM and .scr loader.
  *
  * Bytecode format (instruction stream is a u16 array; pc is u16 *):
- * word0 = [op:u8 at +0][len:u8 at +1]
- * word1 = first u16 operand (a0 / "uVar31") — in same dword as header
- * word2.. = additional operand dwords (4 bytes each)
- *
+ *   word0   = [op:u8 at +0][len:u8 at +1]
+ *   word1   = first u16 operand (a0) — in the same dword as the header
+ *   word2.. = additional operand dwords (4 bytes each)
  * Total instruction size = len * 4 bytes (len is in DWORDS).
  *
- * Pre-rewrite the file had a stub for ~20 opcodes; this revision is the
- * full 78-opcode table mapped from RunScriptInterpreter @ 0x00407820. Where
- * an opcode calls into a subsystem we haven't ported yet (entity walker,
- * DirectSound mixer, palette fader), we trace [script] log it and pc-
- * advance so the VM keeps running deterministically.
+ * The opcode table covers all 78 opcodes the engine emits. Where an
+ * opcode calls into a subsystem we haven't ported (entity walker,
+ * DirectSound mixer, palette fader), we trace via [script] log and
+ * pc-advance so the VM keeps running deterministically.
  *
  * .scr file layout (text-tagged):
- * [etap]N
- * [komnata]M
- * <binary bytecode block>
- * ...
- * Other tags found in shipped scripts: [rozmowa], [animacja], [sampl].
- */
+ *   [etap]N
+ *   [komnata]M
+ *   <binary bytecode block>
+ *   ...
+ * Other tags found in shipped scripts: [rozmowa], [animacja],
+ * [sampl]. */
 #include "wacki.h"
 #include "opcodes.h"
 #include "parser.h"
@@ -38,46 +28,45 @@
 #include <stdio.h>
 #include <SDL.h>
 
-/* ========================================================================= *
- * Engine globals —EXE .data layout (only those the VM reads
- * or writes; the rest live in their owner module).
- * ========================================================================= */
-uint32_t g_script_vars[0x129];              /* g_script_vars — register file */
-/* g_return_reg ALIAS — in the original is at offset 0x10
- * from g_script_vars, which is var[4] in our register file (4*4 bytes).
- * Scripts read the return value via op 0x04 IF_EQ a0=4 etc., so the
- * write target MUST be var[4], not a separate variable. The macro keeps
- * call sites readable. */
+/* ---- Engine globals ---------------------------------------------- *
+ *
+ * Only those the VM reads or writes; the rest live in their owner
+ * modules. */
+uint32_t g_script_vars[0x129];              /* register file */
+/* g_return_reg aliases g_script_vars[4] — the original engine put
+ * the return register at +0x10 from g_script_vars (= index 4). Scripts
+ * read the return value via op 0x04 IF_EQ a0=4, so the write target
+ * MUST be var[4], not a separate variable. The macro keeps call sites
+ * readable. */
 #define g_return_reg (*(uint16_t *)&g_script_vars[4])
-/* g_cursor_speed is `undefined2` (uint16_t, 2 bytes) per Ghidra type info.
- * Original perspective formula reads `(uint)g_cursor_speed` (zero-extend
- * from 16 bits). Earlier port declared as uint8_t — op 0x40 invocations
- * with a0 > 255 (e.g. verb-action's 0x40 with reg_id=0x0109=265 at
- * 0x0042740C, for the "wsiądź do auta" climb sequence) silently truncated
- * to 0x09=9. With cs=9, perspective z went negative for nearly every
- * Y, clamped to 0 → renderer fell through `if (scale && scale != 100)`
- * to natural-size blit → Ebek rendered HUGE during the climb instead
- * of shrinking with perspective + disappearing behind horyzont.msk
- * walk-behind. Fix: store full uint16_t to match original. */
-uint16_t g_cursor_speed = 0x78;             /* g_cursor_speed (was uint8_t — bug) */
-uint16_t g_perspective_min  = 4;            /* g_perspective_min */
-uint16_t g_perspective_step = 7;            /* g_perspective_step */
-uint16_t g_active_actor = 0;                /* g_active_actor — 0=Ebek, 1=Fjej */
-uint16_t g_anim1_done = 0;                  /* g_anim1_done */
-uint16_t g_anim2_done = 0;                  /* g_anim2_done */
-int      g_script_running = 0;              /* g_script_running — !=0 inside VM */
-int      g_script_reentry = 0;              /* g_script_reentry — reentrancy ctr */
-uint32_t g_timer_baselines[16];             /* [] */
+/* g_cursor_speed must be uint16_t — the original perspective formula
+ * reads `(uint)g_cursor_speed` (zero-extend from 16 bits). An earlier
+ * port declared it as uint8_t, which truncated op 0x40 invocations
+ * with a0 > 255 (e.g. reg_id=0x0109=265 in the "wsiądź do auta" climb
+ * sequence dropped to 0x09=9). With cs=9 the perspective z went
+ * negative for nearly every Y, clamped to 0, and the renderer fell
+ * through to natural-size blit — Ebek rendered HUGE during the climb
+ * instead of shrinking with perspective. */
+uint16_t g_cursor_speed     = 0x78;
+uint16_t g_perspective_min  = 4;
+uint16_t g_perspective_step = 7;
+uint16_t g_active_actor     = 0;            /* 0 = Ebek, 1 = Fjej */
+uint16_t g_anim1_done       = 0;
+uint16_t g_anim2_done       = 0;
+int      g_script_running   = 0;            /* !=0 inside VM */
+int      g_script_reentry   = 0;            /* reentrancy counter */
+uint32_t g_timer_baselines[16];
 
-extern uint32_t g_tick_counter;             /* g_tick_counter — ms since boot */
+extern uint32_t g_tick_counter;             /* ms since boot */
 
-/* engine helpers used by various opcodes — kept as externs; many resolve to
- * stubs in stubs.c until the relevant subsystem is ported. */
+/* Engine helpers used by various opcodes — kept as externs; many
+ * resolve to stubs in stubs.c until the relevant subsystem is
+ * ported. */
 extern void  ProcessGameFrameTick(void);
 extern void  PaletteFadeStep(int delta);
 extern void  PrintTextOnScreen(uint16_t hx, uint16_t hy, const char *text);
 extern uint32_t g_frame_delta_ms;           /* real wall-clock ms */
-extern uint16_t g_frame_delta_ticks;        /* g_frame_delta_ticks — 10 ms ticks */
+extern uint16_t g_frame_delta_ticks;        /* 10 ms ticks */
 
 /* Stub-side script bridges (defined in stubs.c if missing). They take the
  * raw operand words and the active register id, and may pc-advance the
@@ -113,9 +102,7 @@ extern void ScriptCallDialogEnd  (const char *result);
 #define skip_to_endif  vm_skip_to_endif
 #define find_label     vm_find_label
 
-/* ========================================================================= *
- * RunScriptInterpreter — 0x00407820, 78 opcodes mapped from Ghidra.
- * ========================================================================= */
+/* ---- RunScriptInterpreter — 78 opcodes --------------------------- */
 #define VM_CALL_STACK_DEPTH  10
 #define VM_LOOP_SLOTS        10
 
@@ -217,14 +204,13 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
         case OP_IF_LT:                              /* IF_LT (skip if var>=imm) */
         case OP_IF_EQ:                              /* IF_EQ (skip if var!=imm) */
         case OP_IF_ALL_BITS_SET: {                            /* IF_ALL_BITS_SET (skip if (var&imm)!=imm) */
-            /* Per Ghidra 0x004078d1: each case has `if (CONDITION) { skip }`,
- * so `take` = !CONDITION. Earlier this port had the senses
- * inverted — every IF that should have taken its body skipped
- * it, and every IF that should have skipped took it. That
- * scrambled which conditional sprites a scene's enter_script
- * spawned (e.g. klatka2 dropped babcia1b, kept skarpeta on
- * fresh-game state, etc.). Verified against decompile case
- * bodies 1-5 in RunScriptInterpreter @ 0x00407820. */
+            /* Each IF opcode has `if (CONDITION) { skip }` in the
+             * original, so `take` = !CONDITION. An earlier port had
+             * the senses inverted — every IF that should have taken
+             * its body skipped it (and vice versa), which scrambled
+             * which conditional sprites a scene's enter_script spawned
+             * (e.g. klatka2 dropped babcia1b, kept skarpeta on a
+             * fresh-game state). */
             uint32_t v   = var_get(reg_id);
             uint32_t imm = i32_at4;
             int take = 0;
@@ -335,15 +321,12 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
         /* ---- wait / pacing ------------------------------------------- */
         case OP_FRAME_TICK: ProcessGameFrameTick(); SDL_Delay(33); break;  /* T-anim-speed */
         case OP_WAIT_MS: {                            /* WAIT — a0 in 10 ms TICKS.
- * Original case 0x14 wait loop @ 0x00408366:
- *
- * do {
- *; // PGFT
- *
- * g_frame_delta_ticks is in 10 ms units (timeSetEvent 10ms period at
- * 0x00403D84), so the operand a0 is ALSO ticks — a script that
- * says "WAIT 100" waits 100*10 = 1000 ms = 1 s. Earlier port
- * treated a0 as raw ms which ran waits 10× too fast. */
+             *
+             * g_frame_delta_ticks is in 10 ms units (the original
+             * runs a 10 ms timeSetEvent ISR), so the operand a0 is
+             * ALSO ticks — `WAIT 100` waits 100*10 = 1000 ms = 1 s.
+             * An earlier port treated a0 as raw ms which ran waits
+             * 10× too fast. */
             uint32_t left = a0;
             while (left) {
                 ProcessGameFrameTick();
@@ -421,15 +404,15 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  * ...
  * // wait loop on actor walker fields
  *
- * Confirmed via concrete bytecode: verb 7 (exit-left) at
- * 0x00427BB0 encodes `12 02 1E 00 72 01 00 00` = op 0x12 walking
- * actors to (30, 370) — that's the left-exit target with Y on
- * the walkable floor. Target reads as (a0=30, a1=370). a2 = 0
- * here is the "wait mode" flag for op 0x12.
+ * Confirmed via concrete bytecode: verb 7 (exit-left) encodes
+ * `12 02 1E 00 72 01 00 00` = op 0x12 walking the actors to
+ * (30, 370) — the left-exit target with Y on the walkable floor.
+ * Target reads as (a0=30, a1=370); a2=0 is the "wait mode" flag
+ * for op 0x12.
  *
- * History note: earlier port read (a0, a1) → fix #68 thought
- * "off by one halfword" and changed to (a1, a2) — that was the
- * wrong direction. Reverted to (a0, a1).
+ * An earlier fix attempt shifted the operand read to (a1, a2)
+ * thinking it was off by one halfword — wrong direction; the
+ * shipped fix reverted to (a0, a1).
  *
  * Bytecode layout: `[op:1][len:1] [X:2] [Y:2] [mode:2]`
  * len=2 means 8 bytes total (len*4). For op 0x10/0x11 a2 is
@@ -623,12 +606,11 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             break;
         }
         case OP_SET_ENTITY_SCRIPT: {                            /* SET_ENTITY_SCRIPT
- *:
- *
- * Used by 0x00423E28 ELSE branch to bind Ebek's idle script
- * (0x004230A8) and Fjej's (0x00423280). Earlier mis-port
- * treated this as "destroy dialog balloon" → wiped both
- * actors right after SpawnActorEntity. */
+             *
+             * Used by the actor-bind ELSE branch to point Ebek's and
+             * Fjej's per-entity VMs at their idle scripts. An earlier
+             * mis-port treated this as "destroy dialog balloon" and
+             * wiped both actors right after SpawnActorEntity. */
             extern Entity *FindEntityByVerbId(uint16_t verb_id);
             Entity *e = FindEntityByVerbId(reg_id);
             if (e) {
@@ -715,10 +697,10 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             }
             break;
         }
-        /* ---- dialog page-swap ops —
- * @ 0x00408704..0x004087F7 in the original. All five ops drive
- * the same panel verb-table rotation via 
- * (= PanelPageSwap), gated on different pre-conditions:
+        /* ---- dialog page-swap ops ----
+         *
+         * All five ops drive the same panel verb-table rotation
+         * (PanelPageSwap), gated on different pre-conditions:
  *
  * case OP_DIALOG_SHOW: (dlg_count) + InventorySetPageForItem(reg)
  * + PanelPageSwap
@@ -1231,37 +1213,29 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
         }
 
         /* ---- dialogue subsystem -------------------------------------
- *
- * @ 0x00407820 case 0x52 / 0x53:
- * case OP_DIALOG_PUSH: (state, entity, *(char**)(pc+4),
- * *(byte**)(pc+8), *(u32)(pc+12));
- * case OP_DIALOG_PLAY: (, state, *(char**)(pc+4));
- *
- * Both opcodes read DWORD POINTERS at offsets +4, +8, +12 — they
- * are NOT inline strings (pc+2 was wrong). Resolve through xlat
- * so the dialog name lives in PE memory (Gadki.scr keys etc.). */
+         *
+         * OP_DIALOG_PUSH and OP_DIALOG_PLAY both read DWORD POINTERS
+         * at instruction offsets +4, +8, +12 — they are NOT inline
+         * strings (an earlier port used pc+2 which was wrong). We
+         * resolve through xlat so the dialog name lives in PE memory
+         * (Gadki.scr keys etc.). */
         case OP_DIALOG_PUSH: {
-            /* (DialogPush):
- * (stack, entity, *(char**)(pc+4),
- * *(byte**)(pc+8), *(u32)(pc+12));
- *
- * Args:
- * pc+4 = char *dialog_name → load asset, push to stack
- * pc+8 = byte *opts_bytes → horner-hashed into slot[+4]
- * pc+12 = u32 talk_anim_va → PE VA of mouth-cycle bytecode
- * stored at slot[+0x0C]; bound
- * to entity[+0x2C] when
- * ACTIVATE fires
- *
- * T108 fix — earlier port read pc+12 as `opts_cnt` (uint count)
- * which was a wrong-type label. Real meaning per Ghidra
- * signature: it's a `param_4` undefined4 — actually
- * a PE VA pointing to talking-head animation bytecode. We now
- * resolve it via xlat_binary_ptr and thread it through
- * ScriptCallDialogBegin → DialogStackPush → slot.talk_anim_va,
- * then DialogActivateTopSpeaker binds it to the speaker
- * entity's bytecode pointer (instead of T20c's manual frame
- * 0↔1 toggle which was a port shortcut). */
+            /* DialogPush args:
+             *   pc+4  char *dialog_name → load asset, push to stack
+             *   pc+8  byte *opts_bytes  → horner-hashed into slot[+4]
+             *   pc+12 u32   talk_anim_va → PE VA of mouth-cycle
+             *                              bytecode stored at
+             *                              slot[+0x0C]; bound to
+             *                              entity[+0x2C] on ACTIVATE
+             *
+             * T108 fix — an earlier port read pc+12 as `opts_cnt`
+             * (uint count); it's actually a PE VA pointing to
+             * talking-head animation bytecode. We resolve it via
+             * xlat_binary_ptr and thread it through
+             * ScriptCallDialogBegin → DialogStackPush →
+             * slot.talk_anim_va, then DialogActivateTopSpeaker binds
+             * it to the speaker entity's bytecode pointer (replacing
+             * T20c's manual frame 0↔1 mouth toggle). */
             uint32_t opts_va = 0, talk_anim_va = 0;
             if (len >= 3) memcpy(&opts_va,      ((const uint8_t *)pc) + 8,  4);
             if (len >= 4) memcpy(&talk_anim_va, ((const uint8_t *)pc) + 12, 4);

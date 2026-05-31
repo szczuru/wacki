@@ -17,26 +17,27 @@
 #include <stdio.h>
 #include <string.h>
 
-/* T31 v2 — UpdateCursorState: state determination.
+/* T31 v2 — UpdateCursorState: pick the cursor sprite + animation
+ * parameters based on the current hover and held-item state.
  *
- * Atlas mapping confirmed by user — names match cursor sprites:
- * - olowek1.wyc (state 0/6) = default arrow cursor (ołówek = pencil)
- * - kaseta.wyc (state 1) = loading anim cursor (cassette spinning)
- * - magnes1a.wyc (state 2) = held-item hover indicator
- * - magnes1.wyc (state 3/7)= held-item alternate
- * - drzwi1l.wyc (state 4) = exit-left cursor (door left)
- * - drzwi1p.wyc (state 5) = exit-right cursor (door right)
+ * Atlas slots → sprites:
+ *   0/6  olowek1.wyc   default arrow (ołówek = pencil)
+ *   1    kaseta.wyc    loading cursor (cassette spinning)
+ *   2    magnes1a.wyc  held-item hover indicator
+ *   3/7  magnes1.wyc   held-item alternate
+ *   4    drzwi1l.wyc   exit-left cursor (door left)
+ *   5    drzwi1p.wyc   exit-right cursor (door right)
  *
- * Reads:
- * g_held_item — g_held_item, 0x26 = no item
- * g_hover_scene_verb — g_hover_scene_verb, scene hover (ClickHitTest result)
- * g_hover_panel_verb — g_hover_panel_verb, panel hover (PanelHitTest result) */
+ * Inputs:
+ *   g_held_item         — 0x26 = no item held
+ *   g_hover_scene_verb  — scene-hover verb (ClickHitTest result)
+ *   g_hover_panel_verb  — panel-hover verb (PanelHitTest result) */
 void UpdateCursorState(void)
 {
     extern uint8_t  g_cursor_state;
     extern uint16_t g_cursor_frame, g_cursor_frame_acc;
-    extern uint16_t g_hover_panel_verb;        /* g_hover_panel_verb */
-    extern uint16_t g_hover_scene_verb;        /* g_hover_scene_verb */
+    extern uint16_t g_hover_panel_verb;
+    extern uint16_t g_hover_scene_verb;
     extern uint16_t g_held_item;
     extern AnimAsset *g_cursor_atlas[8];
 
@@ -60,20 +61,20 @@ void UpdateCursorState(void)
         g_cursor_state = 2;
     }
 
-    /* Per-state lookup — Each state has
- * its own (atlas-slot, step, period) tuple decoded from the 80-byte
- * table (10 bytes/entry: ptr_to_slot, step:i16, period:u16, clamp:
- * u16). Key insight: state 6 reuses atlas SLOT 0 (olowek) but with
- * its own period/step — that's how the "interactive-pencil wiggle"
- * works. State 7 reuses slot 3 (magnes1) for held-item-over-target.
- * The earlier port aliased state 6→0 and 7→3, collapsing those
- * distinct anim profiles and breaking the wiggle.
- *
- * Periods are in 10 ms TICKS — same unit as g_frame_delta_ticks, accumulated
- * via g_frame_delta_ticks. State 6 (interactive pencil) uses period=4
- * → ~40 ms/frame ≈ 25 fps wiggle; states 1..5,7 use period=10 → ~100
- * ms/frame ≈ 10 fps cycle. Earlier port read these as raw ms which
- * was 10× too fast (strobe). */
+    /* Per-state animation lookup. Each state has its own (atlas-slot,
+     * step, period) tuple decoded from the original 80-byte table
+     * (10 B/entry: ptr_to_slot, step:i16, period:u16, clamp:u16).
+     * State 6 reuses atlas SLOT 0 (olowek) with its own period/step
+     * — that's how the "interactive-pencil wiggle" works. State 7
+     * reuses slot 3 (magnes1) for held-item-over-target. An earlier
+     * port aliased state 6→0 and 7→3, collapsing those distinct anim
+     * profiles and breaking the wiggle.
+     *
+     * Periods are in 10 ms ticks (same unit as g_frame_delta_ticks).
+     * State 6 (interactive pencil) uses period=4 → ~40 ms/frame
+     * ≈ 25 fps wiggle; states 1..5, 7 use period=10 → ~100 ms/frame
+     * ≈ 10 fps cycle. An earlier port read these as raw ms — 10× too
+     * fast (strobe). */
     static const uint8_t state_slot         [8] = { 0, 1, 2, 3, 4, 5, 0, 3 };
     static const uint8_t state_period_ticks [8] = { 0, 10, 10, 10, 10, 10, 4, 10 };
     static const int8_t  state_step         [8] = { 0,  1,  1,  1,  1,  1, 1,  1 };
@@ -99,11 +100,9 @@ void UpdateCursorState(void)
     }
 }
 
-/* T31 v2 — PaintCursor: blit cursor sprite at mouse position. tail
- * of where cursor entity gets its draw
- * fields populated from atlas frame data. The atlas-slot is selected
- * via the same state→slot table UpdateCursorState uses (states 6/7
- * reuse slots 0/3). */
+/* T31 v2 — PaintCursor: blit the cursor sprite at the mouse
+ * position. The atlas-slot is selected via the same state→slot table
+ * UpdateCursorState uses (states 6/7 reuse slots 0/3). */
 void PaintCursor(void)
 {
     extern int16_t s_mouse_x, s_mouse_y;

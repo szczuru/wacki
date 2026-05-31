@@ -1,18 +1,11 @@
-/*
- * game.c — top-level game state machine, scene runner, click dispatcher,
- * per-frame tick.
+/* src/game.c — top-level game state machine, scene runner, click
+ * dispatcher, per-frame tick.
  *
- * Original addresses:
- * InitializeGameSubsystems 0x00403A30
- * PreloadCommonAssets 0x00403790
- * RunMainGameLoop 0x0040BBF0
- * RunGameStageLoop 0x0040BEA0
- * RunMenuScene 0x0040B5E0
- * LoadStage 0x00403320
- * ProcessGameFrameTick 0x004025C0
- * DispatchClickEvent 0x004094A0
- * ScreenshotPCX/BMP (debug 'P' / 'B' inside ProcessGameFrameTick)
- */
+ * Entry points: InitializeGameSubsystems (boot), RunMainGameLoop
+ * (outer menu loop), RunGameStageLoop (per-stage loop with
+ * cutscenes and frame ticks), RunMenuScene (one SceneDef-driven
+ * menu / dialog), LoadStage, ProcessGameFrameTick (per-tick driver),
+ * DispatchClickEvent (verb/object routing). */
 #include "wacki.h"
 #include <string.h>
 #include <stdlib.h>
@@ -84,41 +77,37 @@ extern void *g_items_obj;
 
 /* g_stage_table is defined in stubs.c. */
 
-/* ------------------------------------------------------------------------- *
- * PreloadCommonAssets — 0x00403790
+/* ---- PreloadCommonAssets ----------------------------------------- *
  *
- * Loaded once at startup. Holds the universally-shared sprites resident
- * in memory between stage swaps.
- * ------------------------------------------------------------------------- */
+ * Loaded once at startup. Holds the universally-shared sprites
+ * resident in memory between stage swaps. */
 FontHandle *g_default_font = NULL;     /* "Futura.30" bitmap font */
 
-extern AnimAsset *g_items_atlas;       /* g_items_atlas — przedm.wyc */
+extern AnimAsset *g_items_atlas;       /* przedm.wyc */
 
 /* T4 step 1: actor atlas singletons. Loaded once at startup, persist
- * across all scene transitions. Original engine spawns Ebek/Fjej once
- * at game start with these atlases bound; verb scripts post-GO_EXIT
- * can reposition the SAME actor entity without atlas reload. */
+ * across all scene transitions. The original engine spawns Ebek/Fjej
+ * once at game start with these atlases bound; verb scripts post-
+ * GO_EXIT can reposition the SAME actor entity without atlas reload. */
 AnimAsset *g_ebek_atlas = NULL;        /* ebek.wyc — Ebek sprite frames */
 AnimAsset *g_fjej_atlas = NULL;        /* fjej.wyc — Fjej sprite frames */
-AnimAsset *g_ebfj_atlas = NULL;        /* g_ebfj_atlas — ebfj.wyc actor-portrait
- atlas (4 frames: 0/1 = Ebek/Fjej
- active w/ frame, 2/3 = inactive). */
+AnimAsset *g_ebfj_atlas = NULL;        /* ebfj.wyc — actor-portrait atlas
+                                        * (4 frames: 0/1 = Ebek/Fjej
+                                        * active w/ frame, 2/3 = inactive) */
 
-/* T31 — cursor state atlases. PreloadCommonAssets which
- * loaded these into g_cursor_atlas..0x004514A4 then 's state
- * table @ indexed them per cursor state (0..7).
+/* T31 — cursor state atlases. Loaded by PreloadCommonAssets into
+ * g_cursor_atlas[], then indexed by cursor state (0..7).
  *
  * Naming note: in the original PE these slots are loaded with
  * olowek1.wyc / kaseta.wyc / magnes1*.wyc / drzwi1*.wyc — but they're
  * NOT the puzzle items. They're CURSOR SPRITE ATLASES with cursor-
  * shaped frames (the names just happened to be assigned to the slots
- * in PreloadCommonAssets; in RE we see them used as cursor only by
- * ). The 8-state cursor anim table maps states 0..7 to
- * indices into the slot array. */
-AnimAsset *g_cursor_atlas[8] = {0};    /* g_cursor_atlas..0x004514A4 */
-uint8_t    g_cursor_state    = 0;      /* g_script_running */
-uint16_t   g_cursor_frame    = 0;      /* cursor_state_struct + 0x30 */
-uint16_t   g_cursor_frame_acc = 0;     /* cursor_state_struct + 0x3C accumulator */
+ * in PreloadCommonAssets). The 8-state cursor anim table maps states
+ * 0..7 to indices into the slot array. */
+AnimAsset *g_cursor_atlas[8]    = {0};
+uint8_t    g_cursor_state       = 0;
+uint16_t   g_cursor_frame       = 0;
+uint16_t   g_cursor_frame_acc   = 0;
 
 extern void BuildStageTable(void);                /* stubs.c — T26 */
 
@@ -185,11 +174,11 @@ extern const void *PeLoaderRead(uint32_t va);
  * xlats the script pointer either to a manually-embedded blob in
  * binary_data.c or back to PE memory.
  * ------------------------------------------------------------------------- */
-uint32_t g_stage_va = 0;            /* g_actor_walk_anim_table — original VA of current stage def */
-uint16_t g_held_item = 0x26;        /* g_held_item — currently held inventory item
- * (0x26 = neutral / nothing held; see
- * RunGameStageLoop @ 0x0040C0C6 where the
- * post-dispatch reset writes 0x26). */
+uint32_t g_stage_va = 0;            /* original PE VA of current stage def */
+uint16_t g_held_item = 0x26;        /* currently held inventory item
+                                     * (0x26 = neutral / nothing held —
+                                     * the post-dispatch reset in
+                                     * RunGameStageLoop writes 0x26). */
 extern const void *xlat_binary_ptr(uint32_t addr);
 
 /* Read 6-byte entry id+ptr from PE memory at table_va + idx*6. */
@@ -217,26 +206,25 @@ int LoadStage(uint16_t stage)
     g_stage    = g_stage_table[idx];
     g_cur_etap = stage;
     /* T26: also propagate the raw PE VA so subsequent LoadKomnata /
- * DispatchClickEvent / LoadActorWalkAnims pick the right stage
- * descriptor. play_demo_scene's hard-coded stage-1 assignment
- * (0x00428220) is kept as a fallback for the demo entry path. */
+     * DispatchClickEvent / LoadActorWalkAnims pick the right stage
+     * descriptor. play_demo_scene's hard-coded stage-1 fallback VA
+     * still applies for the demo entry path. */
     g_stage_va = g_stage_va_table[idx];
     LoadActorWalkAnims(g_stage_va);
 
-    /*:
- *; // ResetInventory — clear g_inventory + page=0
- * Original calls this before loading the new stage's panel + palette
- * so any held-from-previous-stage items get dropped. */
+    /* ResetInventory — clear g_inventory + page=0. Original calls
+     * this before loading the new stage's panel + palette so any
+     * held-from-previous-stage items get dropped. */
     ResetInventory();
 
     /* find Wacky.scr section for "[etap]N" */
     char buf[2] = { (char)('0' + g_cur_etap), 0 };
     FindScriptByStageAndRoom(g_scripts_obj, buf, "[komnata]");
 
-    /* load stage panel —:
- * The asset has 6 frames (one per button slot) sharing a single
- * (panel_x, panel_y) origin on its 0th frame, used by PanelHitTest
- * to convert cursor coords into panel-local space.
+    /* Load stage panel. The asset has 6 frames (one per button slot)
+     * sharing a single (panel_x, panel_y) origin on its 0th frame,
+     * used by PanelHitTest to convert cursor coords into panel-local
+     * space.
  *
  * T27: each stage has its own panel.wyc / panel2.wyc / panel3.wyc /
  * panel4.wyc (stage 5 = credits, panel=NULL). Free any previously
@@ -299,35 +287,29 @@ int LoadStage(uint16_t stage)
     return 1;
 }
 
-/* ------------------------------------------------------------------------- *
- * RunMenuScene — 0x0040B5E0
+/* ---- RunMenuScene ------------------------------------------------ *
  *
- * A condensed, faithful implementation; the original was much more verbose.
- * ------------------------------------------------------------------------- */
+ * Condensed, faithful implementation; the original was much more
+ * verbose. */
 extern AnimAsset *LoadAssetFromDtaBase(const char *);
 
-/* ------------------------------------------------------------------------- *
- * HandleMainMenuClick — port of (the on_click callback for the
- * main menu's SceneDef at ).
+/* HandleMainMenuClick — on_click callback for the main menu's
+ * SceneDef. Trigger values:
+ *   0     INIT — load palettes (Tlo.pal / menu.pal) and start
+ *               playback of Dane_01.dta (the menu music)
+ *   0x12  Load-game submenu       (returns 2 / 3 / 5)
+ *   0x13  New game                (returns 6)
+ *   0x14  Options/save toggle      (sets g_save_request)
+ *   0x15  Quit                    (returns 8)
+ *   0x16  Credits                 (returns 9)
  *
- * Param 1 is a trigger value:
- * 0 INIT — load palettes (Tlo.pal/menu.pal) and start CD-audio
- * playback of Dane_01.dta (the menu music).
- * 0x12 Load-game submenu (returns 2/3/5)
- * 0x13 New game (returns 6)
- * 0x14 Options/save toggle (sets g_save_request)
- * 0x15 Quit (returns 8)
- * 0x16 Credits (returns 9)
- *
- * Per-frame work runs regardless of trigger: advance the title-animation
- * frame and blit it. We don't yet have CD-audio or the full animation
- * pipeline, so this is reduced to the dispatch-only logic.
- */
+ * Per-frame work runs regardless of trigger: advance the title-
+ * animation frame and blit it. We don't yet have the full original
+ * animation pipeline, so the implementation is dispatch-only. */
 
-/* Forward decls for the menu-BG snapshot used by RunMenuScene overlay
- * branch (see comments at the definitions below near paint_slot_list).
- * Declared early because RunMenuScene at 0x0040B5E0 lives above the
- * save/load menu code that owns them. */
+/* Forward decls for the menu-BG snapshot used by RunMenuScene's
+ * overlay branch (definitions sit further down near
+ * paint_slot_list). */
 /* SAVE_THUMB_W / SAVE_THUMB_H moved to wacki.h. Non-static so
  * src/menu/slot_picker.c can read it from the save-commit path
  * (CapturePendingThumbnail writes here before opszyns opens). */
@@ -618,9 +600,7 @@ void RunGameStageLoop(uint8_t flags)
     if (g_game_over_code) run_game_over_epilogue();
 }
 
-/* ------------------------------------------------------------------------- *
- * InitializeGameSubsystems — 0x00403A30
- * ------------------------------------------------------------------------- */
+/* ---- InitializeGameSubsystems ------------------------------------ */
 int InitializeGameSubsystems(void)
 {
     if (InitializeDirectSound() != 0) {

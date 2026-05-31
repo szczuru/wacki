@@ -1,37 +1,37 @@
-/*
- * assets.c — ANIM (.wyc), MASK (.msk), FILD (.fld) loaders.
- *
- * Original address:
- * LoadAssetFromDtaBase 0x00405AA0
+/* src/assets.c — ANIM (.wyc), MASK (.msk), FILD (.fld) loaders.
  *
  * All assets share the same in-file layout:
  *
- * +0 DWORD magic ("ANIM" / "MASK" / "FILD")
- * +4 WORD count
- * +6 WORD off_width_table (relative)
- * +8 WORD off_height_table
- * +10 WORD off_drawX_table
- * +12 WORD off_drawY_table
- * +14 WORD off_pixel_table (DWORD-of-offsets table; each → frame bitmap)
+ *   +0   DWORD magic ("ANIM" / "MASK" / "FILD")
+ *   +4   WORD  frame count
+ *   +6   WORD  off_width_table  (offset relative to file base)
+ *   +8   WORD  off_height_table
+ *   +10  WORD  off_drawX_table
+ *   +12  WORD  off_drawY_table
+ *   +14  WORD  off_pixel_table  (DWORD-of-offsets table; each entry →
+ *                                a frame bitmap)
  *
- * For FILD the trailing data after the tables is a sequence of (Δx, Δy)
- * pairs that get appended to the global perspective profile g_persp_profile.
- */
+ * For FILD the trailing data after the tables is a sequence of
+ * (Δx, Δy) pairs that get appended to the global perspective profile
+ * g_persp_profile. */
+
 #include "wacki.h"
 #include <string.h>
 
 extern void *xmalloc(uint32_t sz);
 extern void  xfree  (void *p);
 
-/* Scripts-class lookup (for [animacja]<filename> binding) */
-extern void *g_scripts_obj;                          /* */
-extern void *FindAnimationScript(void *scripts_obj, const char *name); /* */
+/* Scripts object — used to bind [animacja]<filename> sections in
+ * Wacky.scr to the loaded asset. */
+extern void *g_scripts_obj;
+extern void *FindAnimationScript(void *scripts_obj, const char *name);
 
-/* Global perspective profile (filled by .fld loads). */
-int16_t g_persp_profile[0x22*2];   /* g_persp_profile — pairs (dx, dy) */
-int     g_persp_band_count = 0;    /* perspective_band_count_alt */
+/* Global perspective profile filled by .fld loads — pairs of (dx, dy)
+ * deltas indexed by band. */
+int16_t g_persp_profile[0x22*2];
+int     g_persp_band_count = 0;
 
-extern uint32_t g_tick_counter;    /* g_tick_counter */
+extern uint32_t g_tick_counter;
 
 /* ---- AnimAsset header layout (.wyc / .fld) ------------------------ */
 
@@ -132,11 +132,12 @@ static void anim_decode_kind(AnimAsset *a, const char *name)
     }
 }
 
-/* Parse the FILD body (perspective band table). Layout w body:
+/* Parse the FILD body (perspective band table). Body layout:
  *   [count:i16][X[0..count-1]:i16][Y[0..count-1]:i16]
- * X/Y are signed (typically negative — offset wstecz from asset
- * origin), and we publish them as (off_drawX[0] - X) into the global
- * g_persp_profile[] so the band positions land at the correct screen Y. */
+ * X/Y are signed (typically negative — back-offset from the asset
+ * origin); we publish them as (off_drawX[0] - X) into the global
+ * g_persp_profile[] so the band positions land at the correct screen
+ * Y. */
 static void anim_parse_fild_bands(AnimAsset *a)
 {
     a->kind    = ANIM_KIND_MASK_OR_FILD;
@@ -165,11 +166,11 @@ static void anim_parse_fild_bands(AnimAsset *a)
     }
 }
 
-/* ------------------------------------------------------------------------- *
- * LoadAssetFromDtaBase — load a .wyc / .fld / .pic-like asset out of
- * the .DTA archive, parse its header, and build the runtime AnimAsset
- * (pixel pointers, bbox, kind, perspective bands).
- * ------------------------------------------------------------------------- */
+/* ---- LoadAssetFromDtaBase ---------------------------------------- *
+ *
+ * Load a .wyc / .fld / .pic-like asset out of the .DTA archive,
+ * parse its header, and build the runtime AnimAsset (pixel pointers,
+ * bbox, kind, perspective bands). */
 AnimAsset *LoadAssetFromDtaBase(const char *name)
 {
     void    *raw  = NULL;

@@ -1,19 +1,17 @@
-/*
- * flic.c — AAFLC (Autodesk FLIC inside AVI) decoder.
+/* src/flic.c — AAFLC (Autodesk FLIC inside AVI) decoder.
  *
- * The original engine drove this via MCI AVIVideo + VIDEO.DRV (FLCCODEC
- * NE DLL) on Win 9x. We ship a portable C decoder of the FLIC frame
- * format here, walking the AVI container ourselves.
+ * The original engine drove this via MCI AVIVideo + VIDEO.DRV
+ * (FLCCODEC NE DLL) on Win 9x. We ship a portable C decoder of the
+ * FLIC frame format here, walking the AVI container ourselves.
  *
  * Frame chunk types (the only ones the Wacki AVIs use in practice):
- * COLOR_256 (4) palette update, 6-bit DAC scaled to 8-bit
- * DELTA_FLC (7) line-based delta with skip / RLE / runs of 2-byte words
- * BLACK (13) fill the whole frame with colour 0
- * BRUN (15) byte run-length (used for the first/key frame)
- * COPY (16) uncompressed
+ *   COLOR_256 (4)  palette update, 6-bit DAC scaled to 8-bit
+ *   DELTA_FLC (7)  line-based delta with skip / RLE / 2-byte runs
+ *   BLACK    (13)  fill the whole frame with colour 0
+ *   BRUN     (15)  byte run-length (used for the first/key frame)
+ *   COPY     (16)  uncompressed
  *
- * The Wacki AVIs are 640×480, 8-bit, ~10 fps, paletted.
- */
+ * The Wacki AVIs are 640×480, 8-bit, ~10 fps, paletted. */
 #include "wacki.h"
 #include <SDL.h>
 #include <stdio.h>
@@ -242,9 +240,10 @@ static int avi_next_video(AviCtx *c, uint8_t **out_data, uint32_t *out_size)
         }
         if (tag == 0x62773130 /* "01wb" */ && s_audio_open && sz) {
             SDL_QueueAudio(s_audio_dev, c->buf + c->cursor + 8, sz);
-            /* T38 audio sync sanity — log when the queue gets very deep
- * (>4 sec at the active spec). Indicates video is decoding
- * too slow or chunks are unevenly distributed. */
+            /* T38 audio-sync sanity — log when the queue gets very
+             * deep (>4 s at the active spec). Indicates the video is
+             * decoding too slowly or chunks are unevenly
+             * distributed. */
             uint32_t qbytes = SDL_GetQueuedAudioSize(s_audio_dev);
             uint32_t bps = (uint32_t)s_audio_spec_cur.freq *
                            s_audio_spec_cur.channels *
@@ -254,9 +253,10 @@ static int avi_next_video(AviCtx *c, uint8_t **out_data, uint32_t *out_size)
                         (double)qbytes / (double)bps, c->cursor);
             }
         }
-        /* Safety: a malformed chunk that would jump past movi_end means
- * the AVI is truncated or has a corrupt size field — treat as
- * EOF rather than reading garbage past the buffer. */
+        /* Safety: a malformed chunk that would jump past movi_end
+         * means the AVI is truncated or has a corrupt size field —
+         * treat as EOF rather than reading garbage past the
+         * buffer. */
         if (next <= c->cursor || next > c->movi_end) return 0;
         c->cursor = next;
     }
@@ -306,10 +306,10 @@ int PlayFlicAviFile(const char *path)
             if (g_lmb_clicked || g_rmb_clicked ||
                 (g_key_state & 0xFF) != 0)
             {
-                /* Skip: stop audio NOW (pause device + clear queue) and
- * stop decoding further frames. This is
- * original MCI behaviour where StopAviPlayback aborts
- * both video and audio immediately. */
+                /* Skip: stop audio NOW (pause device + clear queue)
+                 * and stop decoding further frames. Matches the
+                 * original MCI StopAviPlayback semantic where the
+                 * abort tears down both video and audio together. */
                 g_lmb_clicked = 0;
                 g_rmb_clicked = 0;
                 g_key_state &= 0xFF00;
