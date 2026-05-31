@@ -79,7 +79,86 @@ static void audio_ensure(uint32_t sample_rate, uint16_t channels, uint16_t bits)
             sample_rate, channels, bits);
 }
 
-static int avi_open(AviCtx *c, const char *path)
+/* ---- RIFF / AVI FourCCs ------------------------------------------- */
+
+/* Four-character codes packed little-endian for byte-wise comparison
+ * with rd_u32 reads. Spelt out in the macro name so callers don't need
+ * to decode hex back into ASCII. */
+#define FOURCC_LIST                     0x5453494Cu   /* "LIST" */
+#define FOURCC_HDRL                     0x6C726468u   /* "hdrl" */
+#define FOURCC_STRL                     0x6C727473u   /* "strl" */
+#define FOURCC_STRH                     0x68727473u   /* "strh" */
+#define FOURCC_STRF                     0x66727473u   /* "strf" */
+#define FOURCC_MOVI                     0x69766F6Du   /* "movi" */
+#define FOURCC_AUDS                     0x73647561u   /* "auds" */
+
+/* RIFF chunk header is 8 bytes: 4-byte FourCC + 4-byte size. LIST
+ * chunks add a 4-byte type, so list bodies start at +12. */
+#define RIFF_CHUNK_HEADER_BYTES         8
+#define RIFF_LIST_BODY_OFFSET           12
+
+/* Magic + "AVI " marker at fixed RIFF offsets. */
+#define AVI_FILE_HEADER_BYTES           12   /* "RIFF" + size + "AVI " */
+#define AVI_FORMAT_TYPE_OFFSET          8
+
+/* avih fields (offsets into the avih chunk's data after the 8-byte
+ * chunk header). The original AVIMAINHEADER struct has fps_us at byte
+ * 0, total_frames + flags etc., then width@32 / height@36 inside the
+ * data area — which is +8+32 and +8+36 from the strh-style "tag+size+
+ * data" arrangement. We keep the historical (+8+40-8) and (+8+44-8)
+ * expression below as numeric constants for clarity. */
+#define AVIH_DATA_FPS_US_OFFSET         8
+#define AVIH_DATA_WIDTH_OFFSET          40   /* = 8 (header) + 32 (width) */
+#define AVIH_DATA_HEIGHT_OFFSET         44   /* = 8 (header) + 36 (height) */
+
+/* WAVEFORMATEX field offsets inside the strf chunk's data area (the
+ * data area starts after the 8-byte chunk header). */
+#define WFE_OFF_CHANNELS                2
+#define WFE_OFF_SAMPLES_PER_SEC         4
+#define WFE_OFF_BITS_PER_SAMPLE         14
+
+/* RIFF chunks are word-aligned: each chunk advances by 8 + size + pad,
+ * where pad = (size & 1). */
+static inline uint32_t riff_chunk_advance(uint32_t sz)
+{
+    return RIFF_CHUNK_HEADER_BYTES + sz + (sz & 1);
+}
+
+/* Parse the avih chunk inside an hdrl LIST. q points at the chunk
+ * header ("avih" + size + data). */
+static void parse_avih(AviCtx *c, uint32_t q)
+{
+    if (memcmp(c->buf + q, "avih", 4) != 0) return;
+    c->fps_us = rd_u32(c->buf + q + AVIH_DATA_FPS_US_OFFSET);
+    c->width  = (uint16_t)rd_u32(c->buf + q + AVIH_DATA_WIDTH_OFFSET);
+    c->height = (uint16_t)rd_u32(c->buf + q + AVIH_DATA_HEIGHT_OFFSET);
+}
+
+/* Parse one strl LIST: walk strh (decide audio vs video) + strf
+ * (WAVEFORMATEX for audio streams). q points just past the LIST
+ * header (= first sub-chunk). */
+static void parse_strl(AviCtx *c, uint32_t q, uint32_t end)
+{
+    int is_audio = 0;
+    while (q + RIFF_CHUNK_HEADER_BYTES <= end) {
+        uint32_t t2 = rd_u32(c->buf + q);
+        uint32_t s2 = rd_u32(c->buf + q + 4);
+        if (t2 == FOURCC_STRH) {
+            uint32_t fcc = rd_u32(c->buf + q + RIFF_CHUNK_HEADER_BYTES);
+            is_audio = (fcc == FOURCC_AUDS);
+        } else if (t2 == FOURCC_STRF && is_audio) {
+            const uint8_t *wfe = c->buf + q + RIFF_CHUNK_HEADER_BYTES;
+            c->audio_channels        = *(const uint16_t *)(wfe + WFE_OFF_CHANNELS);
+            c->audio_samples_per_sec = rd_u32(wfe + WFE_OFF_SAMPLES_PER_SEC);
+            c->audio_bits            = *(const uint16_t *)(wfe + WFE_OFF_BITS_PER_SAMPLE);
+        }
+        q += riff_chunk_advance(s2);
+    }
+}
+
+/* Slurp the whole AVI into c->buf. Returns 1 on success, 0 on
+ * fopen/malloc/read failure (caller treats 0 as "couldn't load"). */
+static int avi_slurp_file(AviCtx *c, const char *path)
 {
     FILE *fp = fopen(path, "rb");
     if (!fp) return 0;
@@ -90,76 +169,59 @@ static int avi_open(AviCtx *c, const char *path)
     if (!c->buf) { fclose(fp); return 0; }
     fread(c->buf, 1, c->size, fp);
     fclose(fp);
+    return 1;
+}
 
-    if (memcmp(c->buf, "RIFF", 4) != 0 ||
-        memcmp(c->buf + 8, "AVI ", 4) != 0)
-    { free(c->buf); return 0; }
+/* Validate the RIFF / AVI file header. */
+static int avi_validate_header(const AviCtx *c)
+{
+    return memcmp(c->buf,                            "RIFF", 4) == 0
+        && memcmp(c->buf + AVI_FORMAT_TYPE_OFFSET,   "AVI ", 4) == 0;
+}
 
-    /* Walk hdrl LIST to find 'avih', then each 'strl' to learn about the
- * video ('vids') and audio ('auds') streams. */
-    uint32_t p = 12;
-    int stream_idx = 0;
-    (void)stream_idx;       /* counted for diagnostic; not consumed here */
-    while (p + 8 <= c->size) {
+static int avi_open(AviCtx *c, const char *path)
+{
+    if (!avi_slurp_file(c, path)) return 0;
+    if (!avi_validate_header(c)) { free(c->buf); return 0; }
+
+    /* Walk top-level LIST chunks: hdrl supplies fps + dimensions, each
+     * strl describes one stream (video / audio), movi marks the start
+     * of the encoded frame data. */
+    uint32_t p = AVI_FILE_HEADER_BYTES;
+    while (p + RIFF_CHUNK_HEADER_BYTES <= c->size) {
         uint32_t tag = rd_u32(c->buf + p);
         uint32_t sz  = rd_u32(c->buf + p + 4);
-        if (tag == 0x5453494C /* "LIST" */) {
-            uint32_t fourcc = rd_u32(c->buf + p + 8);
-            if (fourcc == 0x6C726468 /* "hdrl" */) {
-                uint32_t q = p + 12;
-                if (memcmp(c->buf + q, "avih", 4) == 0) {
-                    c->fps_us = rd_u32(c->buf + q + 8);
-                    c->width  = (uint16_t)rd_u32(c->buf + q + 8 + 40 - 8);
-                    c->height = (uint16_t)rd_u32(c->buf + q + 8 + 44 - 8);
-                }
-                p += 12;                  /* descend into hdrl */
-                continue;
-            }
-            if (fourcc == 0x6C727473 /* "strl" */) {
-                /* parse strh + strf */
-                uint32_t q = p + 12;
-                uint32_t end = p + 8 + sz;
-                int is_audio = 0;
-                while (q + 8 <= end) {
-                    uint32_t t2 = rd_u32(c->buf + q);
-                    uint32_t s2 = rd_u32(c->buf + q + 4);
-                    if (t2 == 0x68727473 /* "strh" */) {
-                        /* +0 fccType */
-                        uint32_t fcc = rd_u32(c->buf + q + 8);
-                        is_audio = (fcc == 0x73647561 /* "auds" */);
-                    } else if (t2 == 0x66727473 /* "strf" */ && is_audio) {
-                        /* WAVEFORMATEX:
- * +0 word wFormatTag
- * +2 word nChannels
- * +4 dword nSamplesPerSec
- * +8 dword nAvgBytesPerSec
- * +12 word nBlockAlign
- * +14 word wBitsPerSample
- */
-                        c->audio_channels        = *(uint16_t *)(c->buf + q + 8 + 2);
-                        c->audio_samples_per_sec = rd_u32(c->buf + q + 8 + 4);
-                        c->audio_bits            = *(uint16_t *)(c->buf + q + 8 + 14);
-                    }
-                    q += 8 + s2 + (s2 & 1);
-                }
-                p += 8 + sz + (sz & 1);
-                ++stream_idx;
-                continue;
-            }
-            if (fourcc == 0x69766F6D /* "movi" */) {
-                c->movi_start = p + 12;
-                c->movi_end   = p + 8 + sz;
-                c->cursor     = c->movi_start;
-                if (c->audio_samples_per_sec)
-                    audio_ensure(c->audio_samples_per_sec,
-                                 c->audio_channels, c->audio_bits);
-                return 1;
-            }
-            p += 8 + sz + (sz & 1);
+
+        if (tag != FOURCC_LIST) {
+            p += riff_chunk_advance(sz);
             continue;
         }
-        p += 8 + sz + (sz & 1);
+
+        uint32_t fourcc = rd_u32(c->buf + p + RIFF_CHUNK_HEADER_BYTES);
+        if (fourcc == FOURCC_HDRL) {
+            parse_avih(c, p + RIFF_LIST_BODY_OFFSET);
+            p += RIFF_LIST_BODY_OFFSET;   /* descend into hdrl body */
+            continue;
+        }
+        if (fourcc == FOURCC_STRL) {
+            parse_strl(c, p + RIFF_LIST_BODY_OFFSET,
+                          p + RIFF_CHUNK_HEADER_BYTES + sz);
+            p += riff_chunk_advance(sz);
+            continue;
+        }
+        if (fourcc == FOURCC_MOVI) {
+            c->movi_start = p + RIFF_LIST_BODY_OFFSET;
+            c->movi_end   = p + RIFF_CHUNK_HEADER_BYTES + sz;
+            c->cursor     = c->movi_start;
+            if (c->audio_samples_per_sec) {
+                audio_ensure(c->audio_samples_per_sec,
+                             c->audio_channels, c->audio_bits);
+            }
+            return 1;
+        }
+        p += riff_chunk_advance(sz);
     }
+
     free(c->buf);
     return 0;
 }
