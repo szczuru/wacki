@@ -133,8 +133,8 @@ typedef struct AnimAsset {
 /* Entity is the per-actor / per-prop runtime struct. The original engine
  * stored it as a 102-byte (0x66) flat buffer with all pointer fields as
  * 4-byte slots; the byte offsets are absolute and the per-entity script
- * interpreter (FUN_004012E0) references them directly (e[+0x22] anchor_x,
- * e[+0x28] current_anim ptr, e[+0x2C] bytecode ptr, e[+0x30] kind, etc.).
+ * interpreter references them directly (e[+0x22] anchor_x, e[+0x28]
+ * current_anim ptr, e[+0x2C] bytecode ptr, e[+0x30] kind, etc.).
  *
  * On a 64-bit host we can't preserve those offsets AND fit real C pointers
  * (8 bytes) in the original 4-byte slots. The full 1:1 port stores 4-byte
@@ -144,7 +144,7 @@ typedef struct AnimAsset {
  * walker is staged in actor.c under a feature flag. */
 /* Entity layout — critical port note:
  *
- * The script VM (RunScriptInterpreter + per-entity FUN_004012E0) writes
+ * The script VM (RunScriptInterpreter + per-entity interpreter) writes
  * to RAW byte offsets via `*(T *)((uint8_t *)e + N)`. Those offsets are
  * the ORIGINAL 32-bit engine's layout (anchor X at +0x22, atlas handle
  * at +0x28, walker target at +0x54, scale at +0x58, ... up to ~+0x66).
@@ -276,7 +276,7 @@ typedef struct WackiSaveFile {
 typedef char wacki_slot_size_check
     [ (sizeof(WackiSlot) == WACKI_SLOT_SIZE) ? 1 : -1 ];
 
-/* SceneDef — 1:1 with the on-disk SceneDef at DAT_00445CD0:
+/* SceneDef — 1:1 with the on-disk SceneDef layout:
  *   +0   const char *background_pic       (.pic filename or NULL)
  *   +4   const char *mask_file            (.wyc atlas filename)
  *   +8   int (*on_click)(int trigger)     called every tick + on click
@@ -285,8 +285,8 @@ typedef char wacki_slot_size_check
  *   +20  struct { u16 id, def_anim, hover_anim; } buttons[N]
  *
  *  id           = the value passed as `trigger` to on_click when the button
- *                 is clicked (and the value DAT_0044988c is set to while
- *                 hovered, per FUN_00406bb0).
+ *                 is clicked (and the value g_hover_scene_verb is set to
+ *                 while hovered).
  *  def_anim     = atlas frame drawn always (button at rest).
  *  hover_anim   = atlas frame drawn on top while the mouse is over the
  *                 button's def_anim rect (mouse-over highlight).
@@ -359,8 +359,8 @@ void PaintSceneBgAtlasIfAny(void);
 void FreeSceneBgAtlas(void);
 void InstallPalette(const uint8_t *rgb, uint16_t first);
 /* Decompress one RLE-encoded "rich" ANIM frame (asset kind=3) into a flat
- * (w*h)-byte raw pixel buffer. 1:1 with FUN_00410cb0. The src buffer is
- * AnimAsset.pixel_ptrs[frame], dst must be at least dst_len bytes. */
+ * (w*h)-byte raw pixel buffer. The src buffer is AnimAsset.pixel_ptrs[frame],
+ * dst must be at least dst_len bytes. */
 void DepackRleFrame(const uint8_t *src, uint8_t *dst, int dst_len);
 
 /* Nearest-neighbor scaled color-key blit (palette idx 0 = transparent).
@@ -375,7 +375,7 @@ void BlitSpriteScaledColorKeyFlip(int16_t dx, int16_t dy,
                                   uint16_t dw, uint16_t dh,
                                   const uint8_t *src, int flip_h);
 
-/* T7: Alpha-plane scaled blit — 1:1 port of FUN_00410960 + helpers.
+/* T7: Alpha-plane scaled blit.
  * Used for entities with flag 0x100 + 0x400 (alpha + perspective scaled).
  * Mode 0 = nearest-neighbor with x-step LUT (equivalent to
  *          BlitSpriteScaledColorKey but uses precomputed step table).
@@ -404,27 +404,26 @@ void BlitAlphaScaledToBackbuffer(int16_t dx, int16_t dy,
 /* audio.c */
 int  InitializeDirectSound(void);
 void PlaySceneCutsceneAvi(const char *avi_name);
-/* Menu / background WAV music. The original engine opened a CD-DA track via
- * MCI (FUN_0040cab0 + FUN_0040d380); we accept a Dane_XX.dta filename that
- * is a plain RIFF/WAVE file on disk and stream it looped on a dedicated
- * SDL audio device. PlayMenuMusic("Dane_01.dta") => menu music.  */
+/* Menu / background WAV music. The original engine opened a CD-DA track
+ * via MCI; we accept a Dane_XX.dta filename that is a plain RIFF/WAVE
+ * file on disk and stream it looped on a dedicated SDL audio device.
+ * PlayMenuMusic("Dane_01.dta") => menu music. */
 void PlayMenuMusic(const char *dta_name, int loop);
 void StopMenuMusic(void);
 /* Per-frame tick — no-op since T6 mixer (callback handles loop natively).
  * Kept for API compatibility. */
 void TickMenuMusic(void);
 
-/* Options-menu toggles — mirror DAT_0045511E/22/1F flags. When music or
- * the global sound flag flips off mid-play, the music channel is stopped;
- * when flipped back on, the last-requested track resumes. SFX flag just
- * gates new PlaySfx calls. */
+/* Options-menu toggles. When music or the global sound flag flips off
+ * mid-play, the music channel is stopped; when flipped back on, the
+ * last-requested track resumes. SFX flag just gates new PlaySfx calls. */
 extern int g_audio_music_enabled;
 extern int g_audio_sfx_enabled;
 extern int g_audio_voice_enabled;
 extern int g_audio_sound_enabled;
 /* T103 — Solund-menu non-audio gates. Set/cleared by SolundClick. */
-extern uint8_t g_subtitles_on;       /* DAT_00455121 — gates op 0x09 SHOW_TEXT */
-extern uint8_t g_dialogues_on;       /* DAT_00455122 — gates op 0x52/0x53 */
+extern uint8_t g_subtitles_on;       /* gates op 0x09 SHOW_TEXT */
+extern uint8_t g_dialogues_on;       /* gates op 0x52/0x53 */
 extern int g_audio_sfx_enabled;
 extern int g_audio_sound_enabled;
 void AudioSetMusicEnabled(int on);
@@ -486,9 +485,9 @@ typedef struct FontHandle FontHandle;
 FontHandle *ParseFutFontFile(const uint8_t *raw);
 int         MeasureTextLine(FontHandle *f, const uint8_t *text);
 
-/* Wacky.scr [sampl] parser — port of FUN_00409970. Walks the current
- * komnata section between (start, end) and populates the per-asset
- * frame-trigger SFX table from [animacja]…[sampl] pairs. */
+/* Wacky.scr [sampl] parser. Walks the current komnata section between
+ * (start, end) and populates the per-asset frame-trigger SFX table from
+ * [animacja]…[sampl] pairs. */
 void ResetDynamicSfxTable(void);
 void ParseSamplTagsForKomnata(const uint8_t *start, const uint8_t *end);
 /* Pointer-bearing target descriptor for RenderTextLineToBuffer. Original
@@ -544,9 +543,8 @@ extern uint16_t  g_screen_w_dim, g_screen_h_dim;
 
 extern uint32_t  g_script_vars[0x129];
 extern uint32_t  g_entity_state[0x11C];
-/* g_return_reg removed — see script.c: it's now a macro aliasing var[4]
- * (DAT_00449890 in the original layout). External consumers that need
- * the value should read g_script_vars[4]. */
+/* g_return_reg removed — it's now a macro aliasing var[4]. External
+ * consumers that need the value should read g_script_vars[4]. */
 extern uint16_t  g_active_actor;
 extern uint16_t  g_cur_etap;
 extern uint16_t  g_cur_komnata;
@@ -554,21 +552,21 @@ extern uint16_t  g_cur_komnata;
 extern StageDef *g_stage;
 extern StageDef *g_stage_table[5];
 
-/* Original PE virtual address of the current stage's DAT_0044A19C value.
+/* Original PE virtual address of the current stage's per-stage table.
  * Set by LoadStage / play_demo_scene. Read by DispatchClickEvent to walk
  * the per-stage verb_table (+4) and object_table (+8) in PE memory via
- * PeLoaderRead. Stage 1 = 0x00428220, stage 2 = 0x004310A0, etc. — these
- * come from PTR_PTR_00442FA8[etap-1]. 0 = no stage (DispatchClick noop). */
+ * PeLoaderRead. Stage 1 = 0x00428220, stage 2 = 0x004310A0, etc. —
+ * indexed by g_cur_etap. 0 = no stage (DispatchClick noop). */
 extern uint32_t g_stage_va;
 
-extern FontHandle *g_default_font;       /* DAT_0044E598 — "Futura.30" */
+extern FontHandle *g_default_font;       /* "Futura.30" */
 
-/* DAT_0044E5E8 — currently-held inventory item id. 0 = nothing held
- * (treat as 0x26 = "look at" verb). Set when the user clicks an item
- * in the bottom panel; consumed by DispatchClickEvent as `this_id`. */
+/* Currently-held inventory item id. 0 = nothing held (treat as 0x26 =
+ * "look at" verb). Set when the user clicks an item in the bottom
+ * panel; consumed by DispatchClickEvent as `this_id`. */
 extern uint16_t g_held_item;
 
-/* WackiRand — 1:1 with FUN_00410F50. Uniform random in [0, bound). */
+/* WackiRand — uniform random in [0, bound). */
 uint32_t WackiRand(uint16_t bound);
 void     WackiRandSeed(uint32_t seed);
 
@@ -587,15 +585,13 @@ void ScriptGoToKomnata(uint16_t id);
  * Called from ScriptGoToKomnata (op 0x20) and from F9 quickload. */
 void LoadKomnataScene(uint16_t id);
 
-/* LoadKomnata — 1:1 port of FUN_00402A50 @ 0x00402A50.
- *
- * Loads the komnata identified by `id` (1-based) from the current
+/* Load the komnata identified by `id` (1-based) from the current
  * stage's komnata table:
  *   - locate entry in komnata array at stage+0
  *   - set g_cur_komnata = id
  *   - palette fade out (deferred)
  *   - clear entity lists (EntityListClearAll + VisibleMasksReset +
- *     ResetFrameSfxState — our mirror of FUN_00405F80 + FUN_00402DB0)
+ *     ResetFrameSfxState)
  *   - run enter_script (entry+6)
  *   - palette fade in
  *   - run secondary script (entry+10) if non-NULL
@@ -606,39 +602,27 @@ const char *LoadKomnata(uint16_t id);
 
 /* Send actor `idx` (0=Ebek, 1=Fjej) toward (tx, ty) and block until
  * arrival (or safety timeout). Used by op 0x10/0x11/0x12 ANIM_ACTOR.
- * Walks one pixel/tick via FUN_00401150 + FUN_004011D0 stepper. */
+ * Walks one pixel/tick via the actor walker stepper. */
 void ActorWalkToBlocking(int idx, int16_t tx, int16_t ty);
 
-/* g_game_over_code — DAT_004498B8 in the original.
+/* g_game_over_code aliases g_script_vars[14] — both names refer to the
+ * SAME dword (the original binary kept these at the same PE address;
+ * forking them in the port stalls end-of-stage / death / chapter-select
+ * because scripts write var[14] but nothing reads a separate int).
  *
- * REVERSE-ENGINEERING NOTE (Bug 2 fix, round 32):
- * In WACKI.EXE this is at PE 0x004498B8, which is at byte offset 0x38
- * (= 14 * 4) inside the g_script_vars[0x129] array (DAT_00449880).
- * It IS g_script_vars[14] — the same dword, just accessed as an int.
- *
- * That matters because scripts trigger end-of-stage / death / chapter-select
- * via the main-VM SET_VAR opcode (op 0x0D) with var index 14:
- *   - val=1  → death (Dane_14.dta cutscene)
- *   - val=3  → chapter-select UI (sel_tlo.pic)
- *   - val=4  → stage-end death cutscene then return to menu
- * Confirmed: 9 such writes exist in WACKI.EXE bytecode (4×val=1, 4×val=3,
- * 1×val=4). Pre-fix the port had g_game_over_code as a SEPARATE int —
- * scripts wrote to script_vars[14] which nobody read; the post-loop
- * handler read its own zero. End-of-stage cutscene + chapter-select
- * never fired. After fix: the two are the SAME memory.
+ * Scripts trigger transitions via SET_VAR (op 0x0D) on var index 14:
+ *   val=1  → death (Dane_14.dta cutscene)
+ *   val=3  → chapter-select UI (sel_tlo.pic)
+ *   val=4  → stage-end death cutscene, then return to menu
  *
  * The macro requires g_script_vars[] to already be declared (above). */
 #define g_game_over_code  (*(int *)&g_script_vars[14])
-/* g_completed_stages — DAT_004498C4 in original (Bug 5 fix #21).
- * Same alias pattern as g_game_over_code: DAT_004498C4 sits at byte +0x44
- * from g_script_vars base (DAT_00449880), so 0x44/4 = index 17. Bitfield:
- * bit i set = stage (i+1) completed. Original scripts set it via op 0x0A
- * VAR_OR var[17] imm=1<<stage in the stage's final ending bytecode (right
- * before the var[14]=3 chapter-select trigger). Pre-fix the port had
- * g_completed_stages as a SEPARATE uint32_t — script's bit-set landed in
- * script_vars[17] which nobody read; SelTloRefreshButtons read its own
- * zero and lit up all 4 stages as still-to-do (red glow on every map
- * marker).  */
+/* g_completed_stages aliases g_script_vars[17] — same alias pattern as
+ * g_game_over_code (Bug 5 fix #21). Bitfield: bit i set = stage (i+1)
+ * completed. Scripts set it via op 0x0A VAR_OR var[17] imm=1<<stage in
+ * each stage's ending bytecode (right before var[14]=3). Forking these
+ * stalled the chapter-select map markers — SelTloRefreshButtons read
+ * its own zero and lit up all 4 stages as still-to-do. */
 #define g_completed_stages  (*(uint32_t *)&g_script_vars[17])
 extern int       g_save_request;
 
@@ -694,7 +678,7 @@ extern uint16_t g_panel_verb_tab[6];
 extern uint16_t g_hover_panel_verb;
 extern uint16_t g_hover_scene_verb;       /* T31 v2 — cursor state machine */
 void PanelHitTest(void);
-/* Item-name voice-over (FUN_00402230 / FUN_004021c0 1:1).
+/* Item-name voice-over.
  * LoadItemNamesTable reads Item.scr at boot — returns highest index seen.
  * ItemHoverDwellTick runs once per ProcessGameFrameTick after PanelHitTest. */
 int  LoadItemNamesTable(void);
@@ -703,20 +687,19 @@ void ItemHoverDwellTick(void);
 /* T31 v2 — cursor state driver. UpdateCursorState picks the slot
  * (olowek/kaseta/magnes/drzwi) from hover_scene_verb + hover_panel_verb
  * + held_item; PaintCursor blits the chosen sprite frame at the mouse
- * position. 1:1 with FUN_004067C0 split in two. */
+ * position. */
 void UpdateCursorState(void);
 void PaintCursor(void);
 
 /* Per-frame deltas — see stubs.c for unit notes. _ms is real wall-clock
  * milliseconds (held-item ghost interp, speech-balloon dismiss timer);
- * _ticks is 10 ms units (1:1 with DAT_0044E578 — cursor anim, entity VM
- * +0x3C countdown, op 0x14 / op 0x26 / op 0x3D wait loops). */
+ * _ticks is 10 ms units (cursor anim, entity VM +0x3C countdown,
+ * op 0x14 / op 0x26 / op 0x3D wait loops). */
 extern uint32_t g_frame_delta_ms;
 extern uint16_t g_frame_delta_ticks;
 
-/* Inventory + panel page rotation — DAT_00443332 (60 slots) +
- * DAT_0044E458 (page index). Dialog choices reuse these slots.
- * 1:1 ports of FUN_00405630/4071F0/004055B0/4055D0/4056D0/405680. */
+/* Inventory + panel page rotation — 60 backing slots paged into the
+ * 6 panel buttons. Dialog choices reuse these slots. */
 extern uint16_t  g_panel_page_idx;
 extern uint16_t  g_panel_verb_tab_backup[6];
 extern uint8_t   g_panel_redraw;
@@ -732,7 +715,7 @@ int  InventoryRemoveItem(uint16_t item_verb);
 void InventoryDropItem(uint16_t item_verb);
 int  InventoryHasItem(uint16_t item_verb);
 
-/* Positional sound queue (FUN_00410D20/D30/DA0). */
+/* Positional sound queue. */
 void SoundQueueReset(void);
 void SoundQueueEnqueue(int16_t x, int16_t y, uint32_t sound_id, uint16_t volume);
 uint32_t SoundQueueMixForListener(int16_t listener_x, int16_t listener_y);

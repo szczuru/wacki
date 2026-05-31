@@ -82,7 +82,7 @@ extern void *g_dialogues_obj;
 extern void *g_scripts_obj;
 extern void *g_items_obj;
 
-/* g_stage_table is defined in stubs.c — see PTR_PTR_00442FA8 in the binary. */
+/* g_stage_table is defined in stubs.c. */
 
 /* ------------------------------------------------------------------------- *
  * PreloadCommonAssets — 0x00403790
@@ -180,8 +180,8 @@ extern const void *PeLoaderRead(uint32_t va);
  * DispatchClickEvent
  *
  * SCUMM-style verb/noun dispatcher. The per-stage descriptor at
- * g_actor_walk_anim_table (= the entry from PTR_PTR_00442FA8[etap-1]) carries two
- * tables of 6-byte entries:
+ * g_actor_walk_anim_table (= the stage-table entry for g_cur_etap)
+ * carries two tables of 6-byte entries:
  *
  * +0x04 verb_table = { u16 verb_id; u32 script_ptr; } *
  * +0x08 object_table = { u16 obj_id; u32 script_ptr; } *

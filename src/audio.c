@@ -296,17 +296,15 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
 /* Options-menu toggles — wired by Solund handler in game.c. Defaults to
  * enabled. When music is toggled off mid-play, we stop the channel and
  * remember the last track so the toggle-back-on path can resume it. */
-/* T103 fix — DAT_004551xx mapping per Ghidra plate comment on
- * LoadSaveStateOrInitialize @ 0x0040A5C0:
- * speech_y_offset — sfx (sound effects) ← g_audio_sfx_enabled
- * speech_text_attr — music ← g_audio_music_enabled
- * speech_color_index — (semantic under RE) — kept as "sound_enabled"
- * = legacy master mute
- * fade_target — voice ← g_audio_voice_enabled (NEW)
+/* T103 fix — flag mapping inferred from LoadSaveStateOrInitialize:
+ *   speech_y_offset    → g_audio_sfx_enabled
+ *   speech_text_attr   → g_audio_music_enabled
+ *   speech_color_index → g_audio_sound_enabled (legacy master mute)
+ *   fade_target        → g_audio_voice_enabled
  *
- * `g_audio_sound_enabled` is legacy from earlier port; functions as a
- * master mute (was mis-named "sfx" via fade_progress — that's actually
- * dialogues_on). Kept for compatibility with existing call sites. */
+ * g_audio_sound_enabled is a hold-over master mute (the field was once
+ * mis-mapped to "sfx" via fade_progress, which actually drives
+ * dialogues_on). Kept so existing call sites continue to compile. */
 int      g_audio_music_enabled = 1;       /* speech_text_attr mirror */
 int      g_audio_sfx_enabled   = 1;       /* speech_y_offset mirror — sfx */
 int      g_audio_voice_enabled = 1;       /* fade_target mirror — dialog audio */
