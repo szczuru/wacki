@@ -331,7 +331,7 @@ void    PlatformPushTypedChar(uint8_t c);
 
 /* ============= Module APIs ============================================== */
 
-int  CheckCdRomDrive(void);
+int  FindDataRoot(void);
 
 /* graphics.c */
 void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
@@ -518,7 +518,7 @@ void ProcessGameFrameTick(void);
 void DispatchClickEvent(uint16_t obj_id, uint16_t verb_id);
 int  HasPendingKey(void);
 uint16_t WaitForKey(void);
-void PumpWin32Messages(void);            /* alias for PlatformPumpEvents on portable build */
+void PumpEvents(void);   /* alias for PlatformPumpEvents — historically PumpWin32Messages */
 
 int  WackiMain(int argc, char **argv);
 void DrawPlaceholderScreen(const char *wanted_file);   /* stubs.c */
@@ -536,7 +536,7 @@ void     fseek_cyg (CygFile *, int32_t off, int whence);
 int32_t  ftell_cyg (CygFile *);
 
 /* ============= Globals (defined in stubs.c / module owners) ============= */
-extern char      g_cd_path[260];
+extern char      g_data_root[260];
 extern uint8_t   g_palette_rgb[256*3];
 extern uint16_t  g_screen_w, g_screen_h;
 extern uint8_t  *g_back_shadow;          /* 320×240×8bpp paletted shadow buffer */

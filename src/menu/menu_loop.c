@@ -286,7 +286,7 @@ int RunMenuScene(int transition_mode, SceneDef *scene)
 
     int rc = MENU_RC_NONE;
     do {
-        PumpWin32Messages();
+        PumpEvents();
 
         int      hover_btn;
         uint16_t hover_id;

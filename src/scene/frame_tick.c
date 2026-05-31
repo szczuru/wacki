@@ -155,7 +155,7 @@ static void paint_frame(void)
 
 void ProcessGameFrameTickInner(void)
 {
-    PumpWin32Messages();
+    PumpEvents();
     refresh_frame_deltas();
     handle_debug_screenshot_keys();
     repaint_scene_background();

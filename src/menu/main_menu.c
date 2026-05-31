@@ -305,7 +305,7 @@ static void play_bomb_explosion(void)
     if (a && a->frame_count > 0) {
         for (uint16_t f = 0; f < a->frame_count; ++f) {
             if (PlatformShouldQuit()) break;
-            PumpWin32Messages();
+            PumpEvents();
             /* bomba.wyc frames are fullscreen at (0,0) — paint raw. */
             paint_anim_button_at(a, f, 0, 0, 1);
             FlushFrameToPrimary();
@@ -379,7 +379,7 @@ static void play_fiacik_intro(void)
     if (a && a->frame_count > 0) {
         for (uint16_t f = 0; f < a->frame_count; ++f) {
             if (PlatformShouldQuit()) break;
-            PumpWin32Messages();
+            PumpEvents();
             if (snapshot && g_back_shadow) {
                 memcpy(g_back_shadow, snapshot, shadow_bytes);
             }
@@ -410,7 +410,7 @@ static void play_loading_screen(void)
     uint32_t start = SDL_GetTicks();
     while (SDL_GetTicks() - start < LOADING_SCREEN_HOLD_MS) {
         if (PlatformShouldQuit()) break;
-        PumpWin32Messages();
+        PumpEvents();
         FlipBuffersClearWith(0);
         paint_rawb_pic(bg_raw, bg_size, 0);
         FlushFrameToPrimary();

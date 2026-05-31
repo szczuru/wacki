@@ -12,9 +12,9 @@
  *     clicked / g_key_state / g_*_request), playthrough stats
  *     (g_stats), display knobs (g_headless / g_no_pacing /
  *     g_scale_factor / g_scale_mode), mouse coords (s_mouse_x /
- *     s_mouse_y), data root (g_cd_path).
+ *     s_mouse_y), data root (g_data_root).
  *
- *   - Win32-equivalent shims: PumpWin32Messages / HasPendingKey /
+ *   - Win32-equivalent shims: PumpEvents / HasPendingKey /
  *     WaitForKey — the engine's call sites still use the original
  *     Win32-style names, so this file provides portable aliases. */
 
@@ -29,7 +29,7 @@
 
 /* ---- constants ---------------------------------------------------- */
 
-/* CheckCdRomDrive return value when the data root was found. The
+/* FindDataRoot return value when the data root was found. The
  * original Win32 enum was {0 = no drive, 1 = non-Wacki CD, 2 = Wacki
  * CD found}; the port collapses to {0 = not found, 2 = found} and
  * keeps the 2 sentinel so any caller comparing against the legacy
@@ -71,7 +71,7 @@
 
 /* ---- module-owned globals ---------------------------------------- */
 
-char       g_cd_path[260]         = "";
+char       g_data_root[260]         = "";
 int16_t    s_mouse_x              = 0;
 int16_t    s_mouse_y              = 0;
 
@@ -121,7 +121,7 @@ void StatsDump(void)
 
 /* ---- data-root discovery ---------------------------------------- *
  *
- * The original CheckCdRomDrive scanned A:..Z: for a drive whose
+ * The original FindDataRoot scanned A:..Z: for a drive whose
  * volume label was WACKI_1. The portable variant searches a small
  * list of likely roots for a directory that holds Dane_02.dta. */
 
@@ -154,16 +154,16 @@ static int directory_has_archive(const char *root, const char *needle)
 }
 
 /* Accept `root` as the data directory if it contains the probe file.
- * On success commits the path to g_cd_path. */
+ * On success commits the path to g_data_root. */
 static int try_root(const char *root)
 {
     if (!root || !*root) return 0;
     if (!directory_has_archive(root, DATA_PROBE_FILENAME)) return 0;
-    snprintf(g_cd_path, sizeof g_cd_path, "%s", root);
+    snprintf(g_data_root, sizeof g_data_root, "%s", root);
     return 1;
 }
 
-int CheckCdRomDrive(void)
+int FindDataRoot(void)
 {
     /* Search order: explicit env override → ./data → ./<bin>/data →
      * ./<bin> → cwd. First match wins. */
@@ -330,9 +330,9 @@ static void try_load_pe_image(void)
 {
     extern int PeLoaderInit(const char *exe_path);
     char p[PE_PROBE_PATH_BYTES];
-    snprintf(p, sizeof p, "%s/WACKI.EXE", g_cd_path);
+    snprintf(p, sizeof p, "%s/WACKI.EXE", g_data_root);
     if (PeLoaderInit(p)) return;
-    snprintf(p, sizeof p, "%s/wacki.exe", g_cd_path);
+    snprintf(p, sizeof p, "%s/wacki.exe", g_data_root);
     PeLoaderInit(p);
 }
 
@@ -383,7 +383,7 @@ int WackiMain(int argc, char **argv)
     apply_env_overrides(&args);
     apply_early_cli_effects(&args);
 
-    if (CheckCdRomDrive() != DATA_ROOT_FOUND) {
+    if (FindDataRoot() != DATA_ROOT_FOUND) {
         fprintf(stderr,
             "Nie znalaz\xC5\x82""em plik\xC3\xB3w Dane_*.dta.\n"
             "U\xC5\xBC""yj jednego z:\n"
@@ -393,7 +393,7 @@ int WackiMain(int argc, char **argv)
         return 1;
     }
     fprintf(stderr, "[wacki] build " __DATE__ " " __TIME__ "\n");
-    fprintf(stderr, "[wacki] data source: %s\n", g_cd_path);
+    fprintf(stderr, "[wacki] data source: %s\n", g_data_root);
 
     try_load_pe_image();
 
@@ -426,7 +426,7 @@ int main(int argc, char **argv)
 
 /* ---- portable replacements for the original Win32 helpers ------- */
 
-void PumpWin32Messages(void)
+void PumpEvents(void)
 {
     PlatformPumpEvents();
 }

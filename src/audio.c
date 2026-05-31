@@ -234,7 +234,7 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
 
     int ok = 0;
     if (!ok) ok = try_load_wav_at(NULL,      name, &native, &native_buf, &native_len);
-    if (!ok) ok = try_load_wav_at(g_cd_path, name, &native, &native_buf, &native_len);
+    if (!ok) ok = try_load_wav_at(g_data_root, name, &native, &native_buf, &native_len);
     if (!ok) ok = try_load_wav_at("./data",  name, &native, &native_buf, &native_len);
     if (!ok) ok = try_load_wav_from_dta(name, &native, &native_buf, &native_len);
     if (!ok) {

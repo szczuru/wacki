@@ -684,11 +684,11 @@ int InitializeGameSubsystems(void)
     int opened = OpenDtaArchiveFile("Dane_02.dta");
     if (!opened) {
         char buf[280];
-        snprintf(buf, sizeof buf, "%s/Dane_02.dta", g_cd_path);
+        snprintf(buf, sizeof buf, "%s/Dane_02.dta", g_data_root);
         opened = OpenDtaArchiveFile(buf);
     }
     if (!opened) {
-        fprintf(stderr, "\nBrak pliku bazy : Dane_02.dta (na CD: %s)\n", g_cd_path);
+        fprintf(stderr, "\nBrak pliku bazy : Dane_02.dta (na CD: %s)\n", g_data_root);
         PlatformShowMessageBox("Wacki",
             "Nie znaleziono Dane_02.dta — sprawd\xC5\xBA p\xC5\x82yt\xC4\x99 CD.");
         return 0;

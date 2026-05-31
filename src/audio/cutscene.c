@@ -9,7 +9,7 @@
  *
  * Resolution order matches the engine's:
  *   1. CWD (named as-is)
- *   2. g_cd_path (CLI / env CD-data location)
+ *   2. g_data_root (CLI / env CD-data location)
  *   3. ./data (default install layout)
  *
  * Each root is retried with the file basename uppercased so case-
@@ -28,7 +28,7 @@
 #include <string.h>
 
 extern int  PlayFlicAviFile(const char *path);   /* flic.c */
-extern char g_cd_path[260];
+extern char g_data_root[260];
 
 /* SDL build always succeeds; nothing actually plays. */
 int InitializeDirectSound(void) { return 0; }
@@ -57,6 +57,6 @@ void PlaySceneCutsceneAvi(const char *avi_name)
 {
     if (!avi_name) return;
     if (try_play_at(NULL,      avi_name)) return;
-    if (try_play_at(g_cd_path, avi_name)) return;
+    if (try_play_at(g_data_root, avi_name)) return;
     if (try_play_at("./data",  avi_name)) return;
 }
