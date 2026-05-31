@@ -1768,104 +1768,164 @@ static void persist_audio_opts(void)
     WriteSaveFile();
 }
 
-/* SolundClick — Solund.pic SceneDef
- * has 6 buttons (ids 0x12..0x17). Per Ghidra mapping (T103):
- * 0x12 → music_on
- * 0x13 → subtitles — gates op 0x09 SHOW_TEXT
- * 0x14 → voice_on — gates PlayDialogLine
- * 0x15 → dialogues — gates op 0x52/0x53
- * 0x16 → extra — semantic under RE
- * 0x17 → exit
+/* ---- Solund.pic audio-options constants + helpers ----------------- */
+
+/* Triggers the Solund.wyc mask emits per button. Buttons 0x12..0x16 are
+ * toggle slots (5 of them); 0x17 is the exit button. */
+#define SOLUND_BTN_MUSIC                0x12
+#define SOLUND_BTN_SUBTITLES            0x13
+#define SOLUND_BTN_VOICE                0x14
+#define SOLUND_BTN_DIALOGUES            0x15
+#define SOLUND_BTN_EXTRA                0x16
+#define SOLUND_BTN_EXIT                 0x17
+
+/* SolundClick return codes. 0 = idle / per-frame redraw; 3 = exit
+ * (caller propagates to the opszyns dispatcher). */
+#define SOLUND_RC_KEEP_OPEN             0
+#define SOLUND_RC_EXIT                  3
+
+/* Button slot indices in g_solund_scene.buttons[]. */
+#define SOLUND_SLOT_MUSIC               0
+#define SOLUND_SLOT_SUBTITLES           1
+#define SOLUND_SLOT_VOICE               2
+#define SOLUND_SLOT_DIALOGUES           3
+#define SOLUND_SLOT_EXTRA               4
+#define SOLUND_SLOT_EXIT                5
+#define SOLUND_BUTTON_COUNT             6
+#define SOLUND_TOGGLE_BUTTON_COUNT      5
+
+/* Solund.wyc atlas layout — 24 frames in four contiguous bands of 6:
+ *   [0..5]    = OFF hover  (slot N → frame N + SOLUND_OFF_HOVER_BASE)
+ *   [6..11]   = OFF def
+ *   [12..17]  = ON  hover
+ *   [18..23]  = ON  def
+ * The exit slot has no "active" state, so it stays at OFF frames. */
+#define SOLUND_OFF_HOVER_BASE           0
+#define SOLUND_OFF_DEF_BASE             6
+#define SOLUND_ON_HOVER_BASE            12
+#define SOLUND_ON_DEF_BASE              18
+
+/* SolundClick — Solund.pic SceneDef has 6 buttons (ids 0x12..0x17).
+ * Per the dispatch-table mapping:
+ *   MUSIC      → music_on             (audio mixer gate)
+ *   SUBTITLES  → subtitles            (op 0x09 SHOW_TEXT gate)
+ *   VOICE      → voice_on             (PlayDialogLine gate)
+ *   DIALOGUES  → dialogues            (op 0x52 / 0x53 gate)
+ *   EXTRA      → extra                (semantic still under RE)
+ *   EXIT       → return SOLUND_RC_EXIT + persist to Wacki.sav
  *
- * Each toggle flips its flag + applies immediately to the relevant
- * subsystem (audio mixer / global gate). Exit triggers Wacki.sav write
- * via persist_audio_opts. */
+ * Each toggle flips its flag and applies immediately to the relevant
+ * subsystem; exit also persists via persist_audio_opts. */
 extern SceneDef g_solund_scene;
 extern void AudioSetVoiceEnabled(int on);    /* audio.c */
+
+/* Write the def/hover frames for one toggle slot from its on/off state. */
+static void apply_solund_toggle_visual(int slot, int is_on)
+{
+    g_solund_scene.buttons[slot].hover_anim =
+        (uint16_t)(slot + (is_on ? SOLUND_ON_HOVER_BASE
+                                 : SOLUND_OFF_HOVER_BASE));
+    g_solund_scene.buttons[slot].def_anim =
+        (uint16_t)(slot + (is_on ? SOLUND_ON_DEF_BASE
+                                 : SOLUND_OFF_DEF_BASE));
+}
+
+/* Sync all 5 toggle slots' visuals from the current s_opt_* flags.
+ * Runs on every SolundClick call (including idle / per-frame trigger=-1)
+ * so the on/off indicators stay in sync when the scene is re-entered. */
+static void refresh_solund_toggle_visuals(void)
+{
+    apply_solund_toggle_visual(SOLUND_SLOT_MUSIC,     s_opt_music);
+    apply_solund_toggle_visual(SOLUND_SLOT_SUBTITLES, s_opt_subtitles);
+    apply_solund_toggle_visual(SOLUND_SLOT_VOICE,     s_opt_voice);
+    apply_solund_toggle_visual(SOLUND_SLOT_DIALOGUES, s_opt_dialogues);
+    apply_solund_toggle_visual(SOLUND_SLOT_EXTRA,     s_opt_extra);
+}
+
+/* Re-apply every option's effect to its subsystem (used on EXIT to
+ * make sure mixer / global gate state matches the flags before
+ * persisting to Wacki.sav). */
+static void reassert_audio_option_state(void)
+{
+    AudioSetMusicEnabled(s_opt_music);
+    AudioSetVoiceEnabled(s_opt_voice);
+    g_subtitles_on = s_opt_subtitles;
+    g_dialogues_on = s_opt_dialogues;
+}
+
 static int SolundClick(int trigger)
 {
     int toggled = 1;
     switch (trigger) {
-    case 0x12:
+    case SOLUND_BTN_MUSIC:
         s_opt_music ^= 1;
         AudioSetMusicEnabled(s_opt_music);
         break;
-    case 0x13:
+    case SOLUND_BTN_SUBTITLES:
         s_opt_subtitles ^= 1;
         g_subtitles_on = s_opt_subtitles;
         break;
-    case 0x14:
+    case SOLUND_BTN_VOICE:
         s_opt_voice ^= 1;
         AudioSetVoiceEnabled(s_opt_voice);
         break;
-    case 0x15:
+    case SOLUND_BTN_DIALOGUES:
         s_opt_dialogues ^= 1;
         g_dialogues_on = s_opt_dialogues;
         break;
-    case 0x16:
+    case SOLUND_BTN_EXTRA:
         s_opt_extra ^= 1;
-        /* speech_color_index semantic still under RE — log only for now. */
+        /* speech_color_index semantic still under RE — log only. */
         fprintf(stderr, "[opt] extra (fade_color_index) = %d\n", s_opt_extra);
         break;
-    case 0x17:
-        /* Exit — return code 3 → caller (opszyns dispatcher) propagates.
- * Re-assert all toggles + persist to Wacki.sav. */
-        AudioSetMusicEnabled(s_opt_music);
-        AudioSetVoiceEnabled(s_opt_voice);
-        g_subtitles_on = s_opt_subtitles;
-        g_dialogues_on = s_opt_dialogues;
+    case SOLUND_BTN_EXIT:
+        reassert_audio_option_state();
         persist_audio_opts();
-        return 3;
-    default: toggled = 0; break;       /* idle per-frame call (trigger=-1) */
+        return SOLUND_RC_EXIT;
+    default:
+        toggled = 0;
+        break;     /* idle per-frame call (trigger=-1) */
     }
-    /* Refresh the SceneDef button frames so on/off state shows visually.
- * Atlas layout (24 frames): 0..5 = OFF hover, 6..11 = OFF def,
- * 12..17 = ON hover, 18..23 = ON def. Buttons 0..4 (5 toggles) get
- * the ON/OFF treatment; button 5 (exit at id 0x17) stays at def=11,
- * hover=5 — there's no toggled "exit-active" state.
- *
- * Block runs on EVERY call (including idle/default trigger=-1) so the
- * on/off state stays in sync with s_opt_* flags even when scene is
- * re-entered. Original reaches via default fall-through. */
-    /* T103: button index mapping (post-fix Solund semantics):
- * buttons[5] = exit (0x17, no toggle visual) */
-    g_solund_scene.buttons[0].hover_anim = (uint16_t)(s_opt_music      ? 12 : 0);
-    g_solund_scene.buttons[0].def_anim   = (uint16_t)(s_opt_music      ? 18 : 6);
-    g_solund_scene.buttons[1].hover_anim = (uint16_t)(s_opt_subtitles  ? 13 : 1);
-    g_solund_scene.buttons[1].def_anim   = (uint16_t)(s_opt_subtitles  ? 19 : 7);
-    g_solund_scene.buttons[2].hover_anim = (uint16_t)(s_opt_voice      ? 14 : 2);
-    g_solund_scene.buttons[2].def_anim   = (uint16_t)(s_opt_voice      ? 20 : 8);
-    g_solund_scene.buttons[3].hover_anim = (uint16_t)(s_opt_dialogues  ? 15 : 3);
-    g_solund_scene.buttons[3].def_anim   = (uint16_t)(s_opt_dialogues  ? 21 : 9);
-    g_solund_scene.buttons[4].hover_anim = (uint16_t)(s_opt_extra      ? 16 : 4);
-    g_solund_scene.buttons[4].def_anim   = (uint16_t)(s_opt_extra      ? 22 : 10);
+
+    refresh_solund_toggle_visuals();
+
     if (toggled) {
         fprintf(stderr, "[opt] music=%d subs=%d voice=%d dialog=%d extra=%d\n",
                 s_opt_music, s_opt_subtitles, s_opt_voice,
                 s_opt_dialogues, s_opt_extra);
     }
-    return 0;
+    return SOLUND_RC_KEEP_OPEN;
 }
 
-/* Solund.pic scene def —
- * Button layout (per dispatch table & graphics):
- * id 0x12 (music) def=6 (on) / hover=0 (off label)
- * id 0x13 (samplerate) def=7 / hover=1
- * id 0x14 (stereo) def=8 / hover=2
- * id 0x15 (sfx) def=9 / hover=3
- * id 0x16 (sound) def=10 / hover=4
- * id 0x17 (exit) def=11 / hover=5
- * Initial def/hover values are recomputed by SolundClick on first
- * non-toggle entry to reflect the current flag state. */
+/* Solund.pic SceneDef. The five toggle slots start at OFF frames
+ * (def=N+OFF_DEF_BASE, hover=N+OFF_HOVER_BASE); SolundClick's first
+ * non-toggle entry re-syncs them to the current flag state. The exit
+ * slot has no active state and stays at OFF frames. */
 SceneDef g_solund_scene = {
     .background_pic = "Solund.pic",
     .mask_file      = "Solund.wyc",
     .on_click       = SolundClick,
-    .button_count   = 6,
+    .button_count   = SOLUND_BUTTON_COUNT,
     .flags          = SCENE_FLAG_REDRAW,
     .buttons = {
-        { 0x12, 6, 0 }, { 0x13, 7, 1 }, { 0x14, 8, 2 },
-        { 0x15, 9, 3 }, { 0x16, 10, 4 }, { 0x17, 11, 5 },
+        { SOLUND_BTN_MUSIC,
+          SOLUND_OFF_DEF_BASE   + SOLUND_SLOT_MUSIC,
+          SOLUND_OFF_HOVER_BASE + SOLUND_SLOT_MUSIC },
+        { SOLUND_BTN_SUBTITLES,
+          SOLUND_OFF_DEF_BASE   + SOLUND_SLOT_SUBTITLES,
+          SOLUND_OFF_HOVER_BASE + SOLUND_SLOT_SUBTITLES },
+        { SOLUND_BTN_VOICE,
+          SOLUND_OFF_DEF_BASE   + SOLUND_SLOT_VOICE,
+          SOLUND_OFF_HOVER_BASE + SOLUND_SLOT_VOICE },
+        { SOLUND_BTN_DIALOGUES,
+          SOLUND_OFF_DEF_BASE   + SOLUND_SLOT_DIALOGUES,
+          SOLUND_OFF_HOVER_BASE + SOLUND_SLOT_DIALOGUES },
+        { SOLUND_BTN_EXTRA,
+          SOLUND_OFF_DEF_BASE   + SOLUND_SLOT_EXTRA,
+          SOLUND_OFF_HOVER_BASE + SOLUND_SLOT_EXTRA },
+        { SOLUND_BTN_EXIT,
+          SOLUND_OFF_DEF_BASE   + SOLUND_SLOT_EXIT,
+          SOLUND_OFF_HOVER_BASE + SOLUND_SLOT_EXIT },
     },
 };
 
