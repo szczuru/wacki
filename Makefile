@@ -40,7 +40,7 @@ ENGINE_SRCS = \
 	src/actor/list.c src/actor/vm.c \
 	src/actor/render.c src/actor/alloc.c \
 	src/actor/walker.c                            \
-	src/save.c    src/font.c      src/flic.c                     \
+	src/save.c    src/font.c      src/flic.c   src/flic/decoder.c \
 	src/heap.c     src/cygio.c   src/timer.c     src/stubs.c     \
 	src/binary_data.c src/pe_loader.c                            \
 	src/platform_sdl.c src/vm/script_obj.c src/vm/parser.c       \
