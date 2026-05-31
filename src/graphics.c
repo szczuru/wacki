@@ -1,17 +1,24 @@
-/*
- * graphics.c — portable 8-bpp software rasteriser.
+/* src/graphics.c — portable 8-bpp software rasteriser.
  *
- * The original engine drove a DirectDraw primary surface; this version
- * draws into a flat shadow buffer (g_back_shadow) and asks the platform
- * layer to present it. The blitter API is preserved verbatim so that
- * BlitSpriteToBackbuffer / PaintImageToBackbuffer continue to match the
- * Ghidra decompile of WACKI.EXE @ 0x00411480 / 0x00411730.
- */
+ * The original engine drove a DirectDraw primary surface; this port
+ * draws into a flat shadow buffer (g_back_shadow) and asks the
+ * platform layer to present it. The blitter API is preserved
+ * verbatim so that BlitSpriteToBackbuffer / PaintImageToBackbuffer
+ * continue to match the original semantics for every caller. */
 #include "wacki.h"
 #include <string.h>
 #include <stdlib.h>
 
-/* ---- shadow buffer + palette ------------------------------------------- */
+/* ---- constants --------------------------------------------------- */
+
+/* Sanity cap on the destination size accepted by the scaled-blit
+ * paths — anything larger is almost certainly a scale-pct overflow.
+ * 0x400 = 1024 px, far above any actor sprite. The static LUT arrays
+ * (x_step, y_extra) are sized to SCALED_BLIT_MAX_DIM + 1. */
+#define SCALED_BLIT_MAX_DIM     0x400
+#define SCALED_BLIT_LUT_SIZE    (SCALED_BLIT_MAX_DIM + 1)
+
+/* ---- shadow buffer + palette ------------------------------------- */
 uint8_t  *g_back_shadow = NULL;
 uint8_t   g_palette_rgb[256*3];
 uint16_t  g_screen_w = WACKI_SCREEN_W;
@@ -89,9 +96,7 @@ static void ensure_shadow(void)
     if (g_back_shadow) memset(g_back_shadow, 0, (size_t)g_screen_w * g_screen_h);
 }
 
-/* ------------------------------------------------------------------------- *
- * BlitSpriteToBackbuffer — 0x00411480
- * ------------------------------------------------------------------------- */
+/* ---- BlitSpriteToBackbuffer -------------------------------------- */
 void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
                             uint16_t sx, uint16_t sy,
                             uint16_t cw, uint16_t ch,
@@ -109,11 +114,11 @@ void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
     if (destY < 0) { sy_off -= destY; ch_i += destY; destY = 0; }
     if (destX + cw_i > g_screen_w) cw_i = g_screen_w - destX;
     if (destY + ch_i > g_screen_h) ch_i = g_screen_h - destY;
-    /* T136 — clip against source surface extent. Earlier `(void)ph;`
- * ignored the surface height entirely; sub-atlas blits with
- * (sx, sy) pointing past surface bounds would read garbage from
- * adjacent memory. Now: bail if requested sx/sy + extent exceeds
- * source surface (pw × ph). */
+    /* T136 — clip against source surface extent. An earlier `(void)
+     * ph;` ignored the surface height entirely; sub-atlas blits with
+     * (sx, sy) pointing past surface bounds would read garbage from
+     * adjacent memory. Now: bail if the requested sx/sy + extent
+     * exceeds the source surface (pw × ph). */
     if (ph != 0) {
         if (sy_off < 0) { ch_i += sy_off; destY -= sy_off; sy_off = 0; }
         if (sy_off + ch_i > (int)ph) ch_i = (int)ph - sy_off;
@@ -130,13 +135,13 @@ void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
     const uint8_t *ssrc= src + (size_t)sy_off * pw + sx_off;
 
     /* T104 audit (2026-05-27): all known port callers pass mode == 0.
- * Modes 1 (opaque memcpy) and 2 (palette-index avg) were unused dead
- * code — mode 2 in particular produced garbage colors because palette
- * indices don't blend linearly in an 8bpp paletted scheme. Original
- * binary doesn't use mode 2 either — (the "translucent"
- * blit) is actually a fill-transparent path (`if dst==0 dst=src`),
- * not averaging. Kept here only as gated bail-outs with logging so
- * any future caller is flagged. */
+     * Modes 1 (opaque memcpy) and 2 used to do palette-index
+     * averaging, but mode 2 produced garbage colours (palette
+     * indices don't blend linearly in 8bpp paletted) and the
+     * original binary uses mode 2 as a fill-transparent path
+     * (`if dst==0 dst=src`), not averaging. Modes 1 and 2 are kept
+     * here only to match any future caller; the semantic for mode 2
+     * is now the original's fill-transparent. */
     for (int row = 0; row < ch_i; ++row) {
         switch (mode) {
         case 0: /* color-key 0 — the only used mode */
@@ -147,10 +152,9 @@ void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
             memcpy(dst, ssrc, (size_t)cw_i);
             break;
         case 2:
-            /* NOTE: mode 2 in port was a
- * palette-index avg approximation. Original is
- * actually fill-transparent (dst=src where dst==0). Until a
- * caller actually needs it, mirror that semantic. */
+            /* Fill-transparent — original binary's semantic.  Earlier
+             * port did palette-index averaging which produced garbage
+             * colour. */
             for (int i = 0; i < cw_i; ++i)
                 if (dst[i] == 0) dst[i] = ssrc[i];
             break;
@@ -160,9 +164,7 @@ void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
     }
 }
 
-/* ------------------------------------------------------------------------- *
- * PaintImageToBackbuffer — 0x00411730
- * ------------------------------------------------------------------------- */
+/* ---- PaintImageToBackbuffer -------------------------------------- */
 void PaintImageToBackbuffer(int16_t dx, int16_t dy,
                             uint16_t cw, uint16_t ch,
                             const uint8_t *src)
@@ -200,10 +202,8 @@ void FlipBuffersClearWith(uint8_t v)
     s_dirty_this_count = 1;
 }
 
-/* ------------------------------------------------------------------------- *
- * FlushFrameToPrimary — 0x004119B0
- * Sends the shadow to the screen via the platform layer.
- * ------------------------------------------------------------------------- */
+/* ---- FlushFrameToPrimary ----------------------------------------- *
+ * Sends the shadow to the screen via the platform layer. */
 void FlushFrameToPrimary(void)
 {
     ensure_shadow();
@@ -212,29 +212,25 @@ void FlushFrameToPrimary(void)
     s_dirty_this_count = 0;
 }
 
-/* ------------------------------------------------------------------------- *
- * RestorePrevFrameRects — 0x00412410
- * No-op in the SDL build (we redraw the whole shadow each frame).
- * ------------------------------------------------------------------------- */
+/* ---- RestorePrevFrameRects --------------------------------------- *
+ * No-op in the SDL build (we redraw the whole shadow each frame). */
 void RestorePrevFrameRects(void) { /* nop */ }
 
-/* ------------------------------------------------------------------------- *
- * BlitSpriteScaledColorKey — nearest-neighbor scaled colour-key blit.
+/* ---- BlitSpriteScaledColorKey + Flip ----------------------------- *
  *
- * Used for perspective-scaled actor rendering. The original engine does
- * this inside the per-entity render path ( case scaled-actor
- * branch + stretched-blit) controlled by entity->scale_pct
- * (= entity+0x58, computed each tick by UpdateActorMovement from the
- * actor's foot-Y and the stage perspective parameters g_cursor_speed /
+ * Nearest-neighbour scaled colour-key blit, used for perspective-
+ * scaled actor rendering. The original engine does this inside the
+ * per-entity render path; scale comes from entity[+0x58] (scale_pct,
+ * computed each tick by UpdateActorMovement from the actor's foot-Y
+ * and the stage perspective parameters g_cursor_speed /
  * g_perspective_min / g_perspective_step).
  *
  * Parameters:
- * dx, dy — destination top-left (already adjusted for scaled size)
- * sw, sh — source frame size (raw atlas)
- * dw, dh — destination size (= sw*scale/100, sh*scale/100)
- * src — source pixels (sw × sh, 8 bpp)
- * Skips palette index 0 (transparent).
- * ------------------------------------------------------------------------- */
+ *   dx, dy — destination top-left (already adjusted for scaled size)
+ *   sw, sh — source frame size (raw atlas)
+ *   dw, dh — destination size (= sw*scale/100, sh*scale/100)
+ *   src    — source pixels (sw × sh, 8 bpp)
+ * Palette index 0 is transparent. */
 void BlitSpriteScaledColorKey(int16_t dx, int16_t dy,
                               uint16_t sw, uint16_t sh,
                               uint16_t dw, uint16_t dh,
@@ -243,17 +239,18 @@ void BlitSpriteScaledColorKey(int16_t dx, int16_t dy,
     BlitSpriteScaledColorKeyFlip(dx, dy, sw, sh, dw, dh, src, 0);
 }
 
-/* Same as above but with horizontal mirror flag (used for actors walking
- * right — the original engine stores ebek/fjej atlases facing LEFT only
- * and mirrors at render time via + entity flags). */
+/* Same as above with a horizontal mirror flag (used for actors
+ * walking right — the original engine stores ebek/fjej atlases
+ * facing LEFT only and mirrors at render time). */
 void BlitSpriteScaledColorKeyFlip(int16_t dx, int16_t dy,
                                   uint16_t sw, uint16_t sh,
                                   uint16_t dw, uint16_t dh,
                                   const uint8_t *src, int flip_h)
 {
     ensure_shadow();
-    if (!src || !g_back_shadow || dw == 0 || dh == 0 || sw == 0 || sh == 0) return;
-    if (dw > 0x400 || dh > 0x400) return;
+    if (!src || !g_back_shadow || dw == 0 || dh == 0 ||
+        sw == 0 || sh == 0) return;
+    if (dw > SCALED_BLIT_MAX_DIM || dh > SCALED_BLIT_MAX_DIM) return;
 
     int destX0 = dx, destY0 = dy;
     int destX1 = dx + dw, destY1 = dy + dh;
@@ -265,10 +262,10 @@ void BlitSpriteScaledColorKeyFlip(int16_t dx, int16_t dy,
 
     push_dirty(destX0, destY0, destX1 - destX0, destY1 - destY0);
 
-    /* T33: mode 0 — x-step LUT +
- * y-extra-row LUT. Bresenham-style accumulator. */
-    static uint32_t x_step[0x401];
-    static uint8_t  y_extra[0x401];
+    /* T33: mode 0 — x-step LUT + y-extra-row LUT, Bresenham-style
+     * accumulator. */
+    static uint32_t x_step[SCALED_BLIT_LUT_SIZE];
+    static uint8_t  y_extra[SCALED_BLIT_LUT_SIZE];
     {
         uint32_t base = sw / dw, rem = sw % dw, acc = rem, cur = base;
         for (uint32_t i = 0; i < dw; ++i) {
@@ -287,10 +284,11 @@ void BlitSpriteScaledColorKeyFlip(int16_t dx, int16_t dy,
         }
     }
 
-    /* Walk src rows via base step + y_extra (mirrors mode 0 inner loop
- * in ). For each dst row, x_step[dx] is how many src
- * columns to advance after sampling. flip_h inverts the x-offset
- * (sw-1-x) — original engine flips at render time, atlases face L. */
+    /* Walk src rows via base step + y_extra (mirrors mode 0 inner
+     * loop in the original). For each dst row, x_step[dx] is how
+     * many src columns to advance after sampling. flip_h inverts the
+     * x-offset (sw-1-x) — atlases face left, engine flips at render
+     * time. */
     const uint8_t *srow      = src;
     int            row_step  = (int)(sh / dh) * (int)sw;
     /* Skip src rows above clipped destY0. */
@@ -318,26 +316,25 @@ void BlitSpriteScaledColorKeyFlip(int16_t dx, int16_t dy,
     }
 }
 
-/* ------------------------------------------------------------------------- *
- * DepackRleFrame
+/* ---- DepackRleFrame ---------------------------------------------- *
  *
- * The "rich" ANIM encoding (asset kind=3 in LoadAssetFromDtaBase, i.e.
- * frame_count > 16 and first-frame's first param non-zero) stores each
- * frame as an RLE stream with a 3-byte header:
- * usually 0 = palette idx 0 = transparent)
- * header[1] = marker_A (any input byte equal to A introduces a
- * run of fill_value)
- * header[2] = marker_B (introduces a run of an arbitrary literal)
+ * The "rich" ANIM encoding (asset kind=3 in LoadAssetFromDtaBase,
+ * i.e. frame_count > 16 and first-frame's first param non-zero)
+ * stores each frame as an RLE stream with a 3-byte header:
  *
- * Stream (bytes after the header):
- * for each input byte b:
- * if b == marker_A: count = next_byte + 1;
- * emit `count` copies of fill_value
- * if b == marker_B: count = next_byte + 1; value = next_byte;
- * emit `count` copies of value
- * else: emit b once
- * Loop until `dst_len` output bytes written. Returns nothing.
- * ------------------------------------------------------------------------- */
+ *   header[0] = fill_value (usually 0 = palette idx 0 = transparent)
+ *   header[1] = marker_A   (any input byte equal to A introduces a
+ *                           run of fill_value)
+ *   header[2] = marker_B   (introduces a run of an arbitrary literal)
+ *
+ * Stream (bytes after the header), for each input byte b:
+ *   b == marker_A: count = next_byte + 1;
+ *                  emit `count` copies of fill_value
+ *   b == marker_B: count = next_byte + 1; value = next_byte;
+ *                  emit `count` copies of value
+ *   else:          emit b once
+ *
+ * Loop until `dst_len` output bytes written. */
 void DepackRleFrame(const uint8_t *src, uint8_t *dst, int dst_len)
 {
     if (!src || !dst || dst_len <= 0) return;
@@ -363,14 +360,13 @@ void DepackRleFrame(const uint8_t *src, uint8_t *dst, int dst_len)
     }
 }
 
-/* ------------------------------------------------------------------------- *
- * InstallPalette — 0x00412D10
- * Copies bytes into g_palette_rgb (BGR triplets in the original; we keep
- * the same byte order so .pal files load unmodified).
+/* ---- InstallPalette ---------------------------------------------- *
  *
- * T7: also rebuilds the RGB12 quantization LUTs used by the alpha-plane
- * scaled blit ( mode 1/2 box-filter paths).
- * ------------------------------------------------------------------------- */
+ * Copies bytes into g_palette_rgb (BGR triplets in the original; we
+ * keep the same byte order so .pal files load unmodified).
+ *
+ * T7: also rebuilds the RGB12 quantization LUTs used by the alpha-
+ * plane scaled blit (mode 1 / 2 box-filter paths). */
 extern void RebuildAlphaQuantLuts(void);
 void InstallPalette(const uint8_t *rgb, uint16_t first)
 {
