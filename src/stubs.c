@@ -60,18 +60,16 @@ int16_t   g_persp_profile[0x22*2];      /* g_persp_profile */
 extern int  BindActorWalker(int actor_idx, int target_x, int target_y);
 extern int  PlatformShouldQuit(void);
 
-/* g_settings_anim_active — komnata flag bits (set from komnata table entry[+4]
- * inside / LoadKomnata):
- * bit 0 = panel visible (read by PanelHitTest)
- * bit 1 = actors active (read by actor.c — UpdateActorMovement gate)
- * bit 2 = link the kind=3/4 default entities (cursor + krazek)
- * Default is 2 (actors-only) so the menu/cutscene path doesn't render
- * the panel; LoadKomnata raises bit 0 for in-game rooms. */
-uint16_t  g_settings_anim_active = 2;   /* g_settings_anim_active — komnata flags
- * (T121: u16 not u8 — high bits
- * 8-15 needed by
- * ScriptCallBgMaskSetup perspective
- * band count `(flags & 0xff02) << 1`). */
+/* Komnata flag bitfield — set from komnata table entry[+4] inside
+ * LoadKomnata. Bits read by the engine:
+ *   bit 0 — panel visible    (PanelHitTest, HUD draw)
+ *   bit 1 — actors active    (actor walker / UpdateActorMovement)
+ *   bit 2 — link default kind=3/4 entities (cursor + krazek)
+ *   bits 8-15 — perspective band count, shifted by ScriptCallBgMaskSetup
+ *               as `(flags & 0xff02) << 1` (so the u16 width matters).
+ * Default 2 = actors-only, no panel — matches menu / cutscene boot
+ * state. LoadKomnata raises bit 0 for in-game rooms. */
+uint16_t  g_komnata_flags = 2;
 uint16_t  g_selected_save_slot = 0;
 
 void     *g_dialogues_obj = NULL;

@@ -244,7 +244,7 @@ const char *LoadKomnata(uint16_t id)
     parse_komnata_sampl_tags(name);
 
     /* --- 4: page-swap the inventory panel + run scripts ------------ */
-    g_settings_anim_active = flags;
+    g_komnata_flags = flags;
     PanelPageSwap();
     run_enter_script(enter_va);
 

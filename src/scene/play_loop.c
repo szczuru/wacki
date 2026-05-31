@@ -33,7 +33,7 @@
 #define ROOM_PALETTE_FILENAME       "paleta.pal"
 #define DEFAULT_PANEL_FILENAME      "panel.wyc"
 
-/* g_settings_anim_active bit 0 = "panel visible this komnata". */
+/* g_komnata_flags bit 0 = "panel visible this komnata". */
 #define KOMNATA_FLAG_PANEL_VISIBLE  0x01u
 
 /* Initial actor spawn frame (idle pose) + scene-default positions. */
@@ -128,8 +128,8 @@ static void prepare_panel_asset(void)
     if (stage_has_panel && !g_panel_asset) {
         g_panel_asset = LoadAssetFromDtaBase(DEFAULT_PANEL_FILENAME);
     }
-    if (stage_has_panel) g_settings_anim_active |=  KOMNATA_FLAG_PANEL_VISIBLE;
-    else                 g_settings_anim_active &= ~KOMNATA_FLAG_PANEL_VISIBLE;
+    if (stage_has_panel) g_komnata_flags |=  KOMNATA_FLAG_PANEL_VISIBLE;
+    else                 g_komnata_flags &= ~KOMNATA_FLAG_PANEL_VISIBLE;
 }
 
 /* Pick the per-actor atlas to spawn from — NULL for stages where the

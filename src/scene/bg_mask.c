@@ -24,7 +24,7 @@
 
 extern Entity   *g_render_list_head;
 extern int       g_persp_band_count;
-extern uint16_t  g_settings_anim_active;
+extern uint16_t  g_komnata_flags;
 extern const uint8_t *g_walk_fld_pixels;
 extern uint16_t  g_walk_fld_w, g_walk_fld_h, g_walk_fld_stride;
 extern int16_t   g_walk_fld_ox, g_walk_fld_oy;
@@ -150,7 +150,7 @@ void ScriptCallBgMaskSetup(const char *name)
 
     /* Reset the perspective band count from komnata flags. Without
      * this, FILD-asset bands accumulate across scene changes. */
-    g_persp_band_count = (int)((g_settings_anim_active & BAND_COUNT_FLAGS_MASK) << 1);
+    g_persp_band_count = (int)((g_komnata_flags & BAND_COUNT_FLAGS_MASK) << 1);
 
     if (!name) {
         fprintf(stderr, "[script] bg-mask-setup name=NULL\n");

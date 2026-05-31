@@ -672,12 +672,13 @@ extern WackiSaveFile g_save;
 
 extern uint32_t  g_tick_counter;
 /* g_next_cd_check removed — rule #7. */
-extern uint16_t  g_settings_anim_active;     /* T121: was uint8_t — original
-                                              * DAT_0044E448 is ushort and
-                                              * ScriptCallBgMaskSetup reads
-                                              * `(flags & 0xff02) << 1` which
-                                              * needs bits 8-15. */
-extern uint16_t  g_cursor_speed;            /* DAT_0044A198 — undefined2 in Ghidra */
+/* Komnata flag bitfield — loaded from the komnata table at scene
+ * entry. Low bits gate per-room features (bit 0 = panel visible,
+ * bit 1 = actors alive / has perimeter bands); the high byte is
+ * shifted by ScriptCallBgMaskSetup as `(flags & 0xff02) << 1`, so
+ * the full uint16_t width is load-bearing. */
+extern uint16_t  g_komnata_flags;
+extern uint16_t  g_cursor_speed;
 extern uint16_t  g_perspective_min;
 extern uint16_t  g_perspective_step;
 

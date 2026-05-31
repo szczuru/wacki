@@ -34,7 +34,7 @@ extern AnimAsset *g_items_atlas;
 extern Entity   *FindEntityByVerbId(uint16_t verb);
 
 /* Globals owned by other modules but referenced here. */
-extern uint16_t g_settings_anim_active;
+extern uint16_t g_komnata_flags;
 extern uint16_t g_panel_verb_tab[6];
 extern uint32_t g_scene_snapshot[0x1E];     /* backing storage for inventory */
 
@@ -96,7 +96,7 @@ void ResetInventory(void)
 
 void PanelPageSwap(void)
 {
-    if (!(g_settings_anim_active & PANEL_VISIBLE_BIT) || !g_items_atlas) return;
+    if (!(g_komnata_flags & PANEL_VISIBLE_BIT) || !g_items_atlas) return;
 
     uint16_t *inv       = Inventory();
     int       page_base = g_panel_page_idx * INVENTORY_PAGE_SIZE;

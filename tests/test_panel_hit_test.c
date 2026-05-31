@@ -9,7 +9,7 @@
  *
  * These tests cover:
  *   - default "no hit" sentinel
- *   - panel-hidden short-circuit (anim_active bit 0 clear)
+ *   - panel-hidden short-circuit (komnata-flags bit 0 clear)
  *   - null AnimAsset / null draw-offset arrays
  *   - mouse above panel top
  *   - direct hits on each of 6 cells → matching verb
@@ -26,7 +26,7 @@
 extern void PanelHitTest(void);
 
 extern AnimAsset *g_panel_asset;
-extern uint16_t   g_settings_anim_active;
+extern uint16_t   g_komnata_flags;
 extern uint16_t   g_hover_panel_verb;
 extern uint16_t   g_panel_verb_tab[6];
 extern uint16_t   g_held_item;
@@ -51,7 +51,7 @@ static void reset_panel(int16_t panel_x, int16_t panel_y)
     s_drawX[0] = (uint16_t)panel_x;
     s_drawY[0] = (uint16_t)panel_y;
     g_panel_asset = &s_panel;
-    g_settings_anim_active = 1;             /* bit 0 = panel visible */
+    g_komnata_flags = 1;             /* bit 0 = panel visible */
     g_hover_panel_verb = 0x26;
     g_held_item = 0x26;
 
@@ -86,18 +86,18 @@ TEST(panel_hidden_returns_sentinel_even_on_button)
      * the panel-visible bit is clear → must return 0x26 sentinel,
      * never reach the button table. */
     reset_panel(0, 0);
-    g_settings_anim_active = 0;             /* bit 0 clear */
+    g_komnata_flags = 0;             /* bit 0 clear */
     s_mouse_x = 320;
     s_mouse_y = 40;
     PanelHitTest();
     ASSERT_EQ(g_hover_panel_verb, 0x26);
 }
 
-TEST(panel_anim_active_other_bits_set_but_bit0_clear)
+TEST(panel_komnata_flags_other_bits_set_but_bit0_clear)
 {
     /* bit 0 must be set; other bits alone don't enable the panel. */
     reset_panel(0, 0);
-    g_settings_anim_active = 0xFFFE;        /* every bit BUT 0 */
+    g_komnata_flags = 0xFFFE;        /* every bit BUT 0 */
     s_mouse_x = 320;
     s_mouse_y = 40;
     PanelHitTest();
@@ -356,7 +356,7 @@ SUITE(panel_hit_test)
 {
     RUN_TEST(panel_default_neutral_when_mouse_far_below);
     RUN_TEST(panel_hidden_returns_sentinel_even_on_button);
-    RUN_TEST(panel_anim_active_other_bits_set_but_bit0_clear);
+    RUN_TEST(panel_komnata_flags_other_bits_set_but_bit0_clear);
     RUN_TEST(panel_null_asset_safely_returns);
     RUN_TEST(panel_null_off_drawX_safely_returns);
     RUN_TEST(panel_null_off_drawY_safely_returns);

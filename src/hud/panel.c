@@ -11,7 +11,7 @@
  * (525, 20). Each cell is 40×40 px. Open-interval comparisons on both
  * edges — pixel-edge coordinates intentionally miss.
  *
- * Visibility gate: g_settings_anim_active bit 0 selects whether the
+ * Visibility gate: g_komnata_flags bit 0 selects whether the
  * panel is shown for the current komnata (cutscene rooms clear it,
  * gameplay rooms set it). */
 
@@ -22,7 +22,7 @@
 extern AnimAsset *g_panel_asset;
 extern int16_t    s_mouse_x;
 extern int16_t    s_mouse_y;
-extern uint16_t   g_settings_anim_active;
+extern uint16_t   g_komnata_flags;
 
 /* ---- constants ---------------------------------------------------- */
 
@@ -53,7 +53,7 @@ void PanelHitTest(void)
 {
     g_hover_panel_verb = PANEL_NEUTRAL_VERB;
 
-    if (!(g_settings_anim_active & PANEL_VISIBLE_BIT)) return;
+    if (!(g_komnata_flags & PANEL_VISIBLE_BIT)) return;
     if (!g_panel_asset ||
         !g_panel_asset->off_drawX ||
         !g_panel_asset->off_drawY) return;

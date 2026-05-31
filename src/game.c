@@ -267,7 +267,7 @@ int LoadStage(uint16_t stage)
  * kept their stage 4 values, so PaintHudOverlay + EntityRenderAll
  * still drew the panel and Ebek/Fjej during the finale.
  * actor-list management gated on komnata flag
- * g_settings_anim_active & 2 — when the new stage's atlas slot is NULL, the
+ * g_komnata_flags & 2 — when the new stage's atlas slot is NULL, the
  * actor must be unlinked from the render list. */
     if (g_stage->panel_wyc) {
         if (g_panel_asset) {
@@ -301,7 +301,7 @@ int LoadStage(uint16_t stage)
  * stage's value = 1 would draw stale portraits + health bar for two
  * frames before play_demo_scene's `&= ~1u` later in the prologue —
  * visible as the "HUD flash" right after picking the ACME button. */
-    if (!g_stage->panel_wyc) g_settings_anim_active &= ~1u;
+    if (!g_stage->panel_wyc) g_komnata_flags &= ~1u;
     /* load palette */
     if (g_stage->paleta_pal) {
         void *pal = NULL; uint32_t n;

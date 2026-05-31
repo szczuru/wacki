@@ -44,7 +44,7 @@ extern void paint_anim_button_at(AnimAsset *atlas, uint16_t frame,
 #define ITEM_VERB_FIRST           0x29
 #define NEUTRAL_VERB              0x26
 
-/* Panel visibility bit on g_settings_anim_active. */
+/* Panel visibility bit on g_komnata_flags. */
 #define PANEL_VISIBLE_BIT         0x0001
 
 /* Actor portrait atlas — 4 frames: 0/1 active, 2/3 inactive. */
@@ -78,7 +78,7 @@ static const int16_t s_btn_y[PANEL_SLOT_COUNT] = {  20,  20,  20,  20,  20,  20 
 
 static int panel_is_visible(void)
 {
-    return (g_settings_anim_active & PANEL_VISIBLE_BIT) != 0;
+    return (g_komnata_flags & PANEL_VISIBLE_BIT) != 0;
 }
 
 /* Blit one frame of an atlas at the given screen coords. Skips

@@ -37,7 +37,7 @@ extern uint16_t       g_active_actor;
 extern uint16_t       g_cursor_speed;
 extern uint16_t       g_perspective_min;
 extern uint16_t       g_perspective_step;
-extern uint16_t       g_settings_anim_active;
+extern uint16_t       g_komnata_flags;
 extern int16_t        g_persp_profile[];
 extern int            g_persp_band_count;
 
@@ -45,10 +45,11 @@ extern int            is_walkable_at(int sx, int sy);
 extern void           PlayActorAnimByPath(Entity *e, const char *path,
                                           int16_t target_x, int16_t target_y);
 
-/* ---- entity field offsets used here -------------------------------- */
+/* ---- komnata-flag bits read here ---------------------------------- */
 
-
-/* ---- settings flag bits at g_settings_anim_active ----------------- */
+/* Bit 1 of g_komnata_flags = "actors are alive this komnata". Same bit
+ * the komnata flag table uses for its perimeter-bands meaning; here we
+ * only care whether the walker subsystem should be ticking. */
 #define ANIM_ACTIVE_ACTORS_ALIVE 0x02
 
 /* Perspective defaults: any change indicates a script-modified
@@ -139,7 +140,7 @@ void UpdateActorMovement(int16_t target_x, int16_t target_y)
     (void)target_x;
     (void)target_y;
 
-    if (!(g_settings_anim_active & ANIM_ACTIVE_ACTORS_ALIVE)) return;
+    if (!(g_komnata_flags & ANIM_ACTIVE_ACTORS_ALIVE)) return;
 
     int persp_script_modified =
         (g_cursor_speed     != PERSP_DEFAULT_CURSOR_SPEED) ||
