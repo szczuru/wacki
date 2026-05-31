@@ -45,10 +45,12 @@
  * here. */
 #include "audio/mixer_internal.h"
 
-#define MIX_OUT_FREQ        22050
-#define MIX_OUT_CHANS       2           /* stereo for max compatibility */
-#define MIX_OUT_FORMAT      AUDIO_S16SYS
-#define MIX_OUT_SAMPLE_BYTES (2 * MIX_OUT_CHANS)   /* S16 stereo = 4 bytes */
+#define MIX_OUT_FREQ          22050
+#define MIX_OUT_CHANS         2          /* stereo for max compatibility */
+#define MIX_OUT_FORMAT        AUDIO_S16SYS
+#define MIX_OUT_SAMPLE_BYTES  (2 * MIX_OUT_CHANS)   /* S16 stereo = 4 bytes */
+#define MIX_GAIN_IDENTITY     128        /* per-channel gain: 128 = unity */
+#define MIX_OPEN_SAMPLES      2048       /* device buffer in frames */
 
 SDL_AudioDeviceID s_mix_dev = 0;
 static SDL_AudioSpec     s_mix_spec;
@@ -61,24 +63,22 @@ static void mixer_callback(void *userdata, Uint8 *stream, int len)
     (void)userdata;
     /* Start with silence. */
     SDL_memset(stream, 0, (size_t)len);
-    int16_t *out = (int16_t *)stream;
-    int n_samples = len / 2;        /* S16 = 2 bytes per sample slot */
-
-    /* MIX_OUT_CHANS = 2 (stereo); each "frame" is 2 S16 samples.
- * Number of frames = n_samples / 2. */
-    int n_frames = n_samples / MIX_OUT_CHANS;
+    int16_t *out       = (int16_t *)stream;
+    int      n_samples = len / 2;       /* S16 = 2 bytes per sample slot */
+    /* Each output frame is MIX_OUT_CHANS sample slots side-by-side. */
+    int      n_frames  = n_samples / MIX_OUT_CHANS;
 
     for (int c = 0; c < MIX_CHANNEL_COUNT; ++c) {
         struct MixChannel *ch = &s_mix[c];
         if (!ch->active || !ch->buf || ch->len == 0) continue;
-        int16_t *src = (int16_t *)ch->buf;
-        Uint32 src_frame = ch->pos / (2 * MIX_OUT_CHANS);    /* in frames */
-        Uint32 src_frame_end = ch->len / (2 * MIX_OUT_CHANS);
-        /* T36: per-channel gain. 128 = identity. Anything else applies
- * a multiplicative attenuation per sample. Cast to int so the
- * intermediate (src * gain) doesn't overflow at gain=255. */
-        int gain_l = ch->gain_l;
-        int gain_r = ch->gain_r;
+        int16_t *src           = (int16_t *)ch->buf;
+        Uint32   src_frame     = ch->pos / MIX_OUT_SAMPLE_BYTES;
+        Uint32   src_frame_end = ch->len / MIX_OUT_SAMPLE_BYTES;
+        /* T36: per-channel gain. MIX_GAIN_IDENTITY = no attenuation;
+         * anything else multiplies each sample. Cast to int so the
+         * intermediate (src * gain) doesn't overflow at gain=255. */
+        int      gain_l        = ch->gain_l;
+        int      gain_r        = ch->gain_r;
         for (int f = 0; f < n_frames; ++f) {
             if (src_frame >= src_frame_end) {
                 if (ch->loop) {
@@ -91,8 +91,8 @@ static void mixer_callback(void *userdata, Uint8 *stream, int len)
             int16_t sl = src[src_frame * 2 + 0];
             int16_t sr = src[src_frame * 2 + 1];
             ++src_frame;
-            int ml = (int)out[f * 2 + 0] + (sl * gain_l) / 128;
-            int mr = (int)out[f * 2 + 1] + (sr * gain_r) / 128;
+            int ml = (int)out[f * 2 + 0] + (sl * gain_l) / MIX_GAIN_IDENTITY;
+            int mr = (int)out[f * 2 + 1] + (sr * gain_r) / MIX_GAIN_IDENTITY;
             if (ml >  32767) ml =  32767;
             if (ml < -32768) ml = -32768;
             if (mr >  32767) mr =  32767;
@@ -100,7 +100,7 @@ static void mixer_callback(void *userdata, Uint8 *stream, int len)
             out[f * 2 + 0] = (int16_t)ml;
             out[f * 2 + 1] = (int16_t)mr;
         }
-        ch->pos = src_frame * (2 * MIX_OUT_CHANS);
+        ch->pos = src_frame * MIX_OUT_SAMPLE_BYTES;
     }
 }
 
@@ -113,7 +113,7 @@ int mixer_ensure_open(void)
     want.freq     = MIX_OUT_FREQ;
     want.format   = MIX_OUT_FORMAT;
     want.channels = MIX_OUT_CHANS;
-    want.samples  = 2048;
+    want.samples  = MIX_OPEN_SAMPLES;
     want.callback = mixer_callback;
     want.userdata = NULL;
     s_mix_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_mix_spec, 0);
@@ -146,10 +146,10 @@ void mixer_assign(int idx, Uint8 *buf, Uint32 len, int loop,
     s_mix[idx].pos    = 0;
     s_mix[idx].loop   = loop;
     s_mix[idx].active = (buf && len > 0) ? 1 : 0;
-    /* Default to identity gain (no pan). Callers can override via
- * mixer_set_pan after the channel is loaded. */
-    s_mix[idx].gain_l = 128;
-    s_mix[idx].gain_r = 128;
+    /* Default to identity gain (no pan). Callers can override after
+     * the channel is loaded. */
+    s_mix[idx].gain_l = MIX_GAIN_IDENTITY;
+    s_mix[idx].gain_r = MIX_GAIN_IDENTITY;
     extern uint32_t g_tick_counter;
     s_mix[idx].start_tick = g_tick_counter;
     if (name) {
@@ -179,10 +179,7 @@ void mixer_stop_channel(int idx)
 }
 
 /* ------------------------------------------------------------------------- *
- * Menu / background WAV music — now backed by mixer channel MIX_CHAN_MUSIC.
- *
- * → (&g_persp_band_count,
- * BuildAssetPath("Dane_01.dta", NULL), 1) → (handle).
+ * Menu / background WAV music — backed by mixer channel MIX_CHAN_MUSIC.
  * ------------------------------------------------------------------------- */
 
 static int try_load_wav_at(const char *root, const char *name,
@@ -246,8 +243,8 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
     if (native.freq == MIX_OUT_FREQ &&
         native.format == MIX_OUT_FORMAT &&
         native.channels == MIX_OUT_CHANS) {
-        /* Take a freshly malloc'd copy so caller can SDL_free it (WAV
- * buffer must use SDL_FreeWAV; can't mix). */
+        /* Take a freshly malloc'd copy so caller can SDL_free it
+         * (WAV buffer must use SDL_FreeWAV; can't mix allocators). */
         Uint8 *copy = (Uint8 *)SDL_malloc(native_len);
         if (!copy) {
             SDL_FreeWAV(native_buf);
@@ -270,8 +267,9 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
         SDL_FreeWAV(native_buf);
         return 0;
     }
-    /* CVT needs a buffer sized native_len * cvt.len_mult. Allocate fresh
- * via SDL_malloc (so SDL_free can release it), copy native into it. */
+    /* CVT needs a buffer sized native_len * cvt.len_mult. Allocate
+     * fresh via SDL_malloc (so SDL_free can release it), copy native
+     * into it. */
     Uint32 buf_size = native_len * (cvt.len_mult ? cvt.len_mult : 1);
     Uint8 *buf = (Uint8 *)SDL_malloc(buf_size);
     if (!buf) {
@@ -325,8 +323,8 @@ void PlayMenuMusic(const char *dta_name, int loop)
         s_last_music_loop = 0;
         return;
     }
-    /* Remember the last requested track so AudioSetMusicEnabled(1) can
- * resume play after a mute-toggle. */
+    /* Remember the last requested track so AudioSetMusicEnabled(1)
+     * can resume play after a mute-toggle. */
     snprintf(s_last_music_name, sizeof s_last_music_name, "%s", dta_name);
     s_last_music_loop = loop ? 1 : 0;
 
@@ -347,10 +345,10 @@ void PlayMenuMusic(const char *dta_name, int loop)
             dta_name, len, loop ? 1 : 0, MIX_CHAN_MUSIC);
 }
 
-/* Toggle hook — called by Solund handler ( port) when the
- * user clicks the music on/off button in the options menu. If muting
- * mid-play, stops the channel. If un-muting, re-issues PlayMenuMusic
- * with the last remembered track to resume. */
+/* Toggle hook — called by the Solund options handler when the user
+ * clicks the music on/off button. If muting mid-play, stops the
+ * channel. If un-muting, re-issues PlayMenuMusic with the last
+ * remembered track to resume. */
 void AudioSetMusicEnabled(int on)
 {
     int was = g_audio_music_enabled;
@@ -392,9 +390,9 @@ void AudioSetSoundEnabled(int on)
 
 void TickMenuMusic(void)
 {
-    /* Mixer callback handles loop natively — no per-frame top-up needed.
- * Function kept as no-op for API compat (called from play_demo_scene
- * frame loop). */
+    /* Mixer callback handles loop natively — no per-frame top-up
+     * needed. Kept as a no-op for API compat (called from
+     * play_demo_scene frame loop). */
 }
 
 
@@ -405,8 +403,9 @@ void TickMenuMusic(void)
 uint32_t PlayDialogLine(const char *wav_name)
 {
     if (!wav_name) return 0;
-    /* T103 — voice gate: if user disabled voice in Solund, drop the
- * sample silently. Caller still proceeds with text/animation. */
+    /* T103 — voice gate: if the user disabled voice in Solund, drop
+     * the sample silently. Caller still proceeds with text /
+     * animation. */
     if (!g_audio_voice_enabled || !g_audio_sound_enabled) return 0;
     if (!mixer_ensure_open()) return 0;
     Uint8 *buf = NULL; Uint32 len = 0;
