@@ -54,10 +54,10 @@ int            g_walk_fld_ox = 0,   g_walk_fld_oy = 0;
 int            g_walk_fld_stride = 0;
 int            g_walk_x0 = 0, g_walk_x1 = 0;        /* fallback bbox (no .fld) */
 int            g_walk_y0 = 0, g_walk_y1 = 0;
-/* g_scene_quit — set by OpenOptionsMenu when Pytanie TAK confirms quit
- * mid-game. play_demo_scene's main loop polls it as a quit signal.
- * T35 removed g_pending_scene_exit (hotspot-click out-signal) entirely
- * after verb-driven exits via op 0x20 + LoadKomnataScene now work. */
+/* g_scene_quit — set by OpenOptionsMenu when Pytanie TAK confirms a
+ * mid-game quit. play_demo_scene's main loop polls it as a quit
+ * signal. Verb-driven exits (op 0x20 → LoadKomnataScene) are the
+ * normal path; this is the user-cancellation latch. */
 int            g_scene_quit = 0;
 
 /* T-trail: scene BG published so ProcessGameFrameTickInner can repaint
@@ -90,7 +90,7 @@ extern void *g_items_obj;
  * Loaded once at startup. Holds the universally-shared sprites resident
  * in memory between stage swaps.
  * ------------------------------------------------------------------------- */
-FontHandle *g_default_font = NULL;     /* — "Futura.30" bitmap font */
+FontHandle *g_default_font = NULL;     /* "Futura.30" bitmap font */
 
 extern AnimAsset *g_items_atlas;       /* g_items_atlas — przedm.wyc */
 
@@ -122,16 +122,10 @@ uint16_t   g_cursor_frame_acc = 0;     /* cursor_state_struct + 0x3C accumulator
 
 extern void BuildStageTable(void);                /* stubs.c — T26 */
 
-/* PreloadCommonAssets moved to src/scene/preload.c. */
+/* ---- ProcessGameFrameTick ---------------------------------------- */
 
-/* ------------------------------------------------------------------------- *
- * ProcessGameFrameTick — 0x004025C0
- * ------------------------------------------------------------------------- */
-extern void ScreenshotToPcxAutoIncrement(void);  /* extracted from RE'd 'P' branch */
+extern void ScreenshotToPcxAutoIncrement(void);  /* extracted from 'P' branch */
 extern void ScreenshotToBmpAutoIncrement(void);  /* 'B' branch */
-/* UpdateAllEntities removed — its responsibilities are split between
- * EntityWalkerTick (per-entity VM ticks) and EntityRenderAll (z-sorted
- * render), both wired into ProcessGameFrameTick. */
 extern void FlushQueuedClicks(void);
 
 /* ProcessGameFrameTick —
@@ -169,12 +163,6 @@ extern int  is_walkable_at(int sx, int sy);
 extern int  ClickHitTest(int16_t mouse_x, int16_t mouse_y, uint16_t *out_verb);
 extern int  g_no_pacing;                /* main.c — --no-pacing flag */
 extern const void *PeLoaderRead(uint32_t va);
-
-/* Cursor state + paint (UpdateCursorState, PaintCursor) moved to src/hud/cursor.c. */
-
-/* PaintHudOverlay moved to src/scene/hud_paint.c. */
-
-/* ProcessGameFrameTick(Inner) moved to src/scene/frame_tick.c. */
 
 /* ------------------------------------------------------------------------- *
  * DispatchClickEvent
@@ -216,11 +204,8 @@ int read_dispatch_entry(uint32_t table_va, int idx,
     return 1;
 }
 
-/* find_dispatch_script + DispatchClickEvent moved to src/scene/dispatch.c. */
+/* ---- LoadStage --------------------------------------------------- */
 
-/* ------------------------------------------------------------------------- *
- * LoadStage — 0x00403320
- * ------------------------------------------------------------------------- */
 extern uint32_t g_stage_va_table[5];                 /* stubs.c — T26 */
 extern void     LoadActorWalkAnims(uint32_t stage_va); /* stubs.c */
 
@@ -348,8 +333,6 @@ extern AnimAsset *LoadAssetFromDtaBase(const char *);
  * (CapturePendingThumbnail writes here before opszyns opens). */
 uint8_t g_save_thumb_pending[SAVE_THUMB_W * SAVE_THUMB_H];
 
-/* g_menu_bg_snapshot + SnapshotBackbufferForMenu moved to src/menu/
- * menu_loop.c (tightly coupled with paint_menu_background). */
 extern void SnapshotBackbufferForMenu(void);
 
 /* "asset (1, 10)" hook used by HandleMainMenuClick — set in RunMenuScene
@@ -369,42 +352,14 @@ extern const char *play_demo_scene(const DemoScene *scene); /* scene/play_loop.c
 extern int  BindActorWalker(int actor_idx, int target_x, int target_y);
 extern void DispatchClickEvent(uint16_t obj_id, uint16_t verb_id);
 
-/* =================== Sejw.pic + Load.pic — save/load slot lists =========
- *
- * Slot picker UI (SaveSlotClick, LoadSlotClick, g_save_menu_scene,
- * g_load_menu_scene, paint_slot_list, inline-edit, ...) moved to
- * src/menu/slot_picker.c. */
-
-/* =================== sel_tlo.pic — chapter-select UI ====================
- *
- * SelTloClick, g_sel_tlo_scene, SelTloRefreshButtons, and the s_chapter_
- * pick global moved to src/menu/chapter_select.c. The forward externs
- * for them live earlier in the file (near run_dev_start_stage_flow). */
-
-/* is_walkable_at moved to src/scene/walkability.c. */
-
-/* HandleSceneInput + helpers moved to src/scene/scene_input.c. */
-
-/* ------------------------------------------------------------------------- *
- * T39: play_first_scene_demo removed (inlined into RunGameStageLoop).
- * What follows is the externs/helpers that body used.
- * ------------------------------------------------------------------------- */
-/* Run the embedded enter_script for each scene through the bytecode VM.
- * Spawns the per-room NPCs (drut/barstoi/pies in maluch, babcia/deska/
- * domofon in klatka2, pijaki/ptak in kiosk21, dziewczynki/hustawki in
- * plac) so EntityRenderAll has actual entities to draw. */
+/* Run the embedded enter_script for each scene through the bytecode
+ * VM. Spawns the per-room NPCs (drut/barstoi/pies in maluch,
+ * babcia/deska/domofon in klatka2, pijaki/ptak in kiosk21,
+ * dziewczynki/hustawki in plac) so EntityRenderAll has actual
+ * entities to draw. */
 extern Entity *g_render_list_head;
 extern void    EntityWalkerTick(Entity *head);
 extern void    EntityRenderAll (Entity *head);
-
-/* T130 — s_entry_dir global retired (was kept as no-op stub since T22B).
- * Replaced all writes (HandleSceneInput, play_demo_scene prologue, etc.)
- * with explicit comment annotations referencing T22B; verb-driven
- * exits via LoadKomnataScene handle the role this global had. */
-
-/* T39 (shipped): play_first_scene_demo removed. Its body was inlined
- * into RunGameStageLoop, the only caller after T22 phase B. */
-
 
 /* ------------------------------------------------------------------------- *
  * RunGameStageLoop —
@@ -424,15 +379,10 @@ extern void    EntityRenderAll (Entity *head);
  * if (exit_signal) return;
  *
  * Flags:
- * bit 1 (0x02) = FULL RESET (new game): zero vars + ResetInventory + LoadStage
- * bit 4 (0x10) = SKIP INTRO AVI (came from save load)
- * bit 0+4 (0x11) combos used after F12 menu / save UI
- *
- * T39 (shipped): play_first_scene_demo legacy entry inlined here.
- * Previously RunGameStageLoop delegated to play_first_scene_demo which
- * was a thin wrapper after T22 phase B. Inlining removes the
- * indirection and pulls the actor-walk-anim setup + initial DemoScene
- * lookup directly into the canonical RunGameStageLoop body. */
+ *   bit 1 (0x02) = FULL RESET (new game): zero vars + ResetInventory
+ *                  + LoadStage
+ *   bit 4 (0x10) = SKIP INTRO AVI (came from save load)
+ *   bit 0+4 (0x11) combos used after F12 menu / save UI */
 
 /* Forward externs for chapter-select state used by the chapter-pick
  * epilogue (defined in src/menu/chapter_select.c). */

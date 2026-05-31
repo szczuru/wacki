@@ -269,7 +269,6 @@ static void avi_close(AviCtx *c)
 }
 
 
-/* FLIC frame decoder moved to src/flic/decoder.c. */
 extern void flic_decode_frame(const uint8_t *fdata, uint32_t fsize, int w, int h);
 
 /* ---- public entry — drop-in replacement for the audio.c stub ------------ */

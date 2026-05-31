@@ -63,10 +63,6 @@ uint16_t g_cursor_speed = 0x78;             /* g_cursor_speed (was uint8_t — b
 uint16_t g_perspective_min  = 4;            /* g_perspective_min */
 uint16_t g_perspective_step = 7;            /* g_perspective_step */
 uint16_t g_active_actor = 0;                /* g_active_actor — 0=Ebek, 1=Fjej */
-/* g_dialogue_mode removed — was misnamed and unused. The misnamed
- * placeholder for g_hover_scene_verb (= scene hover verb) is not needed in
- * our port because ClickHitTest returns the hover via out-parameter
- * instead of a global. */
 uint16_t g_anim1_done = 0;                  /* g_anim1_done */
 uint16_t g_anim2_done = 0;                  /* g_anim2_done */
 int      g_script_running = 0;              /* g_script_running — !=0 inside VM */
@@ -88,7 +84,6 @@ extern uint16_t g_frame_delta_ticks;        /* g_frame_delta_ticks — 10 ms tic
  * interpreter via side effects. All return void. */
 extern void ScriptCallSoundPlay (uint16_t id, uint16_t a, uint32_t b, uint16_t c);
 extern void ScriptCallSoundStop (void);
-/* ScriptCallAnimActor removed — ops 0x10/0x11/0x12 inline ActorWalkToBlocking. */
 extern void ScriptCallPalLoad   (uint16_t fade_step, uint32_t selector, int with_fade);
 extern int  ScriptCallPalFadeStep(void);   /* returns 1 when fade complete */
 extern void ScriptCallBgMaskSetup(const char *name);     /* op 0x2C */
@@ -109,9 +104,6 @@ extern void ScriptCallAttachProp(uint16_t actor, uint16_t prop, int keep);
 extern void ScriptCallShowText  (uint16_t actor, const char *text);
 extern int  ScriptCallDialogBegin(uint16_t actor, const char *a, const uint8_t *b, uint32_t c);
 extern void ScriptCallDialogEnd  (const char *result);
-
-/* ScriptObj + LoadScriptFile + FindScriptByStageAndRoom +
- * ScriptObjFindSection moved to src/vm/script_obj.c. */
 
 /* Register-file accessors (var_get/var_set) and bytecode scanners
  * (skip_to_endif, find_label) live in src/vm/parser.{c,h} (included
@@ -545,8 +537,8 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                 g_speech_unbind_speaker = 0;
                 g_speech_unbind_data    = 0;
                 if (found_idx >= 0) {
-                    /* — find entity by verb_id, reset state,
- * bind bytecode at +0x2C, set frame = 0. */
+                    /* Find the entity by verb_id, reset its state,
+                     * bind bytecode at +0x2C, set frame = 0. */
                     extern Entity *FindEntityByVerbId(uint16_t v);
                     Entity *sp = FindEntityByVerbId(dlg_speaker[found_idx]);
                     if (sp) {
@@ -712,11 +704,11 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                 dlg_speaker[slot] = reg_id;
                 dlg_ptr    [slot] = ptr_v;
                 dlg_data   [slot] = data_v;
-                ++dlg_count;                /* — always grow the high-water */
-                /* T20b debug — trace dialog choice queue. The verb_id
- * here is what op 0x1A will later add to the panel
- * inventory slot; ptr/data reference Gadki.scr sections
- * for the response audio. */
+                ++dlg_count;                /* always grow the high-water */
+                /* T20b debug — trace the dialog choice queue. The
+                 * verb_id here is what op 0x1A will later add to the
+                 * panel inventory slot; ptr/data reference Gadki.scr
+                 * sections for the response audio. */
                 fprintf(stderr, "[dlg] op 0x19 QUEUE slot=%d verb=0x%04X "
                                 "ptr=0x%08X data=0x%08X (count→%d)\n",
                         slot, reg_id, ptr_v, data_v, dlg_count);
@@ -1121,13 +1113,14 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
         case OP_SET_PERSPECTIVE:
             g_perspective_min  = a1;
             g_perspective_step = a2;
-            g_cursor_speed     = a0;   /* — uVar31 = full halfword */
+            g_cursor_speed     = a0;   /* full halfword (was uint8_t — bug) */
             break;
 
         /* ---- sound --------------------------------------------------- *
- * NOTE ( sound-id table): The original engine
- * maintains a sound_id → asset-filename table that maps the
- * opcode's 32-bit `id` arg to a specific WAV in Dane_02.dta. That
+         *
+         * The original engine maintains a sound_id → asset-filename
+         * table that maps the opcode's 32-bit `id` arg to a specific
+         * WAV in Dane_02.dta. That
  * table hasn't been RE'd from the binary yet; port's
  * `s_sound_table` in stubs.c is empty, so most positional sound
  * calls only end up in the queue (consumed by stereo pan calc

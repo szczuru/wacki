@@ -69,7 +69,6 @@
 #define WACKI_MAX_DIRTY_RECTS 256
 
 #define WACKI_CD_LABEL        "WACKI_1"
-/* WACKI_CDCHECK_TICKS removed — rule #7, no CD anti-piracy. */
 
 #define DTA_MAGIC_BASE        0x45534142u    /* "BASE" */
 #define DTA_MAGIC_SPIS        0x53495053u    /* "SPIS" */
@@ -543,8 +542,6 @@ extern uint16_t  g_screen_w_dim, g_screen_h_dim;
 
 extern uint32_t  g_script_vars[0x129];
 extern uint32_t  g_entity_state[0x11C];
-/* g_return_reg removed — it's now a macro aliasing var[4]. External
- * consumers that need the value should read g_script_vars[4]. */
 extern uint16_t  g_active_actor;
 extern uint16_t  g_cur_etap;
 extern uint16_t  g_cur_komnata;
@@ -570,12 +567,10 @@ extern uint16_t g_held_item;
 uint32_t WackiRand(uint16_t bound);
 void     WackiRandSeed(uint32_t seed);
 
-/* Go to komnata `id` — script staging entry. T22 phase B: now does a
- * FULL synchronous transition via LoadKomnataScene (walker freeze +
- * LoadKomnata + per-scene asset rebuild). The play_demo_scene main
- * loop does NOT unwind on this — transitions happen in-place.
- * T42 removed the legacy g_pending_komnata / g_komnata_loaded_by_op20
- * staging globals; everything goes through LoadKomnataScene now. */
+/* Go to komnata `id`. Runs a FULL synchronous transition via
+ * LoadKomnataScene (walker freeze + LoadKomnata + per-scene asset
+ * rebuild). The play_demo_scene main loop does NOT unwind — the
+ * transition happens in-place. */
 void ScriptGoToKomnata(uint16_t id);
 
 /* T22 phase B — full scene transition for komnata `id`. Frees the
@@ -655,7 +650,6 @@ void StatsDump(void);
 extern WackiSaveFile g_save;
 
 extern uint32_t  g_tick_counter;
-/* g_next_cd_check removed — rule #7. */
 /* Komnata flag bitfield — loaded from the komnata table at scene
  * entry. Low bits gate per-room features (bit 0 = panel visible,
  * bit 1 = actors alive / has perimeter bands); the high byte is

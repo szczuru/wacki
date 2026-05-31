@@ -33,11 +33,6 @@ int     g_persp_band_count = 0;    /* perspective_band_count_alt */
 
 extern uint32_t g_tick_counter;    /* g_tick_counter */
 
-/* CD anti-piracy watchdog REMOVED — rule #7 (no CD checks, no copy
- * protection). Original re-verified WACKI_1 volume label every ~150k
- * ticks via GetVolumeInformationA; we ship as a fully portable binary
- * that doesn't care where the .dta files came from. */
-
 /* ---- AnimAsset header layout (.wyc / .fld) ------------------------ */
 
 /* Offsets inside the raw .wyc / .fld header. The pointers at offsets

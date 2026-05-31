@@ -39,10 +39,9 @@
  * TickMenuMusic, TickSfx all keep their signatures + semantics).
  * New: PlayDialogLine — dedicated channel for per-line dialog audio.
  * ------------------------------------------------------------------------- */
-/* MIX_CHANNEL_COUNT / MIX_CHAN_* / struct MixChannel + s_mix[] + s_mix_
- * dev moved to src/audio/mixer_internal.h so src/audio/sfx.c can read
- * the channel array for its replay-guard check. The defs below stay
- * here. */
+/* MIX_CHANNEL_COUNT, MIX_CHAN_*, MixChannel, s_mix[], and s_mix_dev
+ * are declared in audio/mixer_internal.h so src/audio/sfx.c can read
+ * the channel array for its replay-guard check. */
 #include "audio/mixer_internal.h"
 
 #define MIX_OUT_FREQ          22050

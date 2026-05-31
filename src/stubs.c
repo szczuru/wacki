@@ -25,38 +25,19 @@ uint32_t  g_entity_state[0x11C];        /* g_entity_state */
 uint32_t  g_scene_snapshot[0x1E];       /* g_inventory */
 int16_t   g_persp_profile[0x22*2];      /* g_persp_profile */
 
-/* g_next_cd_check removed — rule #7. */
-
-/* T22 phase A/B staging globals removed in T42:
- * - g_pending_komnata: replaced by in-place LoadKomnataScene call
- * - g_komnata_loaded_by_op20: outer-loop guard no longer needed
- * after play_first_scene_demo collapsed to single play_demo_scene
- * call (T22 phase B). */
-
-/* Scene transitions (ScriptGoToKomnata) → src/scene/navigation.c
- * Actor walking (ActorWalkToBlocking, ActorWalkBothBlocking) →
- * src/scene/actor_walk.c
- * Stage descriptors (BuildStageTable, LoadActorWalkAnims, the
- * g_stage_table/g_stage_va_table/g_actor_walk_anim globals,
- * and g_default_world_state) → src/scene/stage.c */
-
-/* LoadKomnata moved to src/scene/komnata.c. */
-
-/* ActorWalkToBlocking —/0x11/0x12 wait-for-walk
- * loop from Ghidra @ RunScriptInterpreter 0x00407820 case 0x10:
- * ProcessGameFrameTick;
+/* ActorWalkToBlocking — implements ops 0x10/0x11/0x12 wait-for-walk.
  *
  * EACH per-entity VM tick inside ProcessGameFrameTick advances the
  * walker via op 0x15/0x16's step loop — step size = walker bytecode's
- * step operand (× perspective scale). We just bind the walker through
- * BindActorWalker (which plants the path immediately, see #fix-2) and
- * pump ProcessGameFrameTick + SDL_Delay until +0x4C/+0x50 are zero.
+ * step operand (× perspective scale). We bind the walker through
+ * BindActorWalker (which plants the path immediately) and pump
+ * ProcessGameFrameTick + SDL_Delay until +0x4C/+0x50 are zero.
  *
- * Previous port-only impl stepped 1 pixel per ProcessGameFrameTick
- * call with no SDL_Delay → spin loop pegged the CPU, walker traversed
- * 1000+ px/sec → actor teleported off-screen before the verb-script
- * could finish; QUIT events were also never honoured → game unkillable
- * during any verb-script walk. */
+ * An earlier port-only impl stepped 1 pixel per ProcessGameFrameTick
+ * with no SDL_Delay — spin loop pegged the CPU, walker traversed
+ * 1000+ px/sec, actor teleported off-screen before the verb-script
+ * could finish, and QUIT events were never honoured (game unkillable
+ * during any verb-script walk). */
 extern int  BindActorWalker(int actor_idx, int target_x, int target_y);
 extern int  PlatformShouldQuit(void);
 
@@ -83,25 +64,10 @@ Entity   *g_actor[2]      = { NULL, NULL };
  * machine to pick an icon. 0x26 = no hover. */
 uint16_t  g_hover_scene_verb  = 0x26;
 
-/* Panel hit-test + panel globals (g_panel_verb_tab, g_hover_panel_verb,
- * g_panel_cursor_redirect, g_panel_cursor_redirect2) moved to
- * src/hud/panel.c. */
-
-/* LoadItemNamesTable + ItemHoverDwellTick + per-item WAV name table
- * moved to src/hud/items.c. */
-
-
-/* Inventory + panel page rotation (Inventory, ResetInventory,
- * PanelPageSwap, InventoryPage*, InventoryAddItem, InventoryRemoveItem,
- * InventoryDropItem, InventoryHasItem, InventorySetPageForItem) plus
- * the inventory-side globals (g_panel_page_idx,
- * g_panel_verb_tab_backup, g_panel_redraw) moved to
- * src/hud/inventory.c. */
-
 /* =========== version / file helpers ===================================== */
 
-/* — GetFileVersionInfo probe; portable build can't probe a
- * .dll version, so always claim a sufficiently new one. */
+/* GetFileVersionInfo probe — the portable build can't probe a
+ * Windows .dll version, so always claim a sufficiently new one. */
 uint32_t GetDllPackedVersion(const char *dll) { (void)dll; return 0x00500004; }
 
 /* =========== blit-row helpers used by the original Win32 BlitSprite ====
@@ -134,8 +100,6 @@ int   DSoundVer_IsBad  (DSoundVerChecker *self) { (void)self; return 0; }
 short DSoundVer_Confirm(DSoundVerChecker *self) { (void)self; return 4; /* IDRETRY */ }
 void  DSoundVer_Free   (DSoundVerChecker *self) { (void)self; }
 
-/* Animation resolver (FindAnimationScript, PlayActorAnimByPath)
- * moved to src/anim/resolver.c. */
 void  PlayAnimation(uint16_t anim, uint16_t frame)
 { (void)anim; (void)frame; }
 void  PrintTextOnScreen(uint16_t hx, uint16_t hy, const char *text)
@@ -146,24 +110,8 @@ void  PaletteFadeInOut(uint16_t pct, const uint8_t *pal,
 { (void)pct;(void)flags;(void)cb; if(pal) InstallPalette(pal, first); }
 void  SetPalette(const uint8_t *pal, uint16_t first) { InstallPalette(pal, first); }
 
-/* =========== placeholder rendering ======================================
- * If the engine is missing a background asset it would otherwise leave the
- * back-buffer untouched (black). Paint a recognisable test card and the
- * name of the file we *would* have loaded so the user sees activity. */
-/* DrawPlaceholderScreen — no-op kept only as a compatibility hook.
- * (The test-card "mosaic" the early-port used has been removed at the
- * user's request: when an asset is missing the engine now just leaves the
- * back-buffer in its previous state and logs to stderr.) */
 extern uint8_t *g_back_shadow;
 extern uint8_t  g_palette_rgb[256*3];
-/* DrawPlaceholderScreen + Screenshot helpers moved to
- * src/util/screenshot.c. */
-/* UpdateAllEntities removed — was a no-op placeholder. Its responsibilities
- * are now split between EntityWalkerTick (per-entity VM ticks) and
- * EntityRenderAll (z-sorted blit), both wired into ProcessGameFrameTick. */
-/* Deferred click-event queue (EnqueueClickEvent, FlushQueuedClicks)
- * moved to src/scene/click_queue.c. */
-/* cd_watchdog_dispatcher REMOVED — rule #7. */
 
 /* ------------------------------------------------------------------------- *
  * Script-VM ↔ subsystem bridges. These mirror the FUN_xxx calls that
@@ -194,13 +142,6 @@ uint32_t g_frame_delta_ms = 16;
  * remainder so we don't drift over time at frame rates that aren't a
  * clean multiple of 10 (e.g. 16 ms @ 60 fps emits 2/1/2/1/… ticks). */
 uint16_t g_frame_delta_ticks = 1;
-
-/* WackiRand / WackiRandSeed moved to src/util/rng.c. */
-
-/* Positional sound queue (SoundQueueReset, SoundQueueEnqueue,
- * SoundQueueMixForListener) + sound script bridges
- * (ScriptCallSoundPlay, ScriptCallSoundStop) moved to
- * src/audio/sound_queue.c. */
 
 /* Palette fade machinery
  *
@@ -266,8 +207,3 @@ extern Entity *AllocEntity(uint16_t w, uint16_t h, uint16_t kind, uint16_t flags
 /* Asset / entity script bridges (ScriptCallLoadAsset, DestroyEnt,
  * EnableEnt, HideEnt, ShowEnt, WalkMode, WalkTo, AttachProp) moved
  * to src/script_bridge/entity.c. */
-
-/* Speech balloon globals (g_speech_text/actor/tick/dismiss_ticks) and
- * text rendering (TextTranslationLutInit,
- * ScriptCallShowText, TickSpeechBalloon, ScriptCallDialogEnd, plus the
- * balloon-state globals) moved to src/text/balloon.c. */

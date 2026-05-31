@@ -29,7 +29,7 @@
  * play_demo_scene's main loop sees the new state via globals and
  * continues running without unwinding. Verb-script post-op-0x20
  * SET_ENTITY_XY executes against persistent actor entities in the
- * NEW komnata's coordinate system — s_entry_dir workaround retired. */
+ * NEW komnata's coordinate system. */
 extern void LoadKomnataScene(uint16_t id);
 void ScriptGoToKomnata(uint16_t id)
 {
