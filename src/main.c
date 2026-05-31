@@ -1,43 +1,115 @@
-/*
- * main.c — portable entry point.
+/* src/main.c — portable entry point.
  *
- * On Windows the original binary entered via 'entry' @ 0x004161C0 and then
- * WinMain @ 0x004043B0. In this portable build we use a normal int main
- * that forwards to WackiMain; SDL2 supplies SDL_main.
+ * Responsibilities:
  *
- * Original logic preserved:
- * • CheckCdRomDrive loop (volume label WACKI_1)
- * • CheckDirectSoundVersion (always succeeds in the SDL build)
- * • PlatformInit -> InitializeGameSubsystems -> RunMainGameLoop
- */
+ *   - main() → WackiMain(): parse argv + env, install SIGINT handler,
+ *     find the data directory, open SDL, run the cutscene-test mode
+ *     OR drop into RunMainGameLoop.
+ *
+ *   - StatsDump(): F3 stats log line (callers: F3 key handler).
+ *
+ *   - Module-owned globals: input latches (g_lmb_clicked / g_rmb_
+ *     clicked / g_key_state / g_*_request), playthrough stats
+ *     (g_stats), display knobs (g_headless / g_no_pacing /
+ *     g_scale_factor / g_scale_mode), mouse coords (s_mouse_x /
+ *     s_mouse_y), data root (g_cd_path).
+ *
+ *   - Win32-equivalent shims: PumpWin32Messages / HasPendingKey /
+ *     WaitForKey — the engine's call sites still use the original
+ *     Win32-style names, so this file provides portable aliases. */
+
 #include "wacki.h"
+
 #include <SDL.h>
+#include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 
-/* ---- shared globals owned by main.c ------------------------------------ */
-HINSTANCE g_hInstance = NULL;
-HWND      g_hWnd      = NULL;
-BOOL      g_in_foreground = 1;
-char      g_cd_path[260]  = "";
-uint8_t   g_lmb_clicked   = 0;
-uint8_t   g_rmb_clicked   = 0;
-uint16_t  g_key_state     = 0;
-uint8_t   g_quicksave_request = 0;            /* T53 — F5 latch */
-uint8_t   g_quickload_request = 0;            /* T53 — F9 latch */
-uint8_t   g_stats_dump_request = 0;           /* T56 — F3 latch */
-uint8_t   g_pause_menu_request = 0;           /* T24 — F12 latch */
-WackiStats g_stats              = {0};         /* T56 — playthrough stats */
+/* ---- constants ---------------------------------------------------- */
+
+/* CheckCdRomDrive return value when the data root was found. The
+ * original Win32 enum was {0 = no drive, 1 = non-Wacki CD, 2 = Wacki
+ * CD found}; the port collapses to {0 = not found, 2 = found} and
+ * keeps the 2 sentinel so any caller comparing against the legacy
+ * value still works. */
+#define DATA_ROOT_FOUND                     2
+
+/* CLI clamps. */
+#define DEV_START_STAGE_CLAMP_MIN           1
+#define DEV_START_STAGE_CLAMP_MAX           5
+#define SCALE_FACTOR_MAX                    8
+
+/* WaitForKey poll interval — wakes 100×/s to re-check the key latch +
+ * the platform-quit flag. Fast enough that ESC feels responsive,
+ * slow enough not to spin the CPU. */
+#define KEY_WAIT_POLL_MS                    10
+
+/* g_key_state stores the latched SDL key sym in the low byte; the
+ * top byte is reserved for modifier flags (currently unused). */
+#define KEY_STATE_KEYCODE_MASK              0xFF
+#define KEY_STATE_MOD_MASK                  0xFF00
+
+/* Mirrors VK_ESCAPE in platform_sdl.c — we return this when the
+ * platform requests quit so the caller can treat shutdown as a
+ * synthetic ESC press. */
+#define VK_ESCAPE_KEYCODE                   0x1B
+
+/* Path buffer size for the data-root + helper file-search snprintf. */
+#define ARCHIVE_PROBE_PATH_BYTES            1024
+#define UPPERCASE_NAME_BYTES                64
+#define PE_PROBE_PATH_BYTES                 512
+
+/* Tick is the multimedia timer at ~1 kHz on the original; SDL_GetTicks
+ * matches that cadence so 1000 ticks ≈ 1 wall-clock second. */
+#define TICKS_PER_SECOND                    1000
+
+/* Probe filename used to recognise a data directory — every install
+ * ships at least Dane_02.dta. */
+#define DATA_PROBE_FILENAME                 "Dane_02.dta"
+
+/* ---- module-owned globals ---------------------------------------- */
+
+char       g_cd_path[260]         = "";
+int16_t    s_mouse_x              = 0;
+int16_t    s_mouse_y              = 0;
+
+uint8_t    g_lmb_clicked          = 0;
+uint8_t    g_rmb_clicked          = 0;
+uint16_t   g_key_state            = 0;
+
+uint8_t    g_quicksave_request    = 0;     /* T53 — F5 latch */
+uint8_t    g_quickload_request    = 0;     /* T53 — F9 latch */
+uint8_t    g_stats_dump_request   = 0;     /* T56 — F3 latch */
+uint8_t    g_pause_menu_request   = 0;     /* T24 — F12 latch */
+
+WackiStats g_stats                = {0};   /* T56 — playthrough stats */
+
+/* T45 — headless mode forces SDL dummy video + audio drivers. Set via
+ * --headless or WACKI_HEADLESS=1. PlatformPresent is a no-op while
+ * set; PumpEvents still runs so SDL_Delay sleeps and the event queue
+ * stays alive. */
+int        g_headless             = 0;
+
+/* T29 — skip per-frame SDL_Delay in cutscene playback. Used by
+ * --test-cutscenes so a 16-file sweep doesn't take 5+ minutes of
+ * real time. NOT recommended for interactive playback. */
+int        g_no_pacing            = 0;
+
+/* T54 — display scaling. The framebuffer is always 640×480 8-bpp; the
+ * SDL window can be enlarged Nx via SDL_RenderSetLogicalSize with the
+ * filter selected by --scaler (nearest / linear / best). */
+int        g_scale_factor         = 0;
+const char *g_scale_mode          = "nearest";
+
+/* ---- stats dump (F3) -------------------------------------------- */
 
 void StatsDump(void)
 {
     extern uint32_t g_tick_counter;
     uint32_t elapsed = g_tick_counter - g_stats.boot_tick;
-    /* Tick is multimedia timer at ~1kHz on the original; SDL timer at
- * same cadence in port. Display as mm:ss for human readability. */
-    uint32_t secs = elapsed / 1000;
+    uint32_t secs    = elapsed / TICKS_PER_SECOND;
     fprintf(stderr,
         "[stats] elapsed=%02u:%02u clicks=%u dialogs=%u komnata-loads=%u "
         "quicksave=%u quickload=%u\n",
@@ -46,42 +118,13 @@ void StatsDump(void)
         g_stats.total_komnata_loads,
         g_stats.total_quicksaves, g_stats.total_quickloads);
 }
-int16_t   s_mouse_x       = 0;
-int16_t   s_mouse_y       = 0;
 
-/* T45 — headless mode. Skips SDL_CreateWindow / Renderer / Texture and
- * forces SDL_VIDEODRIVER=dummy. Used by CI smoke tests. Set via
- * --headless arg, or WACKI_HEADLESS=1 env. PlatformPresent is a no-op
- * when this is set; PumpEvents still runs (so SDL_Delay sleeps and
- * event queue stays alive). */
-int g_headless = 0;
-
-/* T29 — skip frame pacing in cutscene playback (no SDL_Delay between
- * frames). Used by --test-cutscenes batch mode so a 16-file coverage
- * sweep doesn't take 5+ minutes of real time. The decoder + audio
- * queue still operate normally; we just don't sleep to maintain the
- * native frame interval. NOT recommended for interactive playback —
- * audio would race ahead of video and the cutscene would visually
- * blink past in milliseconds. */
-int g_no_pacing = 0;
-
-/* T54 — display scaling. The game is natively 640×480 8bpp paletted.
- * On modern displays (HiDPI / 4K) the SDL window can be enlarged via
- * SDL_RenderSetLogicalSize, keeping the framebuffer 640×480 but
- * scaling on present.
+/* ---- data-root discovery ---------------------------------------- *
  *
- * Set via --scale N / --scaler MODE args or WACKI_SCALE/WACKI_SCALER env.
- * Used by PlatformInit to size the window + set RENDER_SCALE_QUALITY hint. */
-int        g_scale_factor = 0;
-const char *g_scale_mode  = "nearest";
+ * The original CheckCdRomDrive scanned A:..Z: for a drive whose
+ * volume label was WACKI_1. The portable variant searches a small
+ * list of likely roots for a directory that holds Dane_02.dta. */
 
-/* ------------------------------------------------------------------------- *
- * CheckCdRomDrive — portable variant.
- *
- * The original scanned A:..Z: for a drive whose label == "WACKI_1". On
- * macOS we look for a /Volumes/WACKI_1 mount or for a WACKI_PATH env var
- * that points at a directory containing Dane_02.dta.
- * ------------------------------------------------------------------------- */
 static int try_open_path(const char *path)
 {
     FILE *fp = fopen(path, "rb");
@@ -89,13 +132,18 @@ static int try_open_path(const char *path)
     fclose(fp);
     return 1;
 }
+
+/* Probe `root/needle`, then `root/NEEDLE` (uppercased basename) for
+ * case-sensitive filesystems where the installer wrote DANE_02.DTA. */
 static int directory_has_archive(const char *root, const char *needle)
 {
-    char buf[1024];
+    char buf[ARCHIVE_PROBE_PATH_BYTES];
+
     snprintf(buf, sizeof buf, "%s/%s", root, needle);
     if (try_open_path(buf)) return 1;
-    /* macOS may upper- or lower-case archive names — try both */
-    char upper[64]; size_t i;
+
+    char   upper[UPPERCASE_NAME_BYTES];
+    size_t i;
     for (i = 0; needle[i] && i < sizeof upper - 1; ++i) {
         char c = needle[i];
         upper[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
@@ -105,62 +153,59 @@ static int directory_has_archive(const char *root, const char *needle)
     return try_open_path(buf);
 }
 
+/* Accept `root` as the data directory if it contains the probe file.
+ * On success commits the path to g_cd_path. */
 static int try_root(const char *root)
 {
     if (!root || !*root) return 0;
-    if (!directory_has_archive(root, "Dane_02.dta")) return 0;
+    if (!directory_has_archive(root, DATA_PROBE_FILENAME)) return 0;
     snprintf(g_cd_path, sizeof g_cd_path, "%s", root);
     return 1;
 }
 
 int CheckCdRomDrive(void)
 {
-    /* 1. explicit override */
-    if (try_root(getenv("WACKI_PATH"))) return 2;
-    /* 2. ./data */
-    if (try_root("./data")) return 2;
-    if (try_root("data"))   return 2;
-    /* 3. <binary_dir>/data + 4. <binary_dir> */
+    /* Search order: explicit env override → ./data → ./<bin>/data →
+     * ./<bin> → cwd. First match wins. */
+    if (try_root(getenv("WACKI_PATH"))) return DATA_ROOT_FOUND;
+    if (try_root("./data"))             return DATA_ROOT_FOUND;
+    if (try_root("data"))               return DATA_ROOT_FOUND;
+
     char *base = SDL_GetBasePath();
     if (base) {
+        /* SDL_GetBasePath returns a trailing slash; strip it so the
+         * snprintf doesn't double it. */
         size_t blen = strlen(base);
-        while (blen > 1 && base[blen-1] == '/') base[--blen] = 0;
-        char buf[1024];
+        while (blen > 1 && base[blen - 1] == '/') base[--blen] = 0;
+
+        char buf[ARCHIVE_PROBE_PATH_BYTES];
         snprintf(buf, sizeof buf, "%s/data", base);
-        if (try_root(buf))  { SDL_free(base); return 2; }
-        if (try_root(base)) { SDL_free(base); return 2; }
+        if (try_root(buf))  { SDL_free(base); return DATA_ROOT_FOUND; }
+        if (try_root(base)) { SDL_free(base); return DATA_ROOT_FOUND; }
         SDL_free(base);
     }
-    /* 5. current dir */
-    if (try_root(".")) return 2;
+
+    if (try_root(".")) return DATA_ROOT_FOUND;
     return 0;
 }
 
-/* ------------------------------------------------------------------------- *
- * CheckDirectSoundVersion — always OK on portable build.
- * ------------------------------------------------------------------------- */
-int CheckDirectSoundVersion(void) { return 1; }
+/* ---- SIGINT handler --------------------------------------------- */
 
-/* T133 — SIGINT handler. Sets the same quit flag SDL_QUIT would set so
- * the main loop unwinds cleanly (flushes save, releases SDL, etc.).
- * Without this, Ctrl-C in headless CI runs terminates abruptly mid-frame,
- * leaving Wacki.sav.tmp dangling (post T131 atomic write). */
-extern int  PlatformShouldQuit(void);
-extern void PlatformShutdown(void);
+/* T133 — Ctrl-C → graceful shutdown. Pushes the same SDL_QUIT event
+ * SDL would push on a window close, so the main loop unwinds normally
+ * (flushes save, releases SDL, etc.). Without this, Ctrl-C in
+ * headless CI runs terminated abruptly mid-frame and left Wacki.sav.
+ * tmp dangling. */
 static void sigint_handler(int sig)
 {
     (void)sig;
-    /* SDL_QUIT push is async-signal-safe enough on Unix; the main loop
- * polls it via PlatformShouldQuit and unwinds normally. */
     SDL_Event ev = {0};
     ev.type = SDL_QUIT;
     SDL_PushEvent(&ev);
 }
 
-/* ---- CLI parsing ------------------------------------------------- */
+/* ---- CLI parsing ------------------------------------------------ */
 
-/* Parsed command-line state — set by parse_cli_args, possibly
- * overridden by apply_env_overrides. */
 typedef struct CliArgs {
     uint32_t    seed_override;
     int         seed_set;
@@ -168,10 +213,6 @@ typedef struct CliArgs {
     const char *play_avi;        /* single-AVI test mode (--play-avi) */
     int         test_cutscenes;  /* batch cutscene sweep (--test-cutscenes) */
 } CliArgs;
-
-#define DEV_START_STAGE_CLAMP_MIN   1
-#define DEV_START_STAGE_CLAMP_MAX   5
-#define SCALE_FACTOR_MAX            8
 
 static void parse_cli_args(int argc, char **argv, CliArgs *out)
 {
@@ -187,13 +228,13 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
                 n > DEV_START_STAGE_CLAMP_MAX) n = 0;
             out->start_stage = n;
         }
-        /* T44 — deterministic smoke harness: --seed N sets WackiRand
-         * seed before any rand call. */
+        /* T44 — deterministic smoke harness: --seed N seeds WackiRand
+         * before any rand call. */
         else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
             out->seed_override = (uint32_t)strtoul(argv[++i], NULL, 0);
             out->seed_set      = 1;
         }
-        /* T54 — HiDPI scaling. --scale N enlarges window NxN; --scaler
+        /* T54 — HiDPI scaling. --scale N enlarges window NxN, --scaler
          * nearest|linear|best controls upscale filtering. */
         else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
             g_scale_factor = atoi(argv[++i]);
@@ -211,7 +252,7 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
         }
         else if (strcmp(argv[i], "--test-cutscenes") == 0) {
             out->test_cutscenes = 1;
-            g_no_pacing         = 1;     /* batch mode: don't sleep per frame */
+            g_no_pacing         = 1;
         }
         /* T29 — force-fast decode for cutscenes (no SDL_Delay). */
         else if (strcmp(argv[i], "--no-pacing") == 0) {
@@ -221,8 +262,8 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
 }
 
 /* Apply env-var fallbacks for the flags the CLI didn't touch. Lets CI
- * runners that can't easily change argv (WACKI_HEADLESS, WACKI_START_
- * STAGE, etc.) configure the engine via the environment instead. */
+ * runners that can't easily change argv use WACKI_HEADLESS / WACKI_
+ * START_STAGE / etc. instead. */
 static void apply_env_overrides(CliArgs *args)
 {
     const char *env;
@@ -257,7 +298,7 @@ static void apply_env_overrides(CliArgs *args)
 }
 
 /* Apply the parsed args' early-side effects: dev-stage jump, headless
- * SDL drivers, RNG seed override. Done after env merge but before SDL
+ * SDL drivers, RNG seed override. Runs after env merge but before SDL
  * init so the env-forced drivers stick. */
 static void apply_early_cli_effects(const CliArgs *args)
 {
@@ -270,7 +311,7 @@ static void apply_early_cli_effects(const CliArgs *args)
     if (g_headless) {
         /* Force SDL's null video / audio backends so SDL_Init doesn't
          * try to connect to Cocoa / X11 / Wayland. Caller can still
-         * override by setting SDL_VIDEODRIVER before launch (rare). */
+         * override by setting SDL_VIDEODRIVER before launch. */
         setenv("SDL_VIDEODRIVER", "dummy", 0);
         setenv("SDL_AUDIODRIVER", "dummy", 0);
         fprintf(stderr, "[wacki] headless mode\n");
@@ -283,22 +324,21 @@ static void apply_early_cli_effects(const CliArgs *args)
 
 /* Try to load WACKI.EXE as a passive PE image so xlat_binary_ptr can
  * resolve original .data / .rdata / .text addresses (verb tables,
- * scripts, etc.) that haven't been manually transcribed into binary_
- * data.c. Missing or unreadable → port falls back to the manually-
- * embedded blobs only (current behaviour). */
+ * scripts, etc.). Missing or unreadable → the port falls back to the
+ * manually-embedded blobs in binary_data.c. */
 static void try_load_pe_image(void)
 {
     extern int PeLoaderInit(const char *exe_path);
-    char p[512];
+    char p[PE_PROBE_PATH_BYTES];
     snprintf(p, sizeof p, "%s/WACKI.EXE", g_cd_path);
     if (PeLoaderInit(p)) return;
     snprintf(p, sizeof p, "%s/wacki.exe", g_cd_path);
     PeLoaderInit(p);
 }
 
-/* ---- cutscene test modes ----------------------------------------- */
+/* ---- cutscene test modes --------------------------------------- */
 
-/* All cutscene files that ship in DANE_*.DTA. Order matches stage
+/* Every cutscene file that ships in DANE_*.DTA. Order matches stage
  * order so a batch sweep walks the engine's natural playback sequence. */
 static const char *const k_known_cutscenes[] = {
     "DANE_10.DTA", "DANE_11.DTA", "DANE_12.DTA", "DANE_13.DTA",
@@ -331,14 +371,11 @@ static int run_cutscene_test_mode(const CliArgs *args)
     return 0;
 }
 
-/* ------------------------------------------------------------------------- *
- * WackiMain — the real entry point. Mirrors the original WinMain but
- * routes everything through the SDL platform abstraction.
- * ------------------------------------------------------------------------- */
+/* ---- WackiMain + main ------------------------------------------- */
+
 int WackiMain(int argc, char **argv)
 {
-    /* T133 — SIGINT (Ctrl-C) → graceful shutdown. Installed first so
-     * it covers init phase too. */
+    /* SIGINT first so it covers init failures too. */
     signal(SIGINT, sigint_handler);
 
     CliArgs args;
@@ -346,7 +383,7 @@ int WackiMain(int argc, char **argv)
     apply_env_overrides(&args);
     apply_early_cli_effects(&args);
 
-    if (CheckCdRomDrive() != 2) {
+    if (CheckCdRomDrive() != DATA_ROOT_FOUND) {
         fprintf(stderr,
             "Nie znalaz\xC5\x82""em plik\xC3\xB3w Dane_*.dta.\n"
             "U\xC5\xBC""yj jednego z:\n"
@@ -382,13 +419,12 @@ int WackiMain(int argc, char **argv)
     return 0;
 }
 
-/* SDL_main forwards here */
 int main(int argc, char **argv)
 {
     return WackiMain(argc, argv);
 }
 
-/* ---- portable replacements for the original Win32 helpers -------------- */
+/* ---- portable replacements for the original Win32 helpers ------- */
 
 void PumpWin32Messages(void)
 {
@@ -397,17 +433,17 @@ void PumpWin32Messages(void)
 
 int HasPendingKey(void)
 {
-    return (g_key_state & 0xFF) != 0;
+    return (g_key_state & KEY_STATE_KEYCODE_MASK) != 0;
 }
 
 uint16_t WaitForKey(void)
 {
-    while ((g_key_state & 0xFF) == 0) {
+    while ((g_key_state & KEY_STATE_KEYCODE_MASK) == 0) {
         PlatformPumpEvents();
-        if (PlatformShouldQuit()) return 0x1B; /* ESC */
-        SDL_Delay(10);
+        if (PlatformShouldQuit()) return VK_ESCAPE_KEYCODE;
+        SDL_Delay(KEY_WAIT_POLL_MS);
     }
-    uint16_t k = (uint16_t)(g_key_state & 0xFF);
-    g_key_state &= 0xFF00;
+    uint16_t k = (uint16_t)(g_key_state & KEY_STATE_KEYCODE_MASK);
+    g_key_state &= KEY_STATE_MOD_MASK;
     return k;
 }

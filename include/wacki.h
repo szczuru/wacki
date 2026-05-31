@@ -23,10 +23,6 @@
 #  include <ddraw.h>
 #  include <dsound.h>
 #  include <mmsystem.h>
-#else
-   typedef void *HINSTANCE;
-   typedef void *HWND;
-   typedef int   BOOL;
 #endif
 
 /* ============= Constants ================================================ */
@@ -336,7 +332,6 @@ void    PlatformPushTypedChar(uint8_t c);
 /* ============= Module APIs ============================================== */
 
 int  CheckCdRomDrive(void);
-int  CheckDirectSoundVersion(void);
 
 /* graphics.c */
 void BlitSpriteToBackbuffer(uint16_t dx, uint16_t dy,
@@ -541,9 +536,6 @@ void     fseek_cyg (CygFile *, int32_t off, int whence);
 int32_t  ftell_cyg (CygFile *);
 
 /* ============= Globals (defined in stubs.c / module owners) ============= */
-extern HINSTANCE g_hInstance;
-extern HWND      g_hWnd;
-extern BOOL      g_in_foreground;
 extern char      g_cd_path[260];
 extern uint8_t   g_palette_rgb[256*3];
 extern uint16_t  g_screen_w, g_screen_h;
