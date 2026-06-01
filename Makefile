@@ -28,6 +28,15 @@ DIST     := dist
 $(DIST):
 	@mkdir -p $@
 
+# Windows (MSYS2/mingw) binaries need a `.exe` suffix. The `OS`
+# env var is set to "Windows_NT" by both mingw-make and GNU make
+# under MSYS2; all POSIX hosts leave it empty.
+ifeq ($(OS),Windows_NT)
+    EXE := .exe
+else
+    EXE :=
+endif
+
 # T43 — debug build with AddressSanitizer + UBSan. Use `make debug` to
 # rebuild with sanitizers + frame pointer + no opt for actionable
 # backtraces. Crashes/leaks abort with a full stack.
@@ -52,7 +61,7 @@ DEBUG_LDFLAGS = -fsanitize=address -fsanitize=undefined
 # gitignored.
 EMBEDDED_PE_SRC = src/embedded_wacki_pe.c
 EMBEDDED_PE_BIN = data/WACKI.EXE
-EMBED_PE_TOOL   = $(DIST)/embed-pe-data
+EMBED_PE_TOOL   = $(DIST)/embed-pe-data$(EXE)
 
 $(EMBED_PE_TOOL): tools/embed-pe-data.c | $(DIST)
 	$(CC) $(CFLAGS) -o $@ $<
@@ -165,33 +174,33 @@ TEST_CFLAGS = -O2 -Wall -Wextra -Wpedantic \
 .PHONY: all engine tools clean run debug test
 all: engine tools
 
-engine: $(DIST)/wacki
-$(DIST)/wacki: $(ENGINE_SRCS) | $(DIST)
+engine: $(DIST)/wacki$(EXE)
+$(DIST)/wacki$(EXE): $(ENGINE_SRCS) | $(DIST)
 	$(CC) $(CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB)
 
 # Debug build with sanitizers — separate binary so the release build
 # stays untouched. Run via $(DIST)/wacki-debug --headless for CI fuzz
 # runs.
-debug: $(DIST)/wacki-debug
-$(DIST)/wacki-debug: $(ENGINE_SRCS) | $(DIST)
+debug: $(DIST)/wacki-debug$(EXE)
+$(DIST)/wacki-debug$(EXE): $(ENGINE_SRCS) | $(DIST)
 	$(CC) $(DEBUG_CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB) $(DEBUG_LDFLAGS)
 
-tools: $(DIST)/dta-extract $(DIST)/pkv2-depack
+tools: $(DIST)/dta-extract$(EXE) $(DIST)/pkv2-depack$(EXE)
 
-$(DIST)/dta-extract: $(TOOL_SRCS_EXTRACT) | $(DIST)
+$(DIST)/dta-extract$(EXE): $(TOOL_SRCS_EXTRACT) | $(DIST)
 	$(CC) $(CFLAGS) -o $@ $(TOOL_SRCS_EXTRACT)
 
-$(DIST)/pkv2-depack: $(TOOL_SRCS_PKV2) | $(DIST)
+$(DIST)/pkv2-depack$(EXE): $(TOOL_SRCS_PKV2) | $(DIST)
 	$(CC) $(CFLAGS) -o $@ $(TOOL_SRCS_PKV2)
 
-run: $(DIST)/wacki
-	$(DIST)/wacki
+run: $(DIST)/wacki$(EXE)
+	$(DIST)/wacki$(EXE)
 
 # Build + run unit tests. Exit non-zero if any test fails.
-test: $(DIST)/run-tests
-	$(DIST)/run-tests
+test: $(DIST)/run-tests$(EXE)
+	$(DIST)/run-tests$(EXE)
 
-$(DIST)/run-tests: $(TEST_SRCS) $(TEST_ENGINE_SRCS) | $(DIST)
+$(DIST)/run-tests$(EXE): $(TEST_SRCS) $(TEST_ENGINE_SRCS) | $(DIST)
 	$(CC) $(TEST_CFLAGS) -o $@ $(TEST_SRCS) $(TEST_ENGINE_SRCS)
 
 # `clean` blows away the whole $(DIST) tree (every built artefact

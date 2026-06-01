@@ -1,0 +1,160 @@
+# Build the engine on macOS, Linux, and Windows for every push / PR.
+# When a `v*` tag is pushed, attach the per-platform archives to a
+# GitHub Release.
+#
+# Each runner needs `data/WACKI.EXE` at build time — its .rdata +
+# .data sections get embedded into the binary by tools/embed-pe-data.
+# The EXE is fetched at job start from a URL provided via the
+# `WACKI_EXE_URL` secret (a private server you own). The fetched
+# file lives only inside the runner's workspace; nothing copyrighted
+# ends up in artifacts (the embedded slice table inside the engine
+# binary is a transformation, but the source bytes themselves are
+# never re-uploaded).
+
+name: build
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (arm64)
+            artifact: wacki-macos-arm64
+            archive_ext: tar.gz
+          - os: ubuntu-latest
+            label: Linux (x86_64)
+            artifact: wacki-linux-x86_64
+            archive_ext: tar.gz
+          - os: windows-latest
+            label: Windows (x86_64, MSYS2/mingw)
+            artifact: wacki-windows-x86_64
+            archive_ext: zip
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- platform-specific deps -----------------------------------
+      - name: Install SDL2 (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install sdl2
+
+      - name: Install SDL2 (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+
+      - name: Setup MSYS2 (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            zip
+
+      # ---- fetch the build-time data dependency ---------------------
+      - name: Fetch WACKI.EXE
+        env:
+          WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
+        run: |
+          if [ -z "${WACKI_EXE_URL:-}" ]; then
+            echo "::error::WACKI_EXE_URL secret is empty"
+            exit 1
+          fi
+          mkdir -p data
+          curl -fsSL --retry 3 --retry-delay 2 \
+               "$WACKI_EXE_URL" -o data/WACKI.EXE
+          ls -la data/WACKI.EXE
+
+      # ---- build + test ---------------------------------------------
+      # Windows: route make through the MSYS2 shell so `cc`,
+      # `sdl2-config`, `make` resolve from /mingw64.
+      - name: Build + test (POSIX)
+        if: matrix.os != 'windows-latest'
+        run: |
+          make all
+          make test
+
+      - name: Build + test (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          make all
+          make test
+
+      # ---- package + upload -----------------------------------------
+      - name: Package (POSIX)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p staging
+          cp dist/wacki staging/
+          cp README.md  staging/ 2>/dev/null || true
+          tar czf "${{ matrix.artifact }}.tar.gz" -C staging .
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: msys2 {0}
+        run: |
+          mkdir -p staging
+          cp dist/wacki.exe staging/
+          # MSYS2 ships SDL2.dll at /mingw64/bin — the engine links
+          # against it, so users need it alongside the .exe.
+          cp /mingw64/bin/SDL2.dll staging/
+          cp README.md staging/ 2>/dev/null || true
+          (cd staging && zip -r "../${{ matrix.artifact }}.zip" .)
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
+
+  # ---- release ------------------------------------------------------
+  # Only fires on tag push (`v*`). Pulls the three per-platform
+  # archives from the matrix build above and attaches them to a
+  # GitHub Release named after the tag.
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact layout
+        run: |
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+                -exec mv {} . \;
+          ls -la wacki-*
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wacki-*.tar.gz
+            wacki-*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true

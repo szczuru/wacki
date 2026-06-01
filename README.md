@@ -17,21 +17,44 @@ brak interactive playthrough).
 
 ## Build & run
 
+The engine builds + tests + runs on macOS, Linux, and Windows
+(MSYS2 / mingw-w64). Install SDL2 for your platform:
+
+| Platform        | SDL2 install                                   |
+|-----------------|------------------------------------------------|
+| macOS (Homebrew)| `brew install sdl2`                            |
+| Debian / Ubuntu | `sudo apt install libsdl2-dev`                 |
+| Fedora          | `sudo dnf install SDL2-devel`                  |
+| Arch            | `sudo pacman -S sdl2`                          |
+| Windows (MSYS2) | `pacman -S mingw-w64-x86_64-{gcc,SDL2} make`   |
+
+Then:
+
 ```
-brew install sdl2          # one-off
-make all                   # builds the engine + the two extractor tools
-mkdir -p data              # then drop the .dta files + WACKI.EXE in:
+make all                   # builds the engine + extractor tools into ./dist/
+mkdir -p data              # drop the .dta files + WACKI.EXE in:
 cp /Volumes/WACKI_1/*.DTA data/
-cp /Volumes/WACKI_1/WACKI.EXE data/   # currently required at runtime
-./wacki                    # runs the engine
+cp /Volumes/WACKI_1/WACKI.EXE data/   # build-time dep only — see note
+./dist/wacki               # runs the engine (release; quiet by default)
 ```
 
-> **Note:** the engine currently needs `WACKI.EXE` alongside the
-> `.dta` files because the PE loader (`src/pe_loader.c`) reads
-> bytecode + tables directly from a passive-mapped copy of the
-> original binary via `xlat_binary_ptr()`. Embedding it into the
-> port binary at build time is planned (REFACTOR Phase S) but
-> not yet shipped.
+> **Note on WACKI.EXE.** The runtime engine is self-contained — once
+> built, the resulting `dist/wacki` binary doesn't need WACKI.EXE
+> next to it. At build time, `tools/embed-pe-data` reads WACKI.EXE
+> once and emits the original `.rdata + .data` sections as a const
+> slice table baked straight into the binary. The PE loader resolves
+> every original-VA reference (verb tables, scripts, asset name
+> strings, komnata tables) against that slice table. .text / .idata
+> / .rsrc are skipped — the engine never touches them, and a
+> one-shot canary in `PeLoaderRead` would warn if that ever changed.
+
+CI / release builds: pushes to `master` and tagged `v*` builds run
+the matrix in [`.github/workflows/build.yml`](.github/workflows/build.yml).
+Each runner pulls a copy of WACKI.EXE from a URL stored as the
+`WACKI_EXE_URL` GH Actions secret (the bytes never enter the repo
+or the published artifacts), builds the engine, runs the test suite,
+and uploads a per-platform archive. On tag push, the archives get
+attached to a GitHub Release automatically.
 
 The engine looks for the game data in this order:
 
