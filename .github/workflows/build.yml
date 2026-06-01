@@ -39,6 +39,14 @@ jobs:
             label: macOS (arm64)
             artifact: wacki-macos-arm64
             archive_ext: tar.gz
+          # macos-13 is GitHub's last Intel-hosted runner image. When
+          # it eventually retires, the move is cross-compile from
+          # arm64 with `-target x86_64-apple-macos11` (clang has the
+          # SDKs bundled) — a single-runner change.
+          - os: macos-13
+            label: macOS (x86_64)
+            artifact: wacki-macos-x86_64
+            archive_ext: tar.gz
           - os: ubuntu-latest
             label: Linux (x86_64)
             artifact: wacki-linux-x86_64
@@ -74,7 +82,7 @@ jobs:
       # ---- macOS: cmake for SDL2 build. Apple frameworks (Cocoa,
       #   CoreAudio, IOKit, etc.) are part of macOS itself — no install.
       - name: Install build deps (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos')
         run: |
           brew install cmake
 
@@ -155,7 +163,7 @@ jobs:
 
       # ---- confirm zero external SDL2 dependency in the binary -----
       - name: Verify no dynamic SDL2 linkage (macOS)
-        if: matrix.os == 'macos-latest'
+        if: startsWith(matrix.os, 'macos')
         run: |
           ! otool -L dist/wacki | grep -q SDL2 \
             || (echo "::error::dist/wacki still links to SDL2 dynamically"; otool -L dist/wacki; exit 1)
