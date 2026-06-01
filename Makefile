@@ -21,6 +21,13 @@ CFLAGS   ?= -O2 -Wall -Wextra -Wpedantic \
 SDL_CFG  := $(shell $(SDL2_CFG) --cflags 2>/dev/null)
 SDL_LIB  := $(shell $(SDL2_CFG) --libs   2>/dev/null)
 
+# All built binaries land in $(DIST). The directory is gitignored —
+# build artefacts never sit at the repo root or alongside the source
+# files they're built from.
+DIST     := dist
+$(DIST):
+	@mkdir -p $@
+
 # T43 — debug build with AddressSanitizer + UBSan. Use `make debug` to
 # rebuild with sanitizers + frame pointer + no opt for actionable
 # backtraces. Crashes/leaks abort with a full stack.
@@ -42,13 +49,13 @@ DEBUG_LDFLAGS = -fsanitize=address -fsanitize=undefined
 # gitignored.
 EMBEDDED_PE_SRC = src/embedded_wacki_pe.c
 EMBEDDED_PE_BIN = data/WACKI.EXE
-EMBED_PE_TOOL   = tools/embed-pe-data
+EMBED_PE_TOOL   = $(DIST)/embed-pe-data
 
-$(EMBED_PE_TOOL): tools/embed-pe-data.c
+$(EMBED_PE_TOOL): tools/embed-pe-data.c | $(DIST)
 	$(CC) $(CFLAGS) -o $@ $<
 
 $(EMBEDDED_PE_SRC): $(EMBEDDED_PE_BIN) $(EMBED_PE_TOOL)
-	./$(EMBED_PE_TOOL) $(EMBEDDED_PE_BIN) $(EMBEDDED_PE_SRC)
+	$(EMBED_PE_TOOL) $(EMBEDDED_PE_BIN) $(EMBEDDED_PE_SRC)
 
 # ---- modules ----------------------------------------------------------------
 ENGINE_SRCS = \
@@ -155,35 +162,39 @@ TEST_CFLAGS = -O2 -Wall -Wextra -Wpedantic \
 .PHONY: all engine tools clean run debug test
 all: engine tools
 
-engine: wacki
-wacki: $(ENGINE_SRCS)
-	$(CC) $(CFLAGS) $(SDL_CFG) -o $@ $^ $(SDL_LIB)
+engine: $(DIST)/wacki
+$(DIST)/wacki: $(ENGINE_SRCS) | $(DIST)
+	$(CC) $(CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB)
 
 # Debug build with sanitizers — separate binary so the release build
-# stays untouched. Run via ./wacki-debug --headless for CI fuzz runs.
-debug: wacki-debug
-wacki-debug: $(ENGINE_SRCS)
-	$(CC) $(DEBUG_CFLAGS) $(SDL_CFG) -o $@ $^ $(SDL_LIB) $(DEBUG_LDFLAGS)
+# stays untouched. Run via $(DIST)/wacki-debug --headless for CI fuzz
+# runs.
+debug: $(DIST)/wacki-debug
+$(DIST)/wacki-debug: $(ENGINE_SRCS) | $(DIST)
+	$(CC) $(DEBUG_CFLAGS) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB) $(DEBUG_LDFLAGS)
 
-tools: dta-extract pkv2-depack
+tools: $(DIST)/dta-extract $(DIST)/pkv2-depack
 
-dta-extract: $(TOOL_SRCS_EXTRACT)
-	$(CC) $(CFLAGS) -o $@ $^
+$(DIST)/dta-extract: $(TOOL_SRCS_EXTRACT) | $(DIST)
+	$(CC) $(CFLAGS) -o $@ $(TOOL_SRCS_EXTRACT)
 
-pkv2-depack: $(TOOL_SRCS_PKV2)
-	$(CC) $(CFLAGS) -o $@ $^
+$(DIST)/pkv2-depack: $(TOOL_SRCS_PKV2) | $(DIST)
+	$(CC) $(CFLAGS) -o $@ $(TOOL_SRCS_PKV2)
 
-run: wacki
-	./wacki
+run: $(DIST)/wacki
+	$(DIST)/wacki
 
 # Build + run unit tests. Exit non-zero if any test fails.
-test: tests/run-tests
-	./tests/run-tests
+test: $(DIST)/run-tests
+	$(DIST)/run-tests
 
-tests/run-tests: $(TEST_SRCS) $(TEST_ENGINE_SRCS)
-	$(CC) $(TEST_CFLAGS) -o $@ $^
+$(DIST)/run-tests: $(TEST_SRCS) $(TEST_ENGINE_SRCS) | $(DIST)
+	$(CC) $(TEST_CFLAGS) -o $@ $(TEST_SRCS) $(TEST_ENGINE_SRCS)
 
+# `clean` blows away the whole $(DIST) tree (every built artefact
+# lives there now). Also removes the generated embed source +
+# stray .o files left behind by ad-hoc compiles.
 clean:
-	rm -f wacki wacki-debug dta-extract pkv2-depack tests/run-tests \
-	      $(EMBEDDED_PE_SRC) $(EMBED_PE_TOOL)                        \
-	      *.o src/*.o tools/*.o tests/*.o
+	rm -rf $(DIST)
+	rm -f $(EMBEDDED_PE_SRC)
+	rm -f *.o src/*.o tools/*.o tests/*.o
