@@ -23,6 +23,7 @@
  *   video_mode   ↔ s_opt_gfx1      (Grafika 0x12) */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -92,10 +93,8 @@ void ApplySavedSettings(void)
     AudioSetVoiceEnabled(s_opt_voice);
     g_subtitles_on  = s_opt_subtitles;
     g_dialogues_on  = s_opt_dialogues;
-    fprintf(stderr, "[opt] applied saved settings: music=%d voice=%d "
-                    "subs=%d dialogs=%d sfx=%d gfx1=%d\n",
-            s_opt_music, s_opt_voice, s_opt_subtitles, s_opt_dialogues,
-            sfx_on, s_opt_gfx1);
+    LOG_TRACE("opt", "applied saved settings: music=%d voice=%d "
+                    "subs=%d dialogs=%d sfx=%d gfx1=%d", s_opt_music, s_opt_voice, s_opt_subtitles, s_opt_dialogues, sfx_on, s_opt_gfx1);
 }
 
 /* Mirror s_opt_* → WackiSettings → Wacki.sav. Called on every toggle
@@ -195,7 +194,7 @@ static int SolundClick(int trigger)
         break;
     case SOLUND_BTN_EXTRA:
         s_opt_extra ^= 1;
-        fprintf(stderr, "[opt] extra (fade_color_index) = %d\n", s_opt_extra);
+        LOG_TRACE("opt", "extra (fade_color_index) = %d", s_opt_extra);
         break;
     case SOLUND_BTN_EXIT:
         reassert_audio_option_state();
@@ -209,9 +208,7 @@ static int SolundClick(int trigger)
     refresh_solund_toggle_visuals();
 
     if (toggled) {
-        fprintf(stderr, "[opt] music=%d subs=%d voice=%d dialog=%d extra=%d\n",
-                s_opt_music, s_opt_subtitles, s_opt_voice,
-                s_opt_dialogues, s_opt_extra);
+        LOG_TRACE("opt", "music=%d subs=%d voice=%d dialog=%d extra=%d", s_opt_music, s_opt_subtitles, s_opt_voice, s_opt_dialogues, s_opt_extra);
     }
     return SOLUND_RC_KEEP_OPEN;
 }
@@ -292,7 +289,7 @@ static int GrafikaClick(int trigger)
 
     g_grafika_scene.flags |= SCENE_FLAG_REDRAW;
     if (toggled) {
-        fprintf(stderr, "[opt-gfx] flag1=%d flag2=%d\n", s_opt_gfx1, s_opt_gfx2);
+        LOG_TRACE("opt-gfx", "flag1=%d flag2=%d", s_opt_gfx1, s_opt_gfx2);
     }
     return GRAFIKA_RC_KEEP_OPEN;
 }
@@ -387,8 +384,7 @@ static int OpszynsClick(int trigger)
         int rc = RunMenuScene(1, &g_pytanie_scene);
         if (rc == PYTANIE_RC_TAK) {
             g_game_over_code = GAME_OVER_USER_QUIT;
-            fprintf(stderr, "[opt] Pytanie: quit confirmed → game_over=%d\n",
-                    GAME_OVER_USER_QUIT);
+            LOG_TRACE("opt", "Pytanie: quit confirmed → game_over=%d", GAME_OVER_USER_QUIT);
             return OPSZYNS_RC_CLOSE;
         }
         return OPSZYNS_RC_KEEP_OPEN;
@@ -448,7 +444,7 @@ void OpenOptionsMenu(void)
 {
     CapturePendingThumbnail();
     int rc = RunMenuScene(0, &g_opszyns_scene);
-    fprintf(stderr, "[opt] opszyns closed rc=%d\n", rc);
+    LOG_TRACE("opt", "opszyns closed rc=%d", rc);
     /* If Pytanie confirmed quit (rc=CLOSE from QUIT case), signal scene-
      * loop break so play_demo_scene returns to the menu. */
     if (rc == OPSZYNS_RC_CLOSE && g_game_over_code == GAME_OVER_USER_QUIT) {

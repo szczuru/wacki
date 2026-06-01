@@ -18,6 +18,7 @@
  * actual LoadStage call. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -77,11 +78,10 @@ static int SelTloClick(int trigger)
         int idx = trigger - SEL_TLO_TRIGGER_STAGE_FIRST;
         if ((g_completed_stages & (1u << idx)) == 0) {
             s_chapter_pick = idx + 1;
-            fprintf(stderr, "[chapter-select] picked stage %d\n", s_chapter_pick);
+            LOG_TRACE("chapter-select", "picked stage %d", s_chapter_pick);
             return SEL_TLO_RC_PICK_MADE;
         }
-        fprintf(stderr, "[chapter-select] stage %d already completed — ignore\n",
-                idx + 1);
+        LOG_TRACE("chapter-select", "stage %d already completed — ignore", idx + 1);
         return SEL_TLO_RC_KEEP_OPEN;
     }
 
@@ -91,7 +91,7 @@ static int SelTloClick(int trigger)
      * gameplay, Dane_13.dta end-credits sting. */
     if (trigger == SEL_TLO_TRIGGER_ACME) {
         s_chapter_pick = SEL_TLO_PICK_FINALE_STAGE;
-        fprintf(stderr, "[chapter-select] ACME complete — start finale (stage 5)\n");
+        LOG_TRACE("chapter-select", "ACME complete — start finale (stage 5)");
         return SEL_TLO_RC_PICK_MADE;
     }
     return SEL_TLO_RC_KEEP_OPEN;

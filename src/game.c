@@ -7,6 +7,7 @@
  * menu / dialog), LoadStage, ProcessGameFrameTick (per-tick driver),
  * DispatchClickEvent (verb/object routing). */
 #include "wacki.h"
+#include "wacki/log.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -448,9 +449,7 @@ static void run_initial_komnata_scene(uint16_t cur_komnata)
 {
     LoadKomnataScene(cur_komnata);
     if (!g_current_scene) {
-        fprintf(stderr,
-                "[scene] RunGameStageLoop: LoadKomnataScene(%u) yielded no scene\n",
-                cur_komnata);
+        LOG_TRACE("scene", "RunGameStageLoop: LoadKomnataScene(%u) yielded no scene", cur_komnata);
         return;
     }
 
@@ -474,10 +473,7 @@ static void mark_current_stage_completed(void)
 {
     if (g_cur_etap >= 1 && g_cur_etap <= COMPLETED_STAGES_BITMASK_MAX) {
         g_completed_stages |= 1u << (g_cur_etap - 1);
-        fprintf(stderr,
-                "[game-over=%d] stage %u completed (g_completed_stages=0x%X)\n",
-                GAME_OVER_STAGE_END_AVI,
-                (unsigned)g_cur_etap, g_completed_stages);
+        LOG_INFO("log", "[game-over=%d] stage %u completed (g_completed_stages=0x%X)", GAME_OVER_STAGE_END_AVI, (unsigned)g_cur_etap, g_completed_stages);
     }
 }
 
@@ -485,7 +481,7 @@ static void mark_current_stage_completed(void)
 static void play_stage_avi_if(const char *avi, int code, const char *kind)
 {
     if (!avi) return;
-    fprintf(stderr, "[game-over=%d] %s AVI: %s\n", code, kind, avi);
+    LOG_INFO("log", "[game-over=%d] %s AVI: %s", code, kind, avi);
     PlaySceneCutsceneAvi(avi);
 }
 
@@ -516,9 +512,8 @@ static void handle_game_over_chapter_pick(void)
 
     /* Step 4: all stages done → credits sting, then drop into the map. */
     if (all_done) {
-        fprintf(stderr, "[game-over=%d] all stages done → %s + map with "
-                        "green button\n",
-                GAME_OVER_CHAPTER_PICK, CREDITS_STING_AVI);
+        LOG_INFO("log", "[game-over=%d] all stages done → %s + map with "
+                        "green button", GAME_OVER_CHAPTER_PICK, CREDITS_STING_AVI);
         PlaySceneCutsceneAvi(CREDITS_STING_AVI);
     }
 
@@ -528,8 +523,7 @@ static void handle_game_over_chapter_pick(void)
 
     /* Step 6: load picked stage (1..4 = regular, 5 = Monter finale). */
     if (s_chapter_pick >= 1 && s_chapter_pick <= DEV_PICK_FINALE) {
-        fprintf(stderr, "[game-over=%d] LoadStage(%d)\n",
-                GAME_OVER_CHAPTER_PICK, s_chapter_pick);
+        LOG_INFO("log", "[game-over=%d] LoadStage(%d)", GAME_OVER_CHAPTER_PICK, s_chapter_pick);
         LoadStage((uint16_t)s_chapter_pick);
     }
 
@@ -613,12 +607,12 @@ int InitializeGameSubsystems(void)
         opened = OpenDtaArchiveFile(buf);
     }
     if (!opened) {
-        fprintf(stderr, "\nBrak pliku bazy : Dane_02.dta (na CD: %s)\n", g_data_root);
+        LOG_INFO("log", "\nBrak pliku bazy : Dane_02.dta (na CD: %s)", g_data_root);
         PlatformShowMessageBox("Wacki",
             "Nie znaleziono Dane_02.dta — sprawd\xC5\xBA p\xC5\x82yt\xC4\x99 CD.");
         return 0;
     }
-    fprintf(stderr, "[init] mounted archive Dane_02.dta\n");
+    LOG_INFO("init", "mounted archive Dane_02.dta");
 
     g_items_obj     = malloc(sizeof(struct ScriptObj));
     g_scripts_obj   = malloc(sizeof(struct ScriptObj));
@@ -637,7 +631,7 @@ int InitializeGameSubsystems(void)
     LoadScriptFile(g_dialogues_obj, "Gadki.scr");
 
     if (!PreloadCommonAssets())
-        fprintf(stderr, "[init] some resident assets missing — continuing\n");
+        LOG_INFO("init", "some resident assets missing — continuing");
 
     extern int InitializeMmTimer(void *);
     static uint8_t mmt[32];

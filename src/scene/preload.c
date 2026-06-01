@@ -16,6 +16,7 @@
  * them. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -54,16 +55,16 @@ static void preload_default_font(void)
     void    *fbuf = NULL;
     uint32_t fsz  = 0;
     if (!LoadFileFromDta(FONT_FILENAME, &fbuf, &fsz) || !fbuf) {
-        fprintf(stderr, "[init] %s not found in archive\n", FONT_FILENAME);
+        LOG_INFO("init", "%s not found in archive", FONT_FILENAME);
         return;
     }
     g_default_font = ParseFutFontFile((const uint8_t *)fbuf);
     if (!g_default_font) {
-        fprintf(stderr, "[init] %s parse failed\n", FONT_FILENAME);
+        LOG_INFO("init", "%s parse failed", FONT_FILENAME);
         xfree(fbuf);
         return;
     }
-    fprintf(stderr, "[init] %s loaded (%u bytes)\n", FONT_FILENAME, fsz);
+    LOG_INFO("init", "%s loaded (%u bytes)", FONT_FILENAME, fsz);
     /* fbuf intentionally leaked — FontHandle references it. */
 }
 

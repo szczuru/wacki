@@ -18,6 +18,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -47,7 +48,7 @@ int LoadItemNamesTable(void)
     void    *raw = NULL;
     uint32_t sz  = 0;
     if (!LoadFileFromDta("Item.scr", &raw, &sz) || !raw || sz == 0) {
-        fprintf(stderr, "[item-name] Item.scr missing — voice-over disabled\n");
+        LOG_TRACE("item-name", "Item.scr missing — voice-over disabled");
         return 0;
     }
 
@@ -84,8 +85,7 @@ int LoadItemNamesTable(void)
     }
 
     xfree(raw);
-    fprintf(stderr, "[item-name] loaded %d entries from Item.scr\n",
-            g_item_wav_count);
+    LOG_TRACE("item-name", "loaded %d entries from Item.scr", g_item_wav_count);
     return g_item_wav_count;
 }
 
@@ -110,7 +110,7 @@ void ItemHoverDwellTick(void)
     const char *wav = g_item_wav[idx];
     if (wav[0]) {
         PlaySfx(wav);
-        fprintf(stderr, "[item-name] hover verb=0x%02X → %s\n", verb, wav);
+        LOG_TRACE("item-name", "hover verb=0x%02X → %s", verb, wav);
     }
     s_dwell_until = g_tick_counter + ITEM_DWELL_MS;
     s_last_item   = idx;

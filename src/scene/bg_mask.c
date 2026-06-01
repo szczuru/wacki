@@ -17,6 +17,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -93,10 +94,7 @@ static void publish_walkability_from_asset(const AnimAsset *a, const char *name)
     g_walk_fld_oy     = (int16_t)a->off_drawY[0];
     g_walk_fld_stride = (uint16_t)((g_walk_fld_w + WALK_FLD_BITS_PER_BYTE - 1)
                                    / WALK_FLD_BITS_PER_BYTE);
-    fprintf(stderr,
-            "[fld] %s: %ux%u @ (%d,%d) stride=%u (via bg-mask-setup)\n",
-            name, g_walk_fld_w, g_walk_fld_h,
-            g_walk_fld_ox, g_walk_fld_oy, g_walk_fld_stride);
+    LOG_TRACE("fld", "%s: %ux%u @ (%d,%d) stride=%u (via bg-mask-setup)", name, g_walk_fld_w, g_walk_fld_h, g_walk_fld_ox, g_walk_fld_oy, g_walk_fld_stride);
 
     ActorWaypointsSceneInit(0);
     ActorWaypointsSceneInit(1);
@@ -153,13 +151,13 @@ void ScriptCallBgMaskSetup(const char *name)
     g_persp_band_count = (int)((g_komnata_flags & BAND_COUNT_FLAGS_MASK) << 1);
 
     if (!name) {
-        fprintf(stderr, "[script] bg-mask-setup name=NULL\n");
+        LOG_TRACE("script", "bg-mask-setup name=NULL");
         return;
     }
 
     AnimAsset *a = LoadAssetFromDtaBase(name);
     if (!a) {
-        fprintf(stderr, "[script] bg-mask-setup '%s' FAILED\n", name);
+        LOG_TRACE("script", "bg-mask-setup '%s' FAILED", name);
         return;
     }
     RegisterEntityForUpdate((Entity *)a, ASSET_KIND, BG_MASK_ID);
@@ -169,7 +167,5 @@ void ScriptCallBgMaskSetup(const char *name)
         build_walk_behind_entity(a);
     }
 
-    fprintf(stderr,
-            "[script] bg-mask-setup '%s' (asset id=0, kind=%u, frames=%u)\n",
-            name, a->kind, a->frame_count);
+    LOG_TRACE("script", "bg-mask-setup '%s' (asset id=0, kind=%u, frames=%u)", name, a->kind, a->frame_count);
 }

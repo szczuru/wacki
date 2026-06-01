@@ -21,6 +21,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -153,9 +154,7 @@ void ScriptCallRegMaskList(uint16_t id, uint32_t click_ptr, int verb_table)
 {
     AnimAsset *a = (AnimAsset *)FindUpdateRegistration(ASSET_KIND, id);
     if (!a) {
-        fprintf(stderr,
-                "[script] reg-mask-list id=%u click=0x%08x — no asset registered\n",
-                id, click_ptr);
+        LOG_TRACE("script", "reg-mask-list id=%u click=0x%08x — no asset registered", id, click_ptr);
         return;
     }
     if (!a->off_widths || !a->off_heights || !a->off_drawX || !a->off_drawY) {
@@ -200,10 +199,6 @@ void ScriptCallRegMaskList(uint16_t id, uint32_t click_ptr, int verb_table)
         ++spawned;
     }
 
-    fprintf(stderr,
-            "[script] reg-mask-list id=%u asset=%s frames=%u spawned=%d "
-            "click=0x%08X pool[count=%u] table=%s\n",
-            id, a->name, a->frame_count, spawned,
-            click_ptr, pool_count,
-            verb_table ? "verb(hotspot)" : "mask(render)");
+    LOG_TRACE("script", "reg-mask-list id=%u asset=%s frames=%u spawned=%d "
+            "click=0x%08X pool[count=%u] table=%s", id, a->name, a->frame_count, spawned, click_ptr, pool_count, verb_table ? "verb(hotspot)" : "mask(render)");
 }

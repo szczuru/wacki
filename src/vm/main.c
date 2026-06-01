@@ -19,6 +19,7 @@
  * Other tags found in shipped scripts: [rozmowa], [animacja],
  * [sampl]. */
 #include "wacki.h"
+#include "wacki/log.h"
 #include "opcodes.h"
 #include "parser.h"
 
@@ -139,14 +140,13 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  * cap len at 32 dwords (128 bytes — biggest legitimate instruction
  * is opcode 0x52 at len=8). */
         if (op > 0x57 || len > 32) {
-            fprintf(stderr, "[script] bogus op=0x%02x len=%u at pc=%p — END\n",
-                    op, len, (void *)pc);
+            LOG_TRACE("script", "bogus op=0x%02x len=%u at pc=%p — END", op, len, (void *)pc);
             pc = NULL;
             if (call_sp > 0) { --call_sp; base = call_base_ret[call_sp];
                                pc = call_pc_ret[call_sp]; }
             continue;
         }
-        /* fprintf(stderr, "[vm] op=0x%02x len=%u pc=%p\n", op, len, (const void*)pc); */
+        /* LOG_TRACE("vm", "op=0x%02x len=%u pc=%p", op, len, (const void*)pc); */
         uint16_t a0 = pc[1];                    /* first u16 operand (uVar31) */
         uint16_t a1 = (len >= 2) ? pc[2] : 0;   /* low u16 of operand dword 1 */
         uint16_t a2 = (len >= 2) ? pc[3] : 0;   /* high u16 of operand dword 1 */
@@ -691,9 +691,8 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                  * verb_id here is what op 0x1A will later add to the
                  * panel inventory slot; ptr/data reference Gadki.scr
                  * sections for the response audio. */
-                fprintf(stderr, "[dlg] op 0x19 QUEUE slot=%d verb=0x%04X "
-                                "ptr=0x%08X data=0x%08X (count→%d)\n",
-                        slot, reg_id, ptr_v, data_v, dlg_count);
+                LOG_TRACE("dlg", "op 0x19 QUEUE slot=%d verb=0x%04X "
+                                "ptr=0x%08X data=0x%08X (count→%d)", slot, reg_id, ptr_v, data_v, dlg_count);
             }
             break;
         }
@@ -755,11 +754,8 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  * otherwise PaintHudOverlay skips paint. */
             {
                 extern uint16_t g_panel_verb_tab[6];
-                fprintf(stderr, "[dlg] op 0x1A COMMIT verb=0x%04X (dlg_count=%d) "
-                                "panel_tab=[%04X %04X %04X %04X %04X %04X]\n",
-                        reg_id, dlg_count,
-                        g_panel_verb_tab[0], g_panel_verb_tab[1], g_panel_verb_tab[2],
-                        g_panel_verb_tab[3], g_panel_verb_tab[4], g_panel_verb_tab[5]);
+                LOG_TRACE("dlg", "op 0x1A COMMIT verb=0x%04X (dlg_count=%d) "
+                                "panel_tab=[%04X %04X %04X %04X %04X %04X]", reg_id, dlg_count, g_panel_verb_tab[0], g_panel_verb_tab[1], g_panel_verb_tab[2], g_panel_verb_tab[3], g_panel_verb_tab[4], g_panel_verb_tab[5]);
             }
             break;
         }
@@ -772,7 +768,7 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             (void)InventoryRemoveItem(reg_id);
             InventoryPageCollapse();
             PanelPageSwap();
-            fprintf(stderr, "[dlg] op 0x1B CLOSE verb=0x%04X\n", reg_id);
+            LOG_TRACE("dlg", "op 0x1B CLOSE verb=0x%04X", reg_id);
             break;
         }
         case OP_DIALOG_CHOICE: {
@@ -1042,7 +1038,7 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             const void *xlt = xlat_binary_ptr(addr);
             if (!xlt) {
                 /* Unknown binary address — would segfault. Treat as END. */
-                fprintf(stderr, "[script] TAILCALL to unresolved 0x%08x — END\n", addr);
+                LOG_TRACE("script", "TAILCALL to unresolved 0x%08x — END", addr);
                 pc = NULL;
             } else {
                 base = (const uint16_t *)xlt;
@@ -1071,7 +1067,7 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             uint32_t addr; memcpy(&addr, ((const uint8_t *)pc) + 4, 4);
             const void *xlt = xlat_binary_ptr(addr);
             if (!xlt) {
-                fprintf(stderr, "[script] CALL_SUB to unresolved 0x%08x — skip\n", addr);
+                LOG_TRACE("script", "CALL_SUB to unresolved 0x%08x — skip", addr);
                 /* fall through past the call as a no-op */
             } else if (call_sp < VM_CALL_STACK_DEPTH) {
                 call_pc_ret  [call_sp] = pc + len * 2;
@@ -1083,8 +1079,8 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             } else {
                 /* Stack overflow recovery — mirrors original (no push,
  * pc = base). Loud about it because it's a script bug. */
-                fprintf(stderr, "[script] CALL_SUB stack overflow (depth=%d), "
-                                "restarting current script\n", call_sp);
+                LOG_TRACE("script", "CALL_SUB stack overflow (depth=%d), "
+                                "restarting current script", call_sp);
                 pc = base;
                 advanced = 1;
             }
@@ -1173,12 +1169,7 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                     break;
                 }
             }
-            fprintf(stderr, "[op50] id=%u asset=%s frame=%u flag=%u → %s%s\n",
-                    reg_id,
-                    asset ? asset->name : "(none)",
-                    frame, flag,
-                    flag == 0 ? "HIDE" : "SHOW",
-                    matched ? "" : " (NO MASK MATCHED)");
+            LOG_TRACE("op50", "id=%u asset=%s frame=%u flag=%u → %s%s", reg_id, asset ? asset->name : "(none)", frame, flag, flag == 0 ? "HIDE" : "SHOW", matched ? "" : " (NO MASK MATCHED)");
             break;
         }
         case OP_SUBANIM_SET_PARAM: {                            /* SUBANIM_SET_PARAM — 
@@ -1285,7 +1276,7 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                     }
                     xfree(raw);
                 } else {
-                    fprintf(stderr, "[script] op 0x54 show-picture '%s' not found\n", name);
+                    LOG_TRACE("script", "op 0x54 show-picture '%s' not found", name);
                 }
             }
             break;
@@ -1304,8 +1295,7 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  * filesystem spam during development). Behavioural delta is
  * cosmetic — debug-only path. */
         case 0x57:
-            fprintf(stderr, "[script] log: %.*s\n", 64,
-                    (const char *)(pc + 2));
+            LOG_TRACE("script", "log: %.*s", 64, (const char *)(pc + 2));
             break;
 
         /* ---- implicit no-op markers (have no case in original) ------ */

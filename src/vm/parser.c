@@ -10,6 +10,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include "parser.h"
 
 #include <stddef.h>
@@ -47,16 +48,12 @@ void vm_var_set(uint16_t i, uint32_t v)
  * the death/end-of-stage scripting is observable without a
  * debugger. */
     if (idx == VAR_INDEX_GAME_OVER && v != 0) {
-        fprintf(stderr,
-                "[game-over] script wrote g_script_vars[%d] = %u  "
-                "(1=death 3=chapter-sel 4=stage-end)\n",
-                VAR_INDEX_GAME_OVER, (unsigned)v);
+        LOG_TRACE("game-over", "script wrote g_script_vars[%d] = %u  "
+                "(1=death 3=chapter-sel 4=stage-end)", VAR_INDEX_GAME_OVER, (unsigned)v);
     }
     if (idx == VAR_INDEX_COMPLETED) {
-        fprintf(stderr,
-                "[completed] g_script_vars[%d] = 0x%X "
-                "(bit map of completed stages)\n",
-                VAR_INDEX_COMPLETED, (unsigned)v);
+        LOG_TRACE("completed", "g_script_vars[%d] = 0x%X "
+                "(bit map of completed stages)", VAR_INDEX_COMPLETED, (unsigned)v);
     }
 }
 

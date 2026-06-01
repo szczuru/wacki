@@ -13,6 +13,7 @@
  *
  * The Wacki AVIs are 640×480, 8-bit, ~10 fps, paletted. */
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,13 +69,12 @@ static void audio_ensure(uint32_t sample_rate, uint16_t channels, uint16_t bits)
     s_audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_audio_spec_cur,
                                       SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
     if (!s_audio_dev) {
-        fprintf(stderr, "[audio] SDL_OpenAudioDevice: %s\n", SDL_GetError());
+        LOG_TRACE("audio", "SDL_OpenAudioDevice: %s", SDL_GetError());
         return;
     }
     s_audio_open = 1;
     SDL_PauseAudioDevice(s_audio_dev, 0);
-    fprintf(stderr, "[audio] %u Hz, %d ch, %d-bit\n",
-            sample_rate, channels, bits);
+    LOG_TRACE("audio", "%u Hz, %d ch, %d-bit", sample_rate, channels, bits);
 }
 
 /* ---- RIFF / AVI FourCCs ------------------------------------------- */
@@ -249,8 +249,7 @@ static int avi_next_video(AviCtx *c, uint8_t **out_data, uint32_t *out_size)
                            s_audio_spec_cur.channels *
                            (SDL_AUDIO_BITSIZE(s_audio_spec_cur.format) / 8);
             if (bps > 0 && qbytes > bps * 4) {
-                fprintf(stderr, "[avi-sync] audio queue %.1fs ahead (cursor=0x%X)\n",
-                        (double)qbytes / (double)bps, c->cursor);
+                LOG_TRACE("avi-sync", "audio queue %.1fs ahead (cursor=0x%X)", (double)qbytes / (double)bps, c->cursor);
             }
         }
         /* Safety: a malformed chunk that would jump past movi_end
@@ -285,8 +284,7 @@ int PlayFlicAviFile(const char *path)
         g_back_shadow = (uint8_t *)xmalloc(640 * 480);
         if (g_back_shadow) memset(g_back_shadow, 0, 640 * 480);
     }
-    fprintf(stderr, "[avi] play %s (%dx%d, %u us/frame)\n",
-            path, c.width, c.height, c.fps_us);
+    LOG_TRACE("avi", "play %s (%dx%d, %u us/frame)", path, c.width, c.height, c.fps_us);
 
     uint8_t  *frame_data;
     uint32_t  frame_size;
@@ -328,8 +326,7 @@ int PlayFlicAviFile(const char *path)
                 SDL_Delay(target_ms - elapsed_ms);
         }
     }
-    fprintf(stderr, "[avi] %s end — %d frames decoded%s\n",
-            path, frame_count, skipped ? " (skipped)" : "");
+    LOG_TRACE("avi", "%s end — %d frames decoded%s", path, frame_count, skipped ? " (skipped)" : "");
     avi_close(&c);
     return 1;
 }

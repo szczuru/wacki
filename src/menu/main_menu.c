@@ -20,6 +20,7 @@
  * play_loading_screen (Maluch→Prologue). */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 
 #include <stdint.h>
@@ -223,8 +224,7 @@ static void tick_title_animation(void)
             uint16_t dy = a->off_drawY  [s_anim_frame];
             static int once = 0;
             if (once < 5) {
-                fprintf(stderr, "[anim] frame=%d at (%u,%u) %ux%u\n",
-                        s_anim_frame, dx, dy, w, h);
+                LOG_TRACE("anim", "frame=%d at (%u,%u) %ux%u", s_anim_frame, dx, dy, w, h);
                 ++once;
             }
             BlitSpriteToBackbuffer(dx, dy, 0, 0, w, h, w, h,
@@ -279,7 +279,7 @@ static int HandleMainMenuClick(int trigger)
     }
 
     if (trigger > MAIN_MENU_TRIGGER_INIT) {
-        fprintf(stderr, "[menu] click trigger=0x%02X rc=%d\n", trigger, rc);
+        LOG_TRACE("menu", "click trigger=0x%02X rc=%d", trigger, rc);
     }
 
     tick_title_animation();
@@ -526,9 +526,8 @@ static int run_dev_start_stage_flow(void)
     int N = g_dev_start_stage;
     apply_full_reset();
     g_completed_stages = dev_completed_mask_for_stage(N);
-    fprintf(stderr, "[wacki] dev-start: chapter-select map, "
-                    "completed_mask=0x%X (stages 1..%d done)\n",
-            g_completed_stages, N - 1);
+    LOG_INFO("wacki", "dev-start: chapter-select map, "
+                    "completed_mask=0x%X (stages 1..%d done)", g_completed_stages, N - 1);
 
     while (!PlatformShouldQuit()) {
         (void)SelTloRefreshButtons();
@@ -537,14 +536,12 @@ static int run_dev_start_stage_flow(void)
         if (PlatformShouldQuit()) return 1;
 
         if (s_chapter_pick < 1 || s_chapter_pick > DEV_PICK_FINALE) {
-            fprintf(stderr, "[wacki] dev-start: no stage picked — exit\n");
+            LOG_INFO("wacki", "dev-start: no stage picked — exit");
             return 1;
         }
-        fprintf(stderr, "[wacki] dev-start: stage %d picked from map\n",
-                s_chapter_pick);
+        LOG_INFO("wacki", "dev-start: stage %d picked from map", s_chapter_pick);
         if (!LoadStage((uint16_t)s_chapter_pick)) {
-            fprintf(stderr, "[wacki] dev-start: LoadStage(%d) failed\n",
-                    s_chapter_pick);
+            LOG_INFO("wacki", "dev-start: LoadStage(%d) failed", s_chapter_pick);
             continue;
         }
 
@@ -552,14 +549,13 @@ static int run_dev_start_stage_flow(void)
         RunGameStageLoop(STAGE_LOAD_FLAG_SAVE_LOAD);
 
         if (played_stage == DEV_PICK_FINALE) {
-            fprintf(stderr, "[wacki] dev-start: Monter finale complete "
-                            "→ exit (= main menu in normal flow)\n");
+            LOG_INFO("wacki", "dev-start: Monter finale complete "
+                            "→ exit (= main menu in normal flow)");
             return 1;
         }
 
         if (!game_over_is_progress_signal(g_game_over_code)) {
-            fprintf(stderr, "[wacki] dev-start: game_over=%d → exit\n",
-                    g_game_over_code);
+            LOG_INFO("wacki", "dev-start: game_over=%d → exit", g_game_over_code);
             return 1;
         }
 

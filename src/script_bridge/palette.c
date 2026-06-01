@@ -13,6 +13,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -83,7 +84,7 @@ static void load_fade_target(uint32_t selector)
         memcpy(s_fade_target, pal, cpy);
         xfree(pal);
     } else {
-        fprintf(stderr, "[script] pal-load '%s' missing\n", name);
+        LOG_TRACE("script", "pal-load '%s' missing", name);
         /* Failure → target = current so the resulting fade is invisible. */
         memcpy(s_fade_target, g_palette_rgb, sizeof s_fade_target);
     }
@@ -113,8 +114,7 @@ static void apply_fade_step(int progress)
 
 void ScriptCallPalLoad(uint16_t fade_step, uint32_t selector, int with_fade)
 {
-    fprintf(stderr, "[script] pal load sel=0x%x fade=%d step=%u\n",
-            selector, with_fade, fade_step);
+    LOG_TRACE("script", "pal load sel=0x%x fade=%d step=%u", selector, with_fade, fade_step);
 
     /* Snapshot the current palette as the fade source. */
     memcpy(s_fade_source, g_palette_rgb, sizeof s_fade_source);

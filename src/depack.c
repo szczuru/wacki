@@ -26,6 +26,7 @@
  * Fixed match-length bit widths per group: {0, 0, 0, 3, 5, 16}. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -182,13 +183,13 @@ void DepackPkv2Buffer(void *src_, void *dst_, void (*progress)(int))
     Pkv2Header *h   = (Pkv2Header *)src;
 
     if (h->magic != PKV2_MAGIC) {
-        fprintf(stderr, "[depack] bad PKv2 magic 0x%08X\n", h->magic);
+        LOG_TRACE("depack", "bad PKv2 magic 0x%08X", h->magic);
         return;
     }
     uint32_t comp = h->compressed_size;
     uint32_t unp  = h->unpacked_size;
     if (comp < MIN_COMP_SIZE || unp == 0) {
-        fprintf(stderr, "[depack] sanity: comp=%u unp=%u — bail\n", comp, unp);
+        LOG_TRACE("depack", "sanity: comp=%u unp=%u — bail", comp, unp);
         return;
     }
 
@@ -221,7 +222,7 @@ void DepackPkv2Buffer(void *src_, void *dst_, void (*progress)(int))
     uint32_t init_lit;
     memcpy(&init_lit, bs_ptr, INIT_LIT_RUN_LEN_BYTES);   /* avoid misaligned load */
     if (init_lit > unp) {
-        fprintf(stderr, "[depack] init_lit=%u > unp=%u — bail\n", init_lit, unp);
+        LOG_TRACE("depack", "init_lit=%u > unp=%u — bail", init_lit, unp);
         return;
     }
 
@@ -270,8 +271,7 @@ void DepackPkv2Buffer(void *src_, void *dst_, void (*progress)(int))
          * (verified across all 1782 DANE_02.DTA entries) — if either
          * fires it's data corruption, so bail. */
         if (mlen > (uint32_t)(out - dst)) {
-            fprintf(stderr, "[depack] iter %u: mlen=%u overshoots remaining %u — bail\n",
-                    iters, mlen, (uint32_t)(out - dst));
+            LOG_TRACE("depack", "iter %u: mlen=%u overshoots remaining %u — bail", iters, mlen, (uint32_t)(out - dst));
             return;
         }
         if (mlen == 0) break;
@@ -282,14 +282,13 @@ void DepackPkv2Buffer(void *src_, void *dst_, void (*progress)(int))
 
         /* 7. Literal copy from the bit-stream pointer. */
         if (llen > (uint32_t)(out - dst)) {
-            fprintf(stderr, "[depack] iter %u: llen=%u overshoots remaining %u — bail\n",
-                    iters, llen, (uint32_t)(out - dst));
+            LOG_TRACE("depack", "iter %u: llen=%u overshoots remaining %u — bail", iters, llen, (uint32_t)(out - dst));
             return;
         }
         out    -= llen;
         bs_ptr -= llen;
         if (bs_ptr < bs_floor) {
-            fprintf(stderr, "[depack] iter %u: bs_ptr underflow — bail\n", iters);
+            LOG_TRACE("depack", "iter %u: bs_ptr underflow — bail", iters);
             return;
         }
         /* In-place src/dst: bs_ptr and out can overlap near the end —
@@ -306,7 +305,7 @@ void DepackPkv2Buffer(void *src_, void *dst_, void (*progress)(int))
         }
 
         if (++iters > MAX_DECODE_ITERS) {
-            fprintf(stderr, "[depack] runaway after %u iters — bail\n", iters);
+            LOG_TRACE("depack", "runaway after %u iters — bail", iters);
             return;
         }
     }

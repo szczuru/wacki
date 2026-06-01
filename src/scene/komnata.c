@@ -21,6 +21,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -132,9 +133,7 @@ static int find_komnata_entry(uint16_t id,
         uint32_t       name_va = read_u32_le(e + KOMNATA_OFF_NAME_VA);
         uint16_t       flags   = read_u16_le(e + KOMNATA_OFF_FLAGS);
         if (!name_va && flags == 0) {
-            fprintf(stderr,
-                    "[load-komnata] terminator hit at i=%d, requested id=%u\n",
-                    i, id);
+            LOG_INFO("load-komnata", "terminator hit at i=%d, requested id=%u", i, id);
             return 0;
         }
     }
@@ -219,16 +218,14 @@ const char *LoadKomnata(uint16_t id)
     uint32_t name_va, enter_va, second_va;
     uint16_t flags;
     if (!find_komnata_entry(id, &name_va, &flags, &enter_va, &second_va)) {
-        fprintf(stderr, "[load-komnata] id=%u not in stage table\n", id);
+        LOG_INFO("load-komnata", "id=%u not in stage table", id);
         return NULL;
     }
 
     const char *name = (const char *)PeLoaderRead(name_va);
     g_cur_komnata = id;
     g_stats.total_komnata_loads++;
-    fprintf(stderr,
-            "[load-komnata] %u '%s' flags=0x%04X enter=0x%08X second=0x%08X\n",
-            id, name ? name : "(null)", flags, enter_va, second_va);
+    LOG_INFO("load-komnata", "%u '%s' flags=0x%04X enter=0x%08X second=0x%08X", id, name ? name : "(null)", flags, enter_va, second_va);
 
     /* --- 1: tear down the previous room ---------------------------- */
     clear_previous_room();

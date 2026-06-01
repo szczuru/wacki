@@ -19,6 +19,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -123,12 +124,11 @@ void ScriptCallLoadAsset(const char *name, uint16_t id)
 
     AnimAsset *a = LoadAssetFromDtaBase(name);
     if (!a) {
-        fprintf(stderr, "[script] load-asset '%s' id=%u FAILED\n", name, id);
+        LOG_TRACE("script", "load-asset '%s' id=%u FAILED", name, id);
         return;
     }
     RegisterEntityForUpdate((Entity *)a, ASSET_KIND, id);
-    fprintf(stderr, "[script] load-asset '%s' id=%u (kind=%u frames=%u)\n",
-            name, id, a->kind, a->frame_count);
+    LOG_TRACE("script", "load-asset '%s' id=%u (kind=%u frames=%u)", name, id, a->kind, a->frame_count);
 }
 
 void ScriptCallDestroyEnt(uint16_t id, int also_unreg_asset)
@@ -175,8 +175,7 @@ void ScriptCallDestroyEnt(uint16_t id, int also_unreg_asset)
             ++total_killed;
         }
     }
-    fprintf(stderr, "[script] destroy id=%u killed=%d skipped=%d (asset_unreg=%d)\n",
-            id, total_killed, total_skipped, also_unreg_asset);
+    LOG_TRACE("script", "destroy id=%u killed=%d skipped=%d (asset_unreg=%d)", id, total_killed, total_skipped, also_unreg_asset);
 }
 
 void ScriptCallEnableEnt(uint16_t id, int enable)
@@ -211,8 +210,7 @@ void ScriptCallHideEnt(uint16_t id)
      *     the partner-hide. */
     Entity *e = FindEntityByVerbId(id);
     if (!e) {
-        fprintf(stderr, "[hide] id=0x%04X — no entity (active=%u)\n",
-                id, (unsigned)g_active_actor);
+        LOG_TRACE("hide", "id=0x%04X — no entity (active=%u)", id, (unsigned)g_active_actor);
         return;
     }
 
@@ -220,10 +218,7 @@ void ScriptCallHideEnt(uint16_t id)
     int partner_idx = (int)((g_active_actor & 1u) ^ 1u);
     int suppressed  = (target_idx == partner_idx);
 
-    fprintf(stderr, "[hide] id=0x%04X target=%s active=%s → %s\n",
-            id, actor_label_for_index(target_idx),
-            (g_active_actor & 1u) ? "Fjej" : "Ebek",
-            suppressed ? "SUPPRESSED" : "HIDDEN");
+    LOG_TRACE("hide", "id=0x%04X target=%s active=%s → %s", id, actor_label_for_index(target_idx), (g_active_actor & 1u) ? "Fjej" : "Ebek", suppressed ? "SUPPRESSED" : "HIDDEN");
 
     if (suppressed) return;
     EOFF8(e, ENT_OFF_FLAGS1) |= (uint8_t)ENT_FLAG_HIDDEN_BIT;
@@ -235,9 +230,7 @@ void ScriptCallShowEnt(uint16_t id)
     int target_idx = e ? ((e == g_actor[0]) ? 0
                           : (e == g_actor[1]) ? 1 : -1)
                        : -2;
-    fprintf(stderr, "[show] id=0x%04X target=%s active=%s\n",
-            id, actor_label_for_index(target_idx),
-            (g_active_actor & 1u) ? "Fjej" : "Ebek");
+    LOG_INFO("show", "id=0x%04X target=%s active=%s", id, actor_label_for_index(target_idx), (g_active_actor & 1u) ? "Fjej" : "Ebek");
 
     if (e) {
         /* Clear both HIDDEN and the alpha-plane WAIT_FOR_ENABLE bit so
@@ -326,6 +319,5 @@ void ScriptCallAttachProp(uint16_t actor, uint16_t prop, int keep)
          * SUBSCRIPT_CALL and op 0x23 SWAP_ATLAS). */
         reset_entity_walker_state(e);
     }
-    fprintf(stderr, "[script] attach-prop actor=0x%04X prop=0x%04X keep=%d %s\n",
-            actor, prop, keep, a ? "ok" : "no-asset");
+    LOG_TRACE("script", "attach-prop actor=0x%04X prop=0x%04X keep=%d %s", actor, prop, keep, a ? "ok" : "no-asset");
 }

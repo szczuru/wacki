@@ -15,6 +15,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -87,11 +88,7 @@ void DispatchClickEvent(uint16_t obj_id, uint16_t verb_id)
     const uint8_t *obj_script  = find_dispatch_script(obj_tab_va,  obj_id);
 
     if (verb_script || obj_script) {
-        fprintf(stderr, "[dispatch] obj=0x%04X verb=0x%04X%s%s%s\n",
-                obj_id, verb_id,
-                verb_script ? " V" : "",
-                obj_script  ? " O" : "",
-                g_dialog_active ? " [dlg-active]" : "");
+        LOG_TRACE("dispatch", "obj=0x%04X verb=0x%04X%s%s%s", obj_id, verb_id, verb_script ? " V" : "", obj_script  ? " O" : "", g_dialog_active ? " [dlg-active]" : "");
     }
 
     /* Verb script runs first with (this=obj, that=verb). A non-zero

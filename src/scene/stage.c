@@ -13,6 +13,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -114,12 +115,7 @@ static void load_actor_anim_table(const uint8_t *sd, int actor)
 static void log_actor_walk_anims(void)
 {
     for (int i = 0; i < ACTOR_COUNT; ++i) {
-        fprintf(stderr,
-                "[stage] actor walk anims: a%d LRUD=%p,%p,%p,%p aux=%p idle=%p\n",
-                i,
-                (void *)g_actor_walk_anim[i][0], (void *)g_actor_walk_anim[i][1],
-                (void *)g_actor_walk_anim[i][2], (void *)g_actor_walk_anim[i][3],
-                (void *)g_actor_walk_anim[i][4], (void *)g_actor_walk_anim[i][5]);
+        LOG_INFO("stage", "actor walk anims: a%d LRUD=%p,%p,%p,%p aux=%p idle=%p", i, (void *)g_actor_walk_anim[i][0], (void *)g_actor_walk_anim[i][1], (void *)g_actor_walk_anim[i][2], (void *)g_actor_walk_anim[i][3], (void *)g_actor_walk_anim[i][4], (void *)g_actor_walk_anim[i][5]);
     }
 }
 
@@ -162,8 +158,7 @@ void BuildStageTable(void)
 {
     const uint8_t *tab = (const uint8_t *)PeLoaderRead(STAGE_PTR_TABLE_VA);
     if (!tab) {
-        fprintf(stderr,
-                "[stage] stage pointer table unreadable — stage table empty\n");
+        LOG_INFO("stage", "stage pointer table unreadable — stage table empty");
         for (int i = 0; i < STAGE_COUNT; ++i) {
             g_stage_table[i]    = NULL;
             g_stage_va_table[i] = 0;
@@ -183,16 +178,7 @@ void BuildStageTable(void)
         decode_stage_def(out, sd);
         g_stage_table[i] = out;
 
-        fprintf(stderr,
-                "[stage] %d @ 0x%08X: ebek=%s fjej=%s panel=%s pal=%s "
-                "start=%u intro=%s alt=%s\n",
-                i + 1, sva,
-                out->ebek_wyc    ? out->ebek_wyc    : "(null)",
-                out->fjej_wyc    ? out->fjej_wyc    : "(null)",
-                out->panel_wyc   ? out->panel_wyc   : "(null)",
-                out->paleta_pal  ? out->paleta_pal  : "(null)",
-                out->start_komnata,
-                out->intro_avi   ? out->intro_avi   : "(null)",
-                out->alt_avi     ? out->alt_avi     : "(null)");
+        LOG_INFO("stage", "%d @ 0x%08X: ebek=%s fjej=%s panel=%s pal=%s "
+                "start=%u intro=%s alt=%s", i + 1, sva, out->ebek_wyc    ? out->ebek_wyc    : "(null)", out->fjej_wyc    ? out->fjej_wyc    : "(null)", out->panel_wyc   ? out->panel_wyc   : "(null)", out->paleta_pal  ? out->paleta_pal  : "(null)", out->start_komnata, out->intro_avi   ? out->intro_avi   : "(null)", out->alt_avi     ? out->alt_avi     : "(null)");
     }
 }

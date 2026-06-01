@@ -20,6 +20,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <SDL.h>
 #include <stdint.h>
@@ -106,7 +107,7 @@ void PlatformSetTextInput(int on)
 int PlatformInit(int w, int h, const char *title)
 {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_AUDIO) != 0) {
-        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        LOG_INFO("log", "SDL_Init: %s", SDL_GetError());
         return 0;
     }
     s_w = w;
@@ -118,8 +119,7 @@ int PlatformInit(int w, int h, const char *title)
          * queue and the mixer callback still fires — CI smoke tests
          * exercise PlayDialogLine + TickMenuMusic etc. */
         const char *drv = SDL_GetCurrentVideoDriver();
-        fprintf(stderr, "[platform] SDL ready (headless): %dx%d, video=%s\n",
-                w, h, drv ? drv : "?");
+        LOG_INFO("platform", "SDL ready (headless): %dx%d, video=%s", w, h, drv ? drv : "?");
         return 1;
     }
 
@@ -137,7 +137,7 @@ int PlatformInit(int w, int h, const char *title)
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         win_w, win_h, SDL_WINDOW_SHOWN);
     if (!s_win) {
-        fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
+        LOG_INFO("log", "SDL_CreateWindow: %s", SDL_GetError());
         return 0;
     }
 
@@ -148,7 +148,7 @@ int PlatformInit(int w, int h, const char *title)
         s_ren = SDL_CreateRenderer(s_win, -1, SDL_RENDERER_SOFTWARE);
     }
     if (!s_ren) {
-        fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError());
+        LOG_INFO("log", "SDL_CreateRenderer: %s", SDL_GetError());
         return 0;
     }
 
@@ -156,7 +156,7 @@ int PlatformInit(int w, int h, const char *title)
     s_tex = SDL_CreateTexture(s_ren, SDL_PIXELFORMAT_ARGB8888,
                               SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!s_tex) {
-        fprintf(stderr, "SDL_CreateTexture: %s\n", SDL_GetError());
+        LOG_INFO("log", "SDL_CreateTexture: %s", SDL_GetError());
         return 0;
     }
 
@@ -174,11 +174,7 @@ int PlatformInit(int w, int h, const char *title)
     SDL_ShowCursor(SDL_DISABLE);
 
     const char *drv = SDL_GetCurrentVideoDriver();
-    fprintf(stderr,
-            "[platform] SDL ready: %dx%d window (%dx scale, %s filter), renderer=%s\n",
-            win_w, win_h, sf,
-            g_scale_mode ? g_scale_mode : "nearest",
-            drv ? drv : "?");
+    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter), renderer=%s", win_w, win_h, sf, g_scale_mode ? g_scale_mode : "nearest", drv ? drv : "?");
 
     /* Black initial frame so the window is never garbage. */
     memset(s_pixels32, 0, (size_t)w * h * ARGB_BYTES_PER_PIXEL);
@@ -336,9 +332,7 @@ void PlatformShowMessageBox(const char *title, const char *body)
         /* No GUI dialog in headless mode — log to stderr so CI runs
          * still see fatal messages (CD-rom missing, archive missing
          * etc.). */
-        fprintf(stderr, "[msgbox] %s: %s\n",
-                title ? title : "(null)",
-                body  ? body  : "(null)");
+        LOG_TRACE("msgbox", "%s: %s", title ? title : "(null)", body  ? body  : "(null)");
         return;
     }
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, title, body, s_win);

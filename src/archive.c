@@ -17,6 +17,7 @@
  * (free via xfree). */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -88,7 +89,7 @@ static int verify_base_magic(CygFile *f, const char *path)
     uint32_t magic = 0;
     fread_cyg(&magic, 1, 4, f);
     if (magic == DTA_MAGIC_BASE) return 1;
-    fprintf(stderr, "%s: bad BASE magic 0x%08X\n", path, magic);
+    LOG_INFO("log", "%s: bad BASE magic 0x%08X", path, magic);
     return 0;
 }
 
@@ -105,9 +106,7 @@ static int read_spis_header(CygFile *f, int32_t spis_size,
     fread_cyg(spis_hdr, 1, sizeof spis_hdr, f);
 
     if (spis_hdr[0] != DTA_MAGIC_SPIS) {
-        fprintf(stderr, "%s: bad SPIS magic 0x%08X at -%d\n",
-                path, spis_hdr[0],
-                spis_size + (int32_t)SPIS_FOOTER_SIZE_BYTES + 4);
+        LOG_INFO("log", "%s: bad SPIS magic 0x%08X at -%d", path, spis_hdr[0], spis_size + (int32_t)SPIS_FOOTER_SIZE_BYTES + 4);
         return 0;
     }
     *out_comp = spis_hdr[2];
@@ -160,7 +159,7 @@ int OpenDtaArchiveFile(const char *path)
     }
     uint32_t cap = comp > unp ? comp : unp;
     if (!cap || cap > SPIS_MAX_SIZE_BYTES) {
-        fprintf(stderr, "%s: SPIS size %u/%u out of range\n", path, comp, unp);
+        LOG_INFO("log", "%s: SPIS size %u/%u out of range", path, comp, unp);
         fclose_cyg(f);
         return 0;
     }
@@ -174,7 +173,7 @@ int OpenDtaArchiveFile(const char *path)
 
     DepackPkv2Buffer(s_dir, s_dir, NULL);
     s_dir_count = (int32_t)(unp >> DTA_INDEX_ENTRY_LOG2);
-    fprintf(stderr, "[archive] %s mounted (%d entries)\n", path, s_dir_count);
+    LOG_TRACE("archive", "%s mounted (%d entries)", path, s_dir_count);
     return 1;
 }
 
@@ -187,7 +186,7 @@ int LoadFileFromDta(const char *name, void **out_buf, uint32_t *out_size)
 
     int32_t off = dta_find_offset(key);
     if (off <= 0) {
-        fprintf(stderr, "*** Brak takiego pliku w bazie %s\n", name);
+        LOG_INFO("log", "*** Brak takiego pliku w bazie %s", name);
         return 0;
     }
 

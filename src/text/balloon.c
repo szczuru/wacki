@@ -24,6 +24,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 
 #include <stdint.h>
@@ -283,14 +284,14 @@ void ScriptCallShowText(uint16_t actor, const char *text)
     /* Settings can disable visible subtitles (audio still plays via a
      * separate path if voice_on is set). */
     if (!g_subtitles_on) {
-        fprintf(stderr, "[say] suppressed (subtitles_on=0): %.60s\n", text);
+        LOG_TRACE("say", "suppressed (subtitles_on=0): %.60s", text);
         return;
     }
 
     char translated[SPEECH_TEXT_MAX];
     translate_script_text(text, translated, sizeof translated);
     text = translated;
-    fprintf(stderr, "[say] actor=%u: %.120s\n", actor, text);
+    LOG_TRACE("say", "actor=%u: %.120s", actor, text);
 
     /* Layout: split into lines, measure, compute bounding box. */
     char  buf[SPEECH_TEXT_MAX];

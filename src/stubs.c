@@ -11,6 +11,7 @@
  * corresponding decompiled body.
  */
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 #include <string.h>
 #include <stdio.h>
@@ -91,7 +92,7 @@ void  StartAviPlayback(void *p)     { (void)p; }
 int   PollAviPlayback(void *p)      { (void)p; return 0x20D; /* "done" */ }
 void  StopAviPlayback(void *p)      { (void)p; }
 int   OpenAviCutscene(void *p, const char *path, void *owner)
-{ (void)p; (void)owner; fprintf(stderr, "[avi] open(%s) ok\n", path?path:"(null)"); return 1; }
+{ (void)p; (void)owner; LOG_TRACE("avi", "open(%s) ok", path?path:"(null)"); return 1; }
 
 /* =========== DirectSound version checker (no-op shims) ================== */
 typedef struct DSoundVerChecker { int dummy; } DSoundVerChecker;
@@ -103,7 +104,7 @@ void  DSoundVer_Free   (DSoundVerChecker *self) { (void)self; }
 void  PlayAnimation(uint16_t anim, uint16_t frame)
 { (void)anim; (void)frame; }
 void  PrintTextOnScreen(uint16_t hx, uint16_t hy, const char *text)
-{ (void)hx; (void)hy; if(text) fprintf(stderr, "[text] %s\n", text); }
+{ (void)hx; (void)hy; if(text) LOG_INFO("text", "%s", text); }
 void  PaletteFadeStep(int delta) { (void)delta; }
 void  PaletteFadeInOut(uint16_t pct, const uint8_t *pal,
                        uint16_t first, uint32_t flags, void *cb)

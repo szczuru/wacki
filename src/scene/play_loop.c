@@ -23,6 +23,7 @@
  * unwinding play_demo_scene. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 
 #include <stdint.h>
@@ -168,8 +169,7 @@ static void run_actor_entry_chain(void)
     const uint8_t *entry_script =
         (const uint8_t *)xlat_binary_ptr(ACTOR_ENTRY_SCRIPT_VA);
     if (entry_script) {
-        fprintf(stderr, "[actor] running entry chain @ 0x%08X\n",
-                ACTOR_ENTRY_SCRIPT_VA);
+        LOG_INFO("actor", "running entry chain @ 0x%08X", ACTOR_ENTRY_SCRIPT_VA);
         RunScriptInterpreter(SCENE_NEUTRAL_VERB, SCENE_NEUTRAL_VERB,
                              (uint8_t *)entry_script);
     }
@@ -218,8 +218,7 @@ static void handle_gameplay_keys(int *quit)
         *quit = 1;
     } else if (k == VK_SPACE) {
         g_active_actor ^= 1;
-        fprintf(stderr, "[scene] active actor → %s\n",
-                g_active_actor ? "Fjej" : "Ebek");
+        LOG_TRACE("scene", "active actor → %s", g_active_actor ? "Fjej" : "Ebek");
     }
 }
 
@@ -249,7 +248,7 @@ static void handle_pause_menu_request(int *quit, const char **next_scene)
     if (!g_pause_menu_request) return;
     g_pause_menu_request = 0;
     int rc = RunMenuScene(1, opt_get_pytanie_scene());
-    fprintf(stderr, "[scene] F12 Pytanie rc=%d\n", rc);
+    LOG_TRACE("scene", "F12 Pytanie rc=%d", rc);
     if (rc == PYTANIE_RC_TAK) {
         g_game_over_code = GAME_OVER_USER_QUIT;
         *quit = 1;
@@ -296,10 +295,7 @@ const char *play_demo_scene(const DemoScene *scene)
     prepare_panel_asset();
     AnimAsset *atlases[2];
     resolve_actor_atlases(atlases);
-    fprintf(stderr, "[scene] initial entry: panel=%d ebek=%d fjej=%d\n",
-            g_panel_asset ? g_panel_asset->frame_count : 0,
-            atlases[0]    ? atlases[0]   ->frame_count : 0,
-            atlases[1]    ? atlases[1]   ->frame_count : 0);
+    LOG_TRACE("scene", "initial entry: panel=%d ebek=%d fjej=%d", g_panel_asset ? g_panel_asset->frame_count : 0, atlases[0]    ? atlases[0]   ->frame_count : 0, atlases[1]    ? atlases[1]   ->frame_count : 0);
 
     spawn_persistent_actors_if_needed(atlases);
     run_actor_entry_chain();

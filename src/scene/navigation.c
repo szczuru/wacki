@@ -11,6 +11,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -34,6 +35,6 @@ extern void LoadKomnataScene(uint16_t id);
 void ScriptGoToKomnata(uint16_t id)
 {
     if (id == 0) return;
-    fprintf(stderr, "[script] go-to-komnata %u (sync via LoadKomnataScene)\n", id);
+    LOG_TRACE("script", "go-to-komnata %u (sync via LoadKomnataScene)", id);
     LoadKomnataScene(id);
 }

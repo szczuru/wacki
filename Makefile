@@ -31,11 +31,14 @@ $(DIST):
 # T43 — debug build with AddressSanitizer + UBSan. Use `make debug` to
 # rebuild with sanitizers + frame pointer + no opt for actionable
 # backtraces. Crashes/leaks abort with a full stack.
+# -DWACKI_VERBOSE enables LOG_TRACE / LOG_DEBUG (compiled out in
+# release for zero overhead).
 DEBUG_CFLAGS = -O0 -g -fno-omit-frame-pointer \
                -fsanitize=address -fsanitize=undefined \
                -fno-strict-aliasing \
                -Wall -Wextra -Wno-unused-parameter -Wno-pointer-sign \
                -Wno-language-extension-token \
+               -DWACKI_VERBOSE \
                -std=gnu99 -I include
 DEBUG_LDFLAGS = -fsanitize=address -fsanitize=undefined
 
@@ -68,7 +71,7 @@ ENGINE_SRCS = \
 	src/actor/walker.c                            \
 	src/save.c    src/font.c      src/flic.c   src/flic/decoder.c \
 	src/heap.c     src/cygio.c   src/timer.c     src/stubs.c     \
-	src/binary_data.c src/pe_loader.c                            \
+	src/binary_data.c src/pe_loader.c src/log.c                  \
 	src/platform_sdl.c src/vm/script_obj.c src/vm/parser.c       \
 	src/util/rng.c                                               \
 	src/hud/panel.c src/hud/inventory.c src/hud/items.c          \
@@ -131,7 +134,7 @@ TEST_ENGINE_SRCS = \
 	src/depack.c    src/archive.c  src/graphics.c \
 	src/pe_loader.c src/heap.c     src/cygio.c    \
 	src/assets.c    src/font.c     src/save.c     \
-	src/binary_data.c src/timer.c  src/vm/main.c  \
+	src/binary_data.c src/timer.c  src/vm/main.c  src/log.c \
 	src/vm/script_obj.c src/vm/parser.c          \
 	src/util/rng.c                                \
 	src/hud/panel.c src/hud/inventory.c src/hud/items.c \

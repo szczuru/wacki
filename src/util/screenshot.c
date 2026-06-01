@@ -12,6 +12,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 
 #include <stdint.h>
@@ -23,7 +24,7 @@ extern uint8_t  g_palette_rgb[256 * 3];
 void DrawPlaceholderScreen(const char *wanted_file)
 {
     if (wanted_file)
-        fprintf(stderr, "[asset] missing: %s\n", wanted_file);
+        LOG_TRACE("asset", "missing: %s", wanted_file);
 }
 /* ScreenshotToBmpAutoIncrement — dump current shadow buffer + palette as
  * BMP file (wac00000.bmp, wac00001.bmp, ...). Press B in game to capture. */
@@ -38,7 +39,7 @@ void ScreenshotToBmpAutoIncrement(void)
     SDL_Surface *s = SDL_CreateRGBSurfaceWithFormatFrom(
         g_back_shadow, g_screen_w, g_screen_h, 8, g_screen_w,
         SDL_PIXELFORMAT_INDEX8);
-    if (!s) { fprintf(stderr, "[debug] screenshot: SDL_CreateSurface failed: %s\n", SDL_GetError()); return; }
+    if (!s) { LOG_DEBUG("debug", "screenshot: SDL_CreateSurface failed: %s", SDL_GetError()); return; }
     SDL_Color colors[256];
     for (int i = 0; i < 256; ++i) {
         colors[i].r = g_palette_rgb[i*3 + 0];
@@ -50,10 +51,9 @@ void ScreenshotToBmpAutoIncrement(void)
     char path[64];
     snprintf(path, sizeof path, "wac%05d.bmp", s_shot_idx++);
     if (SDL_SaveBMP(s, path) == 0)
-        fprintf(stderr, "[debug] screenshot saved -> %s\n", path);
+        LOG_DEBUG("debug", "screenshot saved -> %s", path);
     else
-        fprintf(stderr, "[debug] screenshot: SDL_SaveBMP(%s) failed: %s\n",
-                path, SDL_GetError());
+        LOG_DEBUG("debug", "screenshot: SDL_SaveBMP(%s) failed: %s", path, SDL_GetError());
     SDL_FreeSurface(s);
 }
 void ScreenshotToPcxAutoIncrement(void) { ScreenshotToBmpAutoIncrement(); }

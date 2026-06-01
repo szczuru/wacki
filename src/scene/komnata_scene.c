@@ -20,6 +20,7 @@
  *   - play_demo_scene prologue                        — initial entry */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -192,12 +193,9 @@ static void load_scene_walkability_fallback(const DemoScene *s)
         g_walk_fld_ox     = (int16_t)fld->off_drawX[0];
         g_walk_fld_oy     = (int16_t)fld->off_drawY[0];
         g_walk_fld_stride = (g_walk_fld_w + FLD_BITS_PER_BYTE - 1) / FLD_BITS_PER_BYTE;
-        fprintf(stderr, "[fld] %s: %dx%d @ (%d,%d) stride=%d\n",
-                s->fld_file, g_walk_fld_w, g_walk_fld_h,
-                g_walk_fld_ox, g_walk_fld_oy, g_walk_fld_stride);
+        LOG_TRACE("fld", "%s: %dx%d @ (%d,%d) stride=%d", s->fld_file, g_walk_fld_w, g_walk_fld_h, g_walk_fld_ox, g_walk_fld_oy, g_walk_fld_stride);
     } else {
-        fprintf(stderr, "[fld] %s: load failed — falling back to bbox\n",
-                s->fld_file);
+        LOG_TRACE("fld", "%s: load failed — falling back to bbox", s->fld_file);
     }
 }
 
@@ -221,7 +219,7 @@ void LoadKomnataScene(uint16_t id)
     /* --- Step 3: run the script-level load ----------------------- */
     const char *name = LoadKomnata(id);
     if (!name) {
-        fprintf(stderr, "[scene] LoadKomnataScene(%u) — LoadKomnata failed\n", id);
+        LOG_TRACE("scene", "LoadKomnataScene(%u) — LoadKomnata failed", id);
         return;
     }
 
@@ -247,5 +245,5 @@ void LoadKomnataScene(uint16_t id)
     if (g_scene_bg_raw) paint_rawb_pic(g_scene_bg_raw, g_scene_bg_size, 0);
     PaintSceneBgAtlasIfAny();
 
-    fprintf(stderr, "[scene] LoadKomnataScene(%u) → '%s'\n", id, name);
+    LOG_TRACE("scene", "LoadKomnataScene(%u) → '%s'", id, name);
 }

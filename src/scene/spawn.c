@@ -16,6 +16,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -150,8 +151,7 @@ Entity *SpawnActorEntity(uint16_t id, AnimAsset *atlas, uint16_t init_frame,
         RegisterEntityForUpdate(m, CLICK_PAYLOAD_KIND, id);
     }
 
-    fprintf(stderr, "[actor] spawn id=%u atlas=%s frame=%u at (%d,%d)\n",
-            id, atlas->name, init_frame, init_x, init_y);
+    LOG_INFO("actor", "spawn id=%u atlas=%s frame=%u at (%d,%d)", id, atlas->name, init_frame, init_x, init_y);
     return e;
 }
 
@@ -161,7 +161,7 @@ void ScriptCallSpawnEntity(uint16_t id, uint16_t flags,
 {
     AnimAsset *asset = (AnimAsset *)FindUpdateRegistration(ASSET_KIND, id);
     if (!asset) {
-        fprintf(stderr, "[script] spawn id=%u: no asset registered (skipping)\n", id);
+        LOG_TRACE("script", "spawn id=%u: no asset registered (skipping)", id);
         return;
     }
 
@@ -216,6 +216,5 @@ void ScriptCallSpawnEntity(uint16_t id, uint16_t flags,
         }
     }
 
-    fprintf(stderr, "[script] spawn id=%u asset=%p script=0x%08x flags=0x%04x → %p\n",
-            id, (void *)asset, script_addr, flags, (void *)e);
+    LOG_TRACE("script", "spawn id=%u asset=%p script=0x%08x flags=0x%04x → %p", id, (void *)asset, script_addr, flags, (void *)e);
 }

@@ -10,6 +10,7 @@
  * open and write doesn't leave a zero-byte Wacki.sav. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -114,15 +115,13 @@ void WriteSaveFile(void)
     if (written != sizeof g_save) {
         fclose(fp);
         remove(tmp_path);
-        fprintf(stderr, "[save] short write (%zu/%zu) — keeping previous save\n",
-                written, sizeof g_save);
+        LOG_INFO("save", "short write (%zu/%zu) — keeping previous save", written, sizeof g_save);
         return;
     }
     fflush(fp);
     fclose(fp);
     if (rename(tmp_path, WACKI_SAVE_FILE) != 0) {
-        fprintf(stderr, "[save] rename(%s → %s) failed — keeping tmp\n",
-                tmp_path, WACKI_SAVE_FILE);
+        LOG_INFO("save", "rename(%s → %s) failed — keeping tmp", tmp_path, WACKI_SAVE_FILE);
     }
 }
 
@@ -153,8 +152,7 @@ int QuickSaveToSlot(uint16_t idx)
 
     WriteSaveFile();
     g_stats.total_quicksaves++;             /* T56 */
-    fprintf(stderr, "[save] quicksave → slot %u (etap=%u komnata=%u)\n",
-            idx, g_cur_etap, g_cur_komnata);
+    LOG_INFO("save", "quicksave → slot %u (etap=%u komnata=%u)", idx, g_cur_etap, g_cur_komnata);
     return 1;
 }
 
@@ -163,11 +161,10 @@ int QuickLoadFromSlot(uint16_t idx)
     if (idx >= WACKI_SAVE_SLOTS) return 0;
     WackiSlot *s = &g_save.slots[idx];
     if (s->stage_indicator == 0) {
-        fprintf(stderr, "[save] quickload slot %u empty — skip\n", idx);
+        LOG_INFO("save", "quickload slot %u empty — skip", idx);
         return 0;
     }
     g_stats.total_quickloads++;             /* T56 */
-    fprintf(stderr, "[save] quickload ← slot %u (etap=%u komnata=%u)\n",
-            idx, s->etap_id, s->stage_indicator);
+    LOG_INFO("save", "quickload ← slot %u (etap=%u komnata=%u)", idx, s->etap_id, s->stage_indicator);
     return LoadSaveSlot(idx);
 }

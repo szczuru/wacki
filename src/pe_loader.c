@@ -20,6 +20,7 @@
  * image and falls back to the embedded path. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include "wacki/embedded_exe.h"
 
 #include <stdint.h>
@@ -108,12 +109,10 @@ static const void *embedded_read(uint32_t va)
         static int s_warned = 0;
         if (!s_warned) {
             s_warned = 1;
-            fprintf(stderr,
-                    "[pe] WARN: read 0x%08X falls outside .rdata/.data "
+            LOG_INFO("pe", "WARN: read 0x%08X falls outside .rdata/.data "
                     "slices (likely .text/.idata/.rsrc). The embedded "
                     "blob was built assuming the engine never touches "
-                    "these sections — investigate.\n",
-                    va);
+                    "these sections — investigate.", va);
         }
     }
     return NULL;
@@ -143,7 +142,7 @@ static uint8_t *slurp_file(FILE *fp, const char *path, size_t *out_size)
     uint8_t *file = (uint8_t *)malloc(fsz);
     if (!file) { fclose(fp); return NULL; }
     if (fread(file, 1, fsz, fp) != fsz) {
-        fprintf(stderr, "[pe] short read on %s\n", path);
+        LOG_INFO("pe", "short read on %s", path);
         free(file);
         fclose(fp);
         return NULL;
@@ -157,19 +156,19 @@ static uint32_t parse_pe_signature(const uint8_t *file, size_t fsz,
                                    const char *path)
 {
     if (file[0] != 'M' || file[1] != 'Z') {
-        fprintf(stderr, "[pe] %s: not an MZ executable\n", path);
+        LOG_INFO("pe", "%s: not an MZ executable", path);
         return 0;
     }
     uint32_t pe_off = *(const uint32_t *)(file + DOS_OFF_E_LFANEW);
     if (pe_off + PE_SIG_BYTES + COFF_HEADER_BYTES +
             PE_HEADER_TAIL_GUARD > fsz) {
-        fprintf(stderr, "[pe] %s: PE header offset out of range\n", path);
+        LOG_INFO("pe", "%s: PE header offset out of range", path);
         return 0;
     }
     if (file[pe_off]     != 'P' || file[pe_off + 1] != 'E' ||
         file[pe_off + 2] != 0   || file[pe_off + 3] != 0)
     {
-        fprintf(stderr, "[pe] %s: missing PE signature\n", path);
+        LOG_INFO("pe", "%s: missing PE signature", path);
         return 0;
     }
     return pe_off;
@@ -203,7 +202,7 @@ static int copy_sections(const uint8_t *file, size_t fsz,
         uint32_t rptr  = *(const uint32_t *)(file + shdr + SECTION_OFF_RPTR);
         if (!rsize) continue;
         if ((size_t)rptr + (size_t)rsize > fsz) {
-            fprintf(stderr, "[pe] section %d points past EOF — skipping\n", i);
+            LOG_INFO("pe", "section %d points past EOF — skipping", i);
             continue;
         }
         if (va + rsize > image_size) continue;
@@ -230,8 +229,7 @@ int PeLoaderInitFromMemory(const uint8_t *file, size_t fsz,
     uint16_t opt_header_size = *(const uint16_t *)
         (file + coff_off + COFF_OFF_OPT_HEADER_SIZE);
     if (opt_header_size < COFF_OPT_HEADER_MIN_BYTES) {
-        fprintf(stderr, "[pe] %s: optional header too small (%u)\n",
-                label, opt_header_size);
+        LOG_INFO("pe", "%s: optional header too small (%u)", label, opt_header_size);
         return 0;
     }
 
@@ -241,22 +239,20 @@ int PeLoaderInitFromMemory(const uint8_t *file, size_t fsz,
 
     uint32_t sec_off = opt_off + opt_header_size;
     if (sec_off + (uint32_t)num_sections * SECTION_HEADER_BYTES > fsz) {
-        fprintf(stderr, "[pe] %s: section table out of range\n", label);
+        LOG_INFO("pe", "%s: section table out of range", label);
         return 0;
     }
 
     uint32_t max_va_end = compute_image_extent(file, sec_off, num_sections);
     if (max_va_end < MIN_VIRTUAL_EXTENT ||
         max_va_end > MAX_VIRTUAL_EXTENT) {
-        fprintf(stderr, "[pe] %s: implausible virtual extent %u\n",
-                label, max_va_end);
+        LOG_INFO("pe", "%s: implausible virtual extent %u", label, max_va_end);
         return 0;
     }
 
     uint8_t *image = (uint8_t *)calloc(max_va_end, 1);
     if (!image) {
-        fprintf(stderr, "[pe] cannot allocate %u bytes for image\n",
-                max_va_end);
+        LOG_INFO("pe", "cannot allocate %u bytes for image", max_va_end);
         return 0;
     }
     int sections_copied = copy_sections(file, fsz, sec_off, num_sections,
@@ -265,8 +261,7 @@ int PeLoaderInitFromMemory(const uint8_t *file, size_t fsz,
     g_pe_image      = image;
     g_pe_image_size = max_va_end;
     g_pe_image_base = image_base;
-    fprintf(stderr, "[pe] mapped %s: base=0x%08X size=%u sections=%d\n",
-            label, image_base, (unsigned)max_va_end, sections_copied);
+    LOG_INFO("pe", "mapped %s: base=0x%08X size=%u sections=%d", label, image_base, (unsigned)max_va_end, sections_copied);
     return 1;
 }
 
@@ -276,7 +271,7 @@ int PeLoaderInit(const char *exe_path)
 
     FILE *fp = fopen(exe_path, "rb");
     if (!fp) {
-        fprintf(stderr, "[pe] cannot open %s\n", exe_path);
+        LOG_INFO("pe", "cannot open %s", exe_path);
         return 0;
     }
     size_t   fsz  = 0;

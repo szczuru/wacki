@@ -19,6 +19,7 @@
  *     Win32-style names, so this file provides portable aliases. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <SDL.h>
 #include <signal.h>
@@ -109,13 +110,8 @@ void StatsDump(void)
     extern uint32_t g_tick_counter;
     uint32_t elapsed = g_tick_counter - g_stats.boot_tick;
     uint32_t secs    = elapsed / TICKS_PER_SECOND;
-    fprintf(stderr,
-        "[stats] elapsed=%02u:%02u clicks=%u dialogs=%u komnata-loads=%u "
-        "quicksave=%u quickload=%u\n",
-        secs / 60, secs % 60,
-        g_stats.total_clicks, g_stats.total_dialogs,
-        g_stats.total_komnata_loads,
-        g_stats.total_quicksaves, g_stats.total_quickloads);
+    LOG_INFO("stats", "elapsed=%02u:%02u clicks=%u dialogs=%u komnata-loads=%u "
+        "quicksave=%u quickload=%u", secs / 60, secs % 60, g_stats.total_clicks, g_stats.total_dialogs, g_stats.total_komnata_loads, g_stats.total_quicksaves, g_stats.total_quickloads);
 }
 
 /* ---- data-root discovery ---------------------------------------- *
@@ -257,6 +253,17 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
         else if (strcmp(argv[i], "--no-pacing") == 0) {
             g_no_pacing = 1;
         }
+        /* Log verbosity. `-v` / `--verbose` enables LOG_TRACE +
+         * LOG_DEBUG (requires -DWACKI_VERBOSE at build time too);
+         * `-q` / `--quiet` drops to WARN+. Default is INFO. */
+        else if (strcmp(argv[i], "-v") == 0 ||
+                 strcmp(argv[i], "--verbose") == 0) {
+            g_log_min_level = WL_TRACE;
+        }
+        else if (strcmp(argv[i], "-q") == 0 ||
+                 strcmp(argv[i], "--quiet") == 0) {
+            g_log_min_level = WL_WARN;
+        }
     }
 }
 
@@ -304,8 +311,7 @@ static void apply_early_cli_effects(const CliArgs *args)
     if (args->start_stage) {
         extern int g_dev_start_stage;
         g_dev_start_stage = args->start_stage;
-        fprintf(stderr, "[wacki] dev mode: jump to stage %d (skip menu+intro)\n",
-                args->start_stage);
+        LOG_INFO("wacki", "dev mode: jump to stage %d (skip menu+intro)", args->start_stage);
     }
     if (g_headless) {
         /* Force SDL's null video / audio backends so SDL_Init doesn't
@@ -313,11 +319,11 @@ static void apply_early_cli_effects(const CliArgs *args)
          * override by setting SDL_VIDEODRIVER before launch. */
         setenv("SDL_VIDEODRIVER", "dummy", 0);
         setenv("SDL_AUDIODRIVER", "dummy", 0);
-        fprintf(stderr, "[wacki] headless mode\n");
+        LOG_INFO("wacki", "headless mode");
     }
     if (args->seed_set) {
         WackiRandSeed(args->seed_override);
-        fprintf(stderr, "[wacki] WackiRand seed = 0x%08x\n", args->seed_override);
+        LOG_INFO("wacki", "WackiRand seed = 0x%08x", args->seed_override);
     }
 }
 
@@ -337,20 +343,18 @@ static const char *const k_known_cutscenes[] = {
 static int run_cutscene_test_mode(const CliArgs *args)
 {
     if (args->play_avi) {
-        fprintf(stderr, "[cutscene-test] play '%s'\n", args->play_avi);
+        LOG_TRACE("cutscene-test", "play '%s'", args->play_avi);
         PlaySceneCutsceneAvi(args->play_avi);
-        fprintf(stderr, "[cutscene-test] done\n");
+        LOG_TRACE("cutscene-test", "done");
         return 1;
     }
     if (args->test_cutscenes) {
-        fprintf(stderr, "[cutscene-test] batch %zu files\n",
-                KNOWN_CUTSCENE_COUNT);
+        LOG_TRACE("cutscene-test", "batch %zu files", KNOWN_CUTSCENE_COUNT);
         for (size_t i = 0; i < KNOWN_CUTSCENE_COUNT; ++i) {
-            fprintf(stderr, "[cutscene-test] [%zu/%zu] %s\n",
-                    i + 1, KNOWN_CUTSCENE_COUNT, k_known_cutscenes[i]);
+            LOG_TRACE("cutscene-test", "[%zu/%zu] %s", i + 1, KNOWN_CUTSCENE_COUNT, k_known_cutscenes[i]);
             PlaySceneCutsceneAvi(k_known_cutscenes[i]);
         }
-        fprintf(stderr, "[cutscene-test] done\n");
+        LOG_TRACE("cutscene-test", "done");
         return 1;
     }
     return 0;
@@ -369,16 +373,15 @@ int WackiMain(int argc, char **argv)
     apply_early_cli_effects(&args);
 
     if (FindDataRoot() != DATA_ROOT_FOUND) {
-        fprintf(stderr,
-            "Nie znalaz\xC5\x82""em plik\xC3\xB3w Dane_*.dta.\n"
+        LOG_INFO("log", "Nie znalaz\xC5\x82""em plik\xC3\xB3w Dane_*.dta.\n"
             "U\xC5\xBC""yj jednego z:\n"
             "  • umie\xC5\x9B\xC4\x87 .dta w katalogu  ./data/\n"
             "  • umie\xC5\x9B\xC4\x87 .dta obok binarki ./wacki\n"
-            "  • ustaw WACKI_PATH=/sciezka/do/danych\n");
+            "  • ustaw WACKI_PATH=/sciezka/do/danych");
         return 1;
     }
-    fprintf(stderr, "[wacki] build " __DATE__ " " __TIME__ "\n");
-    fprintf(stderr, "[wacki] data source: %s\n", g_data_root);
+    LOG_INFO("wacki", "build " __DATE__ " " __TIME__ "");
+    LOG_INFO("wacki", "data source: %s", g_data_root);
 
     /* WACKI.EXE's .rdata + .data sections are linked into the binary
      * (see include/wacki/embedded_exe.h); PeLoaderRead resolves

@@ -20,6 +20,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include "mixer_internal.h"
 
 #include <SDL.h>
@@ -267,8 +268,7 @@ void ParseSamplTagsForKomnata(const uint8_t *start, const uint8_t *end)
         /* Unrecognised — skip to next newline. */
         while (p < end && *p != '\n') ++p;
     }
-    fprintf(stderr, "[sampl] parser: %d entries from this [komnata]\n",
-            added);
+    LOG_INFO("sampl", "parser: %d entries from this [komnata]", added);
 }
 
 /* ======================================================================== *
@@ -322,9 +322,7 @@ static void sfx_stop_channel_if_ours(struct SfxState *st, const char *reason)
                strcmp(s_mix[st->channel].name, st->wav) == 0;
     SDL_UnlockAudioDevice(s_mix_dev);
     if (!ours) return;
-    fprintf(stderr, "[sfx] stop '%s' (asset=%s ch=%d) — %s\n",
-            st->wav, st->asset ? st->asset : "(null)",
-            st->channel, reason);
+    LOG_TRACE("sfx", "stop '%s' (asset=%s ch=%d) — %s", st->wav, st->asset ? st->asset : "(null)", st->channel, reason);
     mixer_stop_channel(st->channel);
 }
 
@@ -409,9 +407,7 @@ static void sfx_handle_end_frames(const char *asset_name, int frame)
         if (strcmp(e->asset, asset_name) != 0) continue;
         struct SfxState *st = sfx_state_for(e->asset, e->frame_start, e->wav);
         if (!st) continue;
-        fprintf(stderr,
-                "[sfx] stop '%s' at end-frame %d (asset=%s start=%d ch=%d)\n",
-                e->wav, frame, asset_name, e->frame_start, st->channel);
+        LOG_TRACE("sfx", "stop '%s' at end-frame %d (asset=%s start=%d ch=%d)", e->wav, frame, asset_name, e->frame_start, st->channel);
         if (st->channel >= MIX_CHAN_SFX_START &&
             st->channel < MIX_CHANNEL_COUNT) {
             mixer_stop_channel(st->channel);
@@ -560,7 +556,7 @@ int PlaySfxPannedAndGetChannel(const char *wav_name,
     Uint8  *buf = NULL;
     Uint32  len = 0;
     if (!mixer_load_wav(wav_name, &buf, &len)) {
-        fprintf(stderr, "[sfx] cannot load '%s'\n", wav_name);
+        LOG_TRACE("sfx", "cannot load '%s'", wav_name);
         return -1;
     }
     mixer_assign(slot, buf, len, 0, wav_name);
@@ -570,9 +566,7 @@ int PlaySfxPannedAndGetChannel(const char *wav_name,
     s_mix[slot].gain_l = gain_l;
     s_mix[slot].gain_r = gain_r;
     SDL_UnlockAudioDevice(s_mix_dev);
-    fprintf(stderr,
-            "[sfx] play '%s' on mixer ch %d (%u bytes, gain L=%u R=%u)\n",
-            wav_name, slot, len, gain_l, gain_r);
+    LOG_TRACE("sfx", "play '%s' on mixer ch %d (%u bytes, gain L=%u R=%u)", wav_name, slot, len, gain_l, gain_r);
     return slot;
 }
 

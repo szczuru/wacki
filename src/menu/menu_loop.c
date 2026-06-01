@@ -28,6 +28,7 @@
  * restores from that snapshot under sub-fullscreen overlay scenes. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 
 #include <stdint.h>
@@ -273,12 +274,7 @@ int RunMenuScene(int transition_mode, SceneDef *scene)
 
     if (!bg_loaded) FlipBuffersClearWith(0);
 
-    fprintf(stderr,
-            "[menu] entered: bg='%s' mask='%s' atlas-frames=%d btns=%d\n",
-            scene->background_pic ? scene->background_pic : "(none)",
-            scene->mask_file      ? scene->mask_file      : "(none)",
-            buttons ? buttons->frame_count : 0,
-            scene->button_count);
+    LOG_TRACE("menu", "entered: bg='%s' mask='%s' atlas-frames=%d btns=%d", scene->background_pic ? scene->background_pic : "(none)", scene->mask_file      ? scene->mask_file      : "(none)", buttons ? buttons->frame_count : 0, scene->button_count);
 
     /* One-time INIT call so HandleMainMenuClick can do its first-frame
      * setup (palette install, BGM start). */

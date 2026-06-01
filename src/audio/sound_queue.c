@@ -25,6 +25,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -145,11 +146,8 @@ void ScriptCallSoundPlay(uint16_t id, uint16_t a, uint32_t b, uint16_t c)
         ly = *(int16_t *)(eb + 0x24);
     }
     uint32_t lcr = SoundQueueMixForListener(lx, ly);
-    fprintf(stderr,
-            "[script] sound enqueue id=0x%04x src=(%d,%d) vol=%u "
-            "pan=L%u/C%u/R%u\n",
-            id, (int)id, (int)a, c,
-            lcr & 0xFF, (lcr >> 8) & 0xFF, (lcr >> 16) & 0xFF);
+    LOG_TRACE("script", "sound enqueue id=0x%04x src=(%d,%d) vol=%u "
+            "pan=L%u/C%u/R%u", id, (int)id, (int)a, c, lcr & 0xFF, (lcr >> 8) & 0xFF, (lcr >> 16) & 0xFF);
 }
 
 void ScriptCallSoundStop(void)

@@ -16,6 +16,7 @@
  * but blocked on exposing the s_mix array + helpers across TUs. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -117,13 +118,11 @@ int mixer_ensure_open(void)
     want.userdata = NULL;
     s_mix_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_mix_spec, 0);
     if (!s_mix_dev) {
-        fprintf(stderr, "[mixer] SDL_OpenAudioDevice failed: %s\n", SDL_GetError());
+        LOG_TRACE("mixer", "SDL_OpenAudioDevice failed: %s", SDL_GetError());
         return 0;
     }
     SDL_PauseAudioDevice(s_mix_dev, 0);   /* unpause */
-    fprintf(stderr, "[mixer] open: %d Hz, %d ch, %d-bit (8 channels)\n",
-            s_mix_spec.freq, s_mix_spec.channels,
-            SDL_AUDIO_BITSIZE(s_mix_spec.format));
+    LOG_TRACE("mixer", "open: %d Hz, %d ch, %d-bit (8 channels)", s_mix_spec.freq, s_mix_spec.channels, SDL_AUDIO_BITSIZE(s_mix_spec.format));
     return 1;
 }
 
@@ -261,8 +260,7 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
     SDL_AudioCVT cvt;
     if (SDL_BuildAudioCVT(&cvt, native.format, native.channels, native.freq,
                           MIX_OUT_FORMAT, MIX_OUT_CHANS, MIX_OUT_FREQ) < 0) {
-        fprintf(stderr, "[mixer] SDL_BuildAudioCVT failed for %s: %s\n",
-                name, SDL_GetError());
+        LOG_TRACE("mixer", "SDL_BuildAudioCVT failed for %s: %s", name, SDL_GetError());
         SDL_FreeWAV(native_buf);
         return 0;
     }
@@ -280,8 +278,7 @@ int mixer_load_wav(const char *name, Uint8 **out_buf, Uint32 *out_len)
     cvt.buf = buf;
     cvt.len = (int)native_len;
     if (SDL_ConvertAudio(&cvt) != 0) {
-        fprintf(stderr, "[mixer] SDL_ConvertAudio failed for %s: %s\n",
-                name, SDL_GetError());
+        LOG_TRACE("mixer", "SDL_ConvertAudio failed for %s: %s", name, SDL_GetError());
         SDL_free(buf);
         return 0;
     }
@@ -336,12 +333,11 @@ void PlayMenuMusic(const char *dta_name, int loop)
 
     Uint8 *buf = NULL; Uint32 len = 0;
     if (!mixer_load_wav(dta_name, &buf, &len)) {
-        fprintf(stderr, "[music] cannot find/decode %s as WAV\n", dta_name);
+        LOG_TRACE("music", "cannot find/decode %s as WAV", dta_name);
         return;
     }
     mixer_assign(MIX_CHAN_MUSIC, buf, len, loop ? 1 : 0, dta_name);
-    fprintf(stderr, "[music] %s playing: %u bytes converted (loop=%d) on mixer ch %d\n",
-            dta_name, len, loop ? 1 : 0, MIX_CHAN_MUSIC);
+    LOG_TRACE("music", "%s playing: %u bytes converted (loop=%d) on mixer ch %d", dta_name, len, loop ? 1 : 0, MIX_CHAN_MUSIC);
 }
 
 /* Toggle hook — called by the Solund options handler when the user
@@ -409,12 +405,11 @@ uint32_t PlayDialogLine(const char *wav_name)
     if (!mixer_ensure_open()) return 0;
     Uint8 *buf = NULL; Uint32 len = 0;
     if (!mixer_load_wav(wav_name, &buf, &len)) {
-        fprintf(stderr, "[dialog] cannot load '%s'\n", wav_name);
+        LOG_TRACE("dialog", "cannot load '%s'", wav_name);
         return 0;
     }
     mixer_assign(MIX_CHAN_DIALOG, buf, len, 0, wav_name);
-    fprintf(stderr, "[dialog] play '%s' on mixer ch %d (%u bytes)\n",
-            wav_name, MIX_CHAN_DIALOG, len);
+    LOG_TRACE("dialog", "play '%s' on mixer ch %d (%u bytes)", wav_name, MIX_CHAN_DIALOG, len);
     return len;
 }
 

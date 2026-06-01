@@ -24,6 +24,7 @@
  * triggers save. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include <SDL.h>
 
 #include <stdint.h>
@@ -285,11 +286,11 @@ static int save_commit_selected(void)
 {
     end_edit_commit();
     if (s_slot_selected < 0) {
-        fprintf(stderr, "[save-menu] commit ignored (no slot selected)\n");
+        LOG_TRACE("save-menu", "commit ignored (no slot selected)");
         return CLICK_RET_STAY;
     }
     if (g_cur_etap == 0 || g_cur_komnata == 0) {
-        fprintf(stderr, "[save-menu] cannot save outside gameplay\n");
+        LOG_TRACE("save-menu", "cannot save outside gameplay");
         return CLICK_RET_USER_CANCELLED;
     }
     WackiSlot *s = &g_save.slots[s_slot_selected];
@@ -301,8 +302,7 @@ static int save_commit_selected(void)
     memcpy(s->world_default_snapshot, g_save_thumb_pending,
            sizeof s->world_default_snapshot);
     QuickSaveToSlot((uint16_t)s_slot_selected);
-    fprintf(stderr, "[save-menu] saved slot %d (%s)\n",
-            s_slot_selected, s->name);
+    LOG_TRACE("save-menu", "saved slot %d (%s)", s_slot_selected, s->name);
     s_slot_selected = -1;
     return CLICK_RET_LOAD_COMPLETED;
 }
@@ -349,7 +349,7 @@ static int SaveSlotClick(int trigger)
         if (s_edit_slot >= 0 && s_edit_slot != slot) end_edit_commit();
         s_slot_selected = slot;
         if (s_edit_slot != slot) begin_edit(slot);
-        fprintf(stderr, "[save-menu] slot %d editing\n", slot);
+        LOG_TRACE("save-menu", "slot %d editing", slot);
         return CLICK_RET_STAY;
     }
 
@@ -384,7 +384,7 @@ static int LoadSlotClick(int trigger)
 
     if (slot >= 0) {
         s_slot_selected = slot;
-        fprintf(stderr, "[load-menu] slot %d selected\n", slot);
+        LOG_TRACE("load-menu", "slot %d selected", slot);
         return CLICK_RET_STAY;
     }
 
@@ -395,18 +395,16 @@ static int LoadSlotClick(int trigger)
 
     if (trigger == SLOT_BTN_COMMIT) {
         if (s_slot_selected < 0) {
-            fprintf(stderr, "[load-menu] commit ignored (no slot selected)\n");
+            LOG_TRACE("load-menu", "commit ignored (no slot selected)");
             return CLICK_RET_STAY;
         }
         if (g_save.slots[s_slot_selected].stage_indicator == 0) {
-            fprintf(stderr, "[load-menu] slot %d is empty\n", s_slot_selected);
+            LOG_TRACE("load-menu", "slot %d is empty", s_slot_selected);
             return CLICK_RET_STAY;
         }
         if (LoadSaveSlot((uint16_t)s_slot_selected)) {
             LoadKomnataScene(g_cur_komnata);
-            fprintf(stderr, "[load-menu] loaded slot %d → etap %u k%u\n",
-                    s_slot_selected,
-                    (unsigned)g_cur_etap, (unsigned)g_cur_komnata);
+            LOG_TRACE("load-menu", "loaded slot %d → etap %u k%u", s_slot_selected, (unsigned)g_cur_etap, (unsigned)g_cur_komnata);
             s_slot_selected = -1;
             return CLICK_RET_LOAD_COMPLETED;
         }

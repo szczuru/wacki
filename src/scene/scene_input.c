@@ -20,6 +20,7 @@
  * the same click re-fires repeatedly. */
 
 #include "wacki.h"
+#include "wacki/log.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -123,9 +124,8 @@ static int find_nearest_walkable(int tx, int ty, int *btx, int *bty)
 static void dispatch_item_combine(uint16_t held, uint16_t target_verb)
 {
     g_script_vars[SCENE_PICKUP_TARGET_VAR_IDX] = target_verb;
-    fprintf(stderr, "[panel] use-on-item: held=0x%04X target=0x%04X "
-                    "(var[0x0F]=0x%04X)\n",
-            held, target_verb, target_verb);
+    LOG_TRACE("panel", "use-on-item: held=0x%04X target=0x%04X "
+                    "(var[0x0F]=0x%04X)", held, target_verb, target_verb);
     g_lmb_handled = 0;
     DispatchClickEvent(held, SCENE_USE_ON_ITEM_VERB);
     g_lmb_handled = 0;
@@ -137,9 +137,8 @@ static void dispatch_item_combine(uint16_t held, uint16_t target_verb)
 static void handle_panel_verb_click(void)
 {
     if (g_dialog_active) {
-        fprintf(stderr, "[dlg-click] panel verb=0x%04X "
-                        "(held=0x%04X) dialog-active\n",
-                g_hover_panel_verb, g_held_item);
+        LOG_TRACE("dlg-click", "panel verb=0x%04X "
+                        "(held=0x%04X) dialog-active", g_hover_panel_verb, g_held_item);
     }
     if (g_held_item != SCENE_NEUTRAL_VERB &&
         g_held_item != g_hover_panel_verb)
@@ -149,10 +148,7 @@ static void handle_panel_verb_click(void)
         dispatch_item_combine(held, g_hover_panel_verb);
     } else {
         g_held_item = g_hover_panel_verb;
-        fprintf(stderr,
-                "[panel] picked up verb=0x%04X (held_item set)%s\n",
-                g_held_item,
-                g_dialog_active
+        LOG_TRACE("panel", "picked up verb=0x%04X (held_item set)%s", g_held_item, g_dialog_active
                     ? " [dlg-active: should this dispatch instead?]"
                     : "");
     }
@@ -172,8 +168,7 @@ static void handle_panel_click(int have_hover, uint16_t hover_verb)
                       OPCJE_BTN_X0, OPCJE_BTN_X1,
                       OPCJE_BTN_Y0, OPCJE_BTN_Y1))
     {
-        fprintf(stderr, "[opt] OPCJE clicked at (%d,%d) → opszyns\n",
-                s_mouse_x, s_mouse_y);
+        LOG_TRACE("opt", "OPCJE clicked at (%d,%d) → opszyns", s_mouse_x, s_mouse_y);
         OpenOptionsMenu();
         return;
     }
@@ -184,7 +179,7 @@ static void handle_panel_click(int have_hover, uint16_t hover_verb)
     {
         if (InventoryPagePrev()) {
             PanelPageSwap();
-            fprintf(stderr, "[panel] page-prev → page=%u\n", g_panel_page_idx);
+            LOG_TRACE("panel", "page-prev → page=%u", g_panel_page_idx);
         }
         return;
     }
@@ -195,7 +190,7 @@ static void handle_panel_click(int have_hover, uint16_t hover_verb)
     {
         if (InventoryPageNext()) {
             PanelPageSwap();
-            fprintf(stderr, "[panel] page-next → page=%u\n", g_panel_page_idx);
+            LOG_TRACE("panel", "page-next → page=%u", g_panel_page_idx);
         }
         return;
     }
@@ -203,16 +198,14 @@ static void handle_panel_click(int have_hover, uint16_t hover_verb)
     if (have_hover && hover_verb != SCENE_NEUTRAL_VERB) {
         uint16_t held = g_held_item;
         g_held_item   = SCENE_NEUTRAL_VERB;
-        fprintf(stderr, "[panel] HUD verb=0x%04X at (%d,%d) — dispatch\n",
-                hover_verb, s_mouse_x, s_mouse_y);
+        LOG_TRACE("panel", "HUD verb=0x%04X at (%d,%d) — dispatch", hover_verb, s_mouse_x, s_mouse_y);
         g_lmb_handled = 0;
         DispatchClickEvent(held, hover_verb);
         g_lmb_handled = 0;
         return;
     }
 
-    fprintf(stderr, "[scene] panel click at (%d,%d) — empty slot\n",
-            s_mouse_x, s_mouse_y);
+    LOG_TRACE("scene", "panel click at (%d,%d) — empty slot", s_mouse_x, s_mouse_y);
 }
 
 /* Switch the active actor based on the dispatched verb id (1 = Ebek,
@@ -221,14 +214,12 @@ static void maybe_switch_active_actor(uint16_t verb)
 {
     if (verb == ACTOR_VERB_EBEK) {
         if (g_active_actor != 0) {
-            fprintf(stderr, "[active] dispatch → Ebek (was %s)\n",
-                    g_active_actor ? "Fjej" : "Ebek");
+            LOG_TRACE("active", "dispatch → Ebek (was %s)", g_active_actor ? "Fjej" : "Ebek");
         }
         g_active_actor = 0;
     } else if (verb == ACTOR_VERB_FJEJ) {
         if (g_active_actor != 1) {
-            fprintf(stderr, "[active] dispatch → Fjej (was %s)\n",
-                    g_active_actor ? "Fjej" : "Ebek");
+            LOG_TRACE("active", "dispatch → Fjej (was %s)", g_active_actor ? "Fjej" : "Ebek");
         }
         g_active_actor = 1;
     }
@@ -239,9 +230,7 @@ static void maybe_switch_active_actor(uint16_t verb)
  * an item is held + the hover lands on a panel slot. */
 static void handle_scene_entity_click(uint16_t hover_verb, int active_actor)
 {
-    fprintf(stderr, "[click] verb=0x%04X at (%d,%d) — dispatch (%s)\n",
-            hover_verb, s_mouse_x, s_mouse_y,
-            active_actor ? "Fjej" : "Ebek");
+    LOG_TRACE("click", "verb=0x%04X at (%d,%d) — dispatch (%s)", hover_verb, s_mouse_x, s_mouse_y, active_actor ? "Fjej" : "Ebek");
 
     uint16_t this_arg    = g_held_item;
     uint16_t that_arg    = hover_verb;
@@ -251,9 +240,8 @@ static void handle_scene_entity_click(uint16_t hover_verb, int active_actor)
     if (held_active && g_hover_panel_verb != SCENE_NEUTRAL_VERB) {
         that_arg = SCENE_USE_ON_ITEM_VERB;
         g_script_vars[SCENE_PICKUP_TARGET_VAR_IDX] = g_hover_panel_verb;
-        fprintf(stderr, "[click] use-on-item: held=0x%04X target=0x%04X "
-                        "(var[0x0F]=0x%04X)\n",
-                this_arg, g_hover_panel_verb, g_hover_panel_verb);
+        LOG_TRACE("click", "use-on-item: held=0x%04X target=0x%04X "
+                        "(var[0x0F]=0x%04X)", this_arg, g_hover_panel_verb, g_hover_panel_verb);
     }
 
     maybe_switch_active_actor(that_arg);
@@ -285,13 +273,11 @@ static void handle_free_walk_click(int active_actor)
     }
 
     if (!found_walkable) {
-        fprintf(stderr, "[scene] click (%d,%d) unreachable — ignoring\n",
-                s_mouse_x, s_mouse_y);
+        LOG_TRACE("scene", "click (%d,%d) unreachable — ignoring", s_mouse_x, s_mouse_y);
         return;
     }
     if (g_actor[active_actor]) {
-        fprintf(stderr, "[scene] %s walk → (%d,%d)\n",
-                active_actor ? "Fjej" : "Ebek", tx, ty);
+        LOG_TRACE("scene", "%s walk → (%d,%d)", active_actor ? "Fjej" : "Ebek", tx, ty);
         BindActorWalker(active_actor, tx, ty);
     }
 }
@@ -317,8 +303,7 @@ void HandleSceneInput(void)
     /* RMB → toggle active actor. */
     if (g_rmb_clicked) {
         g_active_actor ^= 1;
-        fprintf(stderr, "[scene] RMB → active actor = %s\n",
-                g_active_actor ? "Fjej" : "Ebek");
+        LOG_TRACE("scene", "RMB → active actor = %s", g_active_actor ? "Fjej" : "Ebek");
         g_rmb_clicked = 0;
     }
 

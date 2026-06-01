@@ -30,6 +30,7 @@
  */
 
 #include "wacki.h"
+#include "wacki/log.h"
 #include "entity_offsets.h"
 
 #include <SDL.h>
@@ -375,12 +376,11 @@ static int DialogStackPush(Entity *speaker, const char *dialog_name,
                            uint32_t talk_anim_va)
 {
     if (s_dialog_stack_n >= DIALOG_STACK_MAX) {
-        fprintf(stderr, "[dialog] push: stack full (%d)\n",
-                s_dialog_stack_n);
+        LOG_TRACE("dialog", "push: stack full (%d)", s_dialog_stack_n);
         return -1;
     }
     if (!speaker) {
-        fprintf(stderr, "[dialog] push: NULL speaker — skip\n");
+        LOG_TRACE("dialog", "push: NULL speaker — skip");
         return -1;
     }
 
@@ -405,8 +405,7 @@ static int DialogStackPush(Entity *speaker, const char *dialog_name,
      * that — on failure, don't bump count. */
     AnimAsset *a = LoadAssetFromDtaBase(dialog_name);
     if (!a) {
-        fprintf(stderr, "[dialog] push: asset '%s' load failed — skip\n",
-                dialog_name ? dialog_name : "(null)");
+        LOG_TRACE("dialog", "push: asset '%s' load failed — skip", dialog_name ? dialog_name : "(null)");
         return -1;
     }
     slot->asset = a;
@@ -464,8 +463,7 @@ static void dialog_play_section_lines(uint16_t actor,
     if (!ScriptObjFindSection(g_dialogues_obj, "[rozmowa]",
                               section_name, "[animacja]"))
     {
-        fprintf(stderr, "[dialog] section '%s' not in Gadki.scr — skip\n",
-                section_name);
+        LOG_TRACE("dialog", "section '%s' not in Gadki.scr — skip", section_name);
         return;
     }
     const uint8_t *ss = ScriptObjGetSectionStart(g_dialogues_obj);
@@ -485,15 +483,11 @@ static void dialog_play_section_lines(uint16_t actor,
          * the speaker. Future: pull it from the stack-top entity's
          * click payload. */
         (void)speaker;
-        fprintf(stderr, "[dialog] line %d wav='%s' speaker=%c text='%s'\n",
-                i + 1, wav[0] ? wav : "(none)",
-                speaker ? speaker : '-',
-                text[0] ? text : "(none)");
+        LOG_TRACE("dialog", "line %d wav='%s' speaker=%c text='%s'", i + 1, wav[0] ? wav : "(none)", speaker ? speaker : '-', text[0] ? text : "(none)");
         dialog_play_line(actor, text, wav);
         ++played;
     }
-    fprintf(stderr, "[dialog] section '%s' played %d sampl blocks\n",
-            section_name, played);
+    LOG_TRACE("dialog", "section '%s' played %d sampl blocks", section_name, played);
 }
 
 /* ---- public state + ops ------------------------------------------- */
@@ -516,12 +510,10 @@ int ScriptCallDialogBegin(uint16_t actor, const char *dialog_name,
      * in `if (fade_progress != 0)`. If dialogues are disabled in
      * Solund, no-op the entire op. */
     if (!g_dialogues_on) {
-        fprintf(stderr, "[dlg] op 0x52 BEGIN suppressed (dialogues_on=0)\n");
+        LOG_TRACE("dlg", "op 0x52 BEGIN suppressed (dialogues_on=0)");
         return 0;
     }
-    fprintf(stderr,
-            "[dlg] op 0x52 BEGIN actor=0x%04X asset=%s talk_anim_va=0x%08X\n",
-            actor, dialog_name ? dialog_name : "(null)", talk_anim_va);
+    LOG_TRACE("dlg", "op 0x52 BEGIN actor=0x%04X asset=%s talk_anim_va=0x%08X", actor, dialog_name ? dialog_name : "(null)", talk_anim_va);
     g_stats.total_dialogs++;
     g_dialog_active = 1;
 
@@ -535,13 +527,10 @@ int ScriptCallDialogBegin(uint16_t actor, const char *dialog_name,
 void ScriptCallDialogEnd(const char *result)
 {
     if (!g_dialogues_on) {
-        fprintf(stderr, "[dlg] op 0x53 END suppressed (dialogues_on=0)\n");
+        LOG_TRACE("dlg", "op 0x53 END suppressed (dialogues_on=0)");
         return;
     }
-    fprintf(stderr,
-            "[dlg] op 0x53 END result=%s (stack=%d) var[4]=0x%04X\n",
-            result ? result : "(null)", s_dialog_stack_n,
-            (unsigned)(g_script_vars[4] & 0xFFFF));
+    LOG_TRACE("dlg", "op 0x53 END result=%s (stack=%d) var[4]=0x%04X", result ? result : "(null)", s_dialog_stack_n, (unsigned)(g_script_vars[4] & 0xFFFF));
 
     /* Pass actor=0 so the balloon centres on screen — see the TODO
      * in dialog_play_section_lines. */
