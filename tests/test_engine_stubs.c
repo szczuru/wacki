@@ -210,8 +210,9 @@ void test_inject_entity_for_verb(Entity *e, uint16_t verb_id)
 /* BindActorWalker, ActorWaypointsSceneInit — production actor.c provides. */
 /* ActorWalkToBlocking / ActorWalkBothBlocking — production stubs.c provides. */
 
-/* g_actor[2] — entity pointers; script.c op 0x33 references. NULL safe. */
-struct Entity *g_actor[2];
+/* g_actor[2] is now defined by src/stubs.c (linked into TEST_ENGINE_SRCS),
+ * so the test-side definition would clash at link time. Kept as a
+ * note for future maintainers — don't re-add. */
 
 /* ent_ptr_intern / resolve — production actor.c provides. */
 
@@ -232,7 +233,7 @@ uint8_t   g_lmb_handled;
 uint8_t   g_lmb_clicked;
 uint16_t  g_held_item    = 0x26;          /* default = empty/sentinel */
 uint32_t  g_stage_va     = 0;
-uint16_t  g_panel_verb_tab[6];            /* panel slot mirror (read by stubs.c) */
+/* g_panel_verb_tab is now defined by src/hud/panel.c (in TEST_ENGINE_SRCS). */
 
 /* ProcessGameFrameTick — game.c provides. Wait loops in script.c
  * (op 0x14/0x15/0x26/0x3D) call it; stub is no-op + counter. */
