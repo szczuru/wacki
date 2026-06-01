@@ -39,14 +39,14 @@ jobs:
             label: macOS (arm64)
             artifact: wacki-macos-arm64
             archive_ext: tar.gz
-          # macos-13 is GitHub's last Intel-hosted runner image. When
-          # it eventually retires, the move is cross-compile from
-          # arm64 with `-target x86_64-apple-macos11` (clang has the
-          # SDKs bundled) — a single-runner change.
-          - os: macos-13
-            label: macOS (x86_64)
-            artifact: wacki-macos-x86_64
-            archive_ext: tar.gz
+          # macos-13 (last Intel-hosted runner) disabled: the pool is
+          # tiny and jobs sit pending for >30 min, sometimes never get
+          # picked up. The follow-up is a single universal binary built
+          # on arm64 via `lipo`, not a second runner.
+          # - os: macos-13
+          #   label: macOS (x86_64)
+          #   artifact: wacki-macos-x86_64
+          #   archive_ext: tar.gz
           - os: ubuntu-latest
             label: Linux (x86_64)
             artifact: wacki-linux-x86_64
