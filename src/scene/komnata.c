@@ -183,16 +183,41 @@ static void reset_actor_walker_state(void)
     }
 }
 
-/* Parse the new room's [sampl] tags from Wacky.scr so frame-driven
- * SFX work for assets mentioned in the [komnata]N section. */
+/* Parse [sampl] tags from Wacky.scr so frame-driven SFX work for the
+ * assets mentioned in the script. Two sections feed the table:
+ *
+ *   1. [etap] N [komnata] init     — per-stage default block. Holds
+ *                                    actor-wide entries (e.g. Ebek's
+ *                                    idle frame 95 → Muzik05..09
+ *                                    headphone-rock random pool) that
+ *                                    apply across every komnata in the
+ *                                    stage.
+ *   2. [etap] N [komnata] <name>   — per-room block with prop-specific
+ *                                    sampls (kioskarz, ptak, etc.)
+ *
+ * Both populate the same g_dynamic_sfx table — the init pass runs
+ * first so room-specific entries can override identical (asset,
+ * frame_start) triples if needed (no shipped script does, but the
+ * order keeps it well-defined). */
 static void parse_komnata_sampl_tags(const char *name)
 {
     if (!g_scripts_obj || !name) return;
 
     char etap_str[2] = { (char)('0' + g_cur_etap), 0 };
-    if (!FindScriptByStageAndRoom(g_scripts_obj, etap_str, name)) return;
 
     ResetDynamicSfxTable();
+
+    /* Pass 1: [komnata] init (per-stage defaults). The original
+     * engine searches both sections at trigger time; we flatten by
+     * parsing both into the dynamic_sfx table. */
+    if (FindScriptByStageAndRoom(g_scripts_obj, etap_str, "init")) {
+        const uint8_t *is = ScriptObjGetSectionStart(g_scripts_obj);
+        const uint8_t *ie = ScriptObjGetSectionEnd  (g_scripts_obj);
+        if (is && ie) ParseSamplTagsForKomnata(is, ie);
+    }
+
+    /* Pass 2: this specific komnata. */
+    if (!FindScriptByStageAndRoom(g_scripts_obj, etap_str, name)) return;
     const uint8_t *ss = ScriptObjGetSectionStart(g_scripts_obj);
     const uint8_t *se = ScriptObjGetSectionEnd  (g_scripts_obj);
     if (ss && se) ParseSamplTagsForKomnata(ss, se);

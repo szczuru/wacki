@@ -239,26 +239,60 @@ void ParseSamplTagsForKomnata(const uint8_t *start, const uint8_t *end)
                 }
                 while (p < end && *p != ')' && *p != '\n') ++p;
                 if (p < end && *p == ')') ++p;
+                /* Three tuple shapes from the original engine:
+                 *   (N,)   = play trigger      → n_start>=0, n_end<0
+                 *   (N,M)  = play + loop end   → n_start>=0, n_end>=0
+                 *   (,M)   = stop-only trigger → n_start<0,  n_end>=0
+                 *
+                 * Stop-only tuples don't pin to a specific wav — when
+                 * the entity's frame reaches M, the engine stops
+                 * whichever wav from this [sampl] group is currently
+                 * playing. Used by e.g. ebek.wyc idle frame 95 →
+                 * Muzik* random pick, with (,1) (,25) (,48) (,49)
+                 * (,61) as alternate stop frames. Without registering
+                 * these our parser dropped them and the muffled rock
+                 * music never had a stop trigger; the start trigger
+                 * still worked but the SFX kept playing once started.
+                 *
+                 * Stop-only entries encode as frame_start=-1 (signed
+                 * sentinel) so callers know they are not playable. */
+                const char *asset_interned =
+                    strpool_intern(cur_asset, strlen(cur_asset));
+                if (!asset_interned) {
+                    while (p < end && (*p == ' ' || *p == '\t')) ++p;
+                    continue;
+                }
+                if (n_start < 0 && n_end >= 0) {
+                    /* Stop-only — one entry per [sampl] group is
+                     * enough; the trigger looks up by asset alone
+                     * and stops every state that asset owns. wav=NULL
+                     * marks the entry as stop-only. */
+                    if (g_dynamic_sfx_count < DYNAMIC_SFX_MAX) {
+                        g_dynamic_sfx[g_dynamic_sfx_count++] =
+                            (struct FrameSfxEntry){
+                                asset_interned, -1, n_end, NULL};
+                        ++added;
+                    }
+                    while (p < end && (*p == ' ' || *p == '\t')) ++p;
+                    continue;
+                }
                 if (n_start < 0) {
+                    /* `()` with no useful contents — skip. */
                     while (p < end && (*p == ' ' || *p == '\t')) ++p;
                     continue;
                 }
                 int frame_end = (n_end < 0) ? 0xFFFF : n_end;
                 /* Register each WAV at frame n_start. */
-                const char *asset_interned =
-                    strpool_intern(cur_asset, strlen(cur_asset));
-                if (asset_interned) {
-                    for (int wi = 0; wi < wav_count; ++wi) {
-                        if (g_dynamic_sfx_count >= DYNAMIC_SFX_MAX) break;
-                        const char *wav_interned =
-                            strpool_intern(wavs[wi], strlen(wavs[wi]));
-                        if (!wav_interned) continue;
-                        g_dynamic_sfx[g_dynamic_sfx_count++] =
-                            (struct FrameSfxEntry){
-                                asset_interned, n_start,
-                                frame_end, wav_interned};
-                        ++added;
-                    }
+                for (int wi = 0; wi < wav_count; ++wi) {
+                    if (g_dynamic_sfx_count >= DYNAMIC_SFX_MAX) break;
+                    const char *wav_interned =
+                        strpool_intern(wavs[wi], strlen(wavs[wi]));
+                    if (!wav_interned) continue;
+                    g_dynamic_sfx[g_dynamic_sfx_count++] =
+                        (struct FrameSfxEntry){
+                            asset_interned, n_start,
+                            frame_end, wav_interned};
+                    ++added;
                 }
                 while (p < end && (*p == ' ' || *p == '\t')) ++p;
             }
@@ -403,17 +437,38 @@ static void sfx_handle_end_frames(const char *asset_name, int frame)
     for (int i = 0; i < g_dynamic_sfx_count; ++i) {
         struct FrameSfxEntry *e = &g_dynamic_sfx[i];
         if (e->frame_end == SFX_FRAME_END_NONE) continue;
-        /* `frame >= frame_end` instead of `==`. The entity VM can
-         * advance the frame index by more than 1 per tick (via
-         * PVM_ADVANCE_FRAME arg, or when a tick budget catches up
-         * after a slow render), and if the increment steps past the
-         * end_frame we'd never have stopped the looping wav. The
-         * skateboard skid SFX stayed playing forever after the boy
-         * fell because his animation skipped over the exact end
-         * frame. mixer_stop_channel is idempotent so calling it
-         * once per "frame is past end" is harmless. */
-        if (frame < e->frame_end) continue;
+        /* Exact match — mirrors the original engine. A `frame >=
+         * frame_end` test fires stop triggers retroactively on
+         * every frame past the end, which immediately wipes the
+         * Muzik headphone-rock loop the moment Ebek's frame 95
+         * start trigger lands (95 already past all of 1/25/48/49/61).
+         * The skateboard-crash overshoot case is handled by
+         * StopAllSfxForAsset in ScriptCallDestroyEnt instead. */
+        if (frame != e->frame_end) continue;
         if (strcmp(e->asset, asset_name) != 0) continue;
+
+        if (e->frame_start < 0 || e->wav == NULL) {
+            /* Stop-only entry (from a `(,M)` tuple). The original
+             * engine stops whichever wav from this [sampl] group is
+             * currently playing; we don't know which one, so sweep
+             * every SfxState matching this asset. */
+            for (int j = 0; j < g_sfx_state_count; ++j) {
+                struct SfxState *sst = &g_sfx_state[j];
+                if (!sst->asset || strcmp(sst->asset, asset_name) != 0)
+                    continue;
+                if (!sst->playing_flag && sst->channel < 0) continue;
+                LOG_TRACE("sfx", "stop-only frame=%d asset=%s wav='%s' ch=%d",
+                          frame, asset_name, sst->wav, sst->channel);
+                if (sst->channel >= MIX_CHAN_SFX_START &&
+                    sst->channel < MIX_CHANNEL_COUNT) {
+                    mixer_stop_channel(sst->channel);
+                }
+                sst->channel      = -1;
+                sst->playing_flag = 0;
+            }
+            continue;
+        }
+
         struct SfxState *st = sfx_state_for(e->asset, e->frame_start, e->wav);
         if (!st) continue;
         if (!st->playing_flag && st->channel < 0) continue;     /* already stopped */
@@ -514,9 +569,27 @@ void TriggerFrameSfx(const char *asset_name, int frame)
     if (st->playing_flag && sfx_is_currently_playing(st, wav)) return;
     st->playing_flag = 1;
 
-    /* loop=1 for (N,M) entries — the WAV loops until the M-frame
-     * trigger calls sfx_handle_end_frames → mixer_stop_channel. */
-    int want_loop = (pool_end[random_idx] != SFX_FRAME_END_NONE);
+    /* loop=1 when this start-trigger has any explicit end frame
+     * (either inline `(N,M)` or a sibling `(,M)` stop-only tuple
+     * in the same [sampl] group). Without looping, the muffled rock
+     * music on Ebek's idle frame 95 played once and went silent
+     * before the (,1) (,25) (,48) (,49) (,61) stop frames could
+     * fire — the stop-only siblings imply "loop me until told to
+     * quit", so respect that. */
+    int has_sibling_stop = 0;
+    if (pool_end[random_idx] == SFX_FRAME_END_NONE) {
+        for (int i = 0; i < g_dynamic_sfx_count; ++i) {
+            struct FrameSfxEntry *de = &g_dynamic_sfx[i];
+            if (de->frame_start < 0 && de->wav == NULL &&
+                de->asset == asset_name)
+            {
+                has_sibling_stop = 1;
+                break;
+            }
+        }
+    }
+    int want_loop = (pool_end[random_idx] != SFX_FRAME_END_NONE) ||
+                    has_sibling_stop;
     st->channel = (int8_t)PlaySfxLoopAndGetChannel(wav, want_loop);
 }
 
@@ -602,4 +675,41 @@ int PlaySfxLoopAndGetChannel(const char *wav_name, int loop)
         SDL_UnlockAudioDevice(s_mix_dev);
     }
     return ch;
+}
+
+/* ---- test-only accessors -----------------------------------------------
+ *
+ * Tests under tests/test_sampl_parser.c use these to verify
+ * ParseSamplTagsForKomnata's output without depending on the (static)
+ * g_dynamic_sfx layout. They peek into the same per-komnata table the
+ * trigger code reads. No-cost in release builds — never called from
+ * production code, just leaks four small functions to the linker. */
+
+int sfx_test_dynamic_count(void)
+{
+    return g_dynamic_sfx_count;
+}
+
+const char *sfx_test_dynamic_asset(int idx)
+{
+    if (idx < 0 || idx >= g_dynamic_sfx_count) return NULL;
+    return g_dynamic_sfx[idx].asset;
+}
+
+int sfx_test_dynamic_frame_start(int idx)
+{
+    if (idx < 0 || idx >= g_dynamic_sfx_count) return 0;
+    return g_dynamic_sfx[idx].frame_start;
+}
+
+int sfx_test_dynamic_frame_end(int idx)
+{
+    if (idx < 0 || idx >= g_dynamic_sfx_count) return 0;
+    return g_dynamic_sfx[idx].frame_end;
+}
+
+const char *sfx_test_dynamic_wav(int idx)
+{
+    if (idx < 0 || idx >= g_dynamic_sfx_count) return NULL;
+    return g_dynamic_sfx[idx].wav;
 }
