@@ -223,19 +223,43 @@ void PlatformPresent(const uint8_t *shadow,
     if (g_headless) return;
     if (!s_tex || !shadow || !palette_rgb) return;
 
-    int n = w * h;
-    int cap = (int)(sizeof s_pixels32 / sizeof s_pixels32[0]);
-    if (n > cap) n = cap;
-
-    for (int i = 0; i < n; ++i) {
-        uint8_t        idx = shadow[i];
-        const uint8_t *e   = palette_rgb + idx * PALETTE_BYTES_PER_ENTRY;
-        s_pixels32[i] = ARGB_ALPHA_OPAQUE_SHIFTED
-                      | ((uint32_t)e[0] << ARGB_R_SHIFT)
-                      | ((uint32_t)e[1] << ARGB_G_SHIFT)
-                      |  (uint32_t)e[2];
+    /* SDL_LockTexture maps the GPU/streaming texture into our address
+     * space so we expand the 8-bpp shadow + palette LUT straight into
+     * its backing memory — one fewer 1.2 MB memcpy per frame than the
+     * SDL_UpdateTexture path. Falls back if Lock fails for any reason
+     * so we still get a frame on screen. */
+    void *pixels = NULL;
+    int   pitch  = 0;
+    if (SDL_LockTexture(s_tex, NULL, &pixels, &pitch) == 0 && pixels) {
+        uint32_t *out         = (uint32_t *)pixels;
+        int       row_stride  = pitch / ARGB_BYTES_PER_PIXEL;
+        for (int y = 0; y < h; ++y) {
+            uint32_t      *row     = out + (size_t)y * row_stride;
+            const uint8_t *src_row = shadow + (size_t)y * w;
+            for (int x = 0; x < w; ++x) {
+                uint8_t        idx = src_row[x];
+                const uint8_t *e   = palette_rgb + idx * PALETTE_BYTES_PER_ENTRY;
+                row[x] = ARGB_ALPHA_OPAQUE_SHIFTED
+                       | ((uint32_t)e[0] << ARGB_R_SHIFT)
+                       | ((uint32_t)e[1] << ARGB_G_SHIFT)
+                       |  (uint32_t)e[2];
+            }
+        }
+        SDL_UnlockTexture(s_tex);
+    } else {
+        int n   = w * h;
+        int cap = (int)(sizeof s_pixels32 / sizeof s_pixels32[0]);
+        if (n > cap) n = cap;
+        for (int i = 0; i < n; ++i) {
+            uint8_t        idx = shadow[i];
+            const uint8_t *e   = palette_rgb + idx * PALETTE_BYTES_PER_ENTRY;
+            s_pixels32[i] = ARGB_ALPHA_OPAQUE_SHIFTED
+                          | ((uint32_t)e[0] << ARGB_R_SHIFT)
+                          | ((uint32_t)e[1] << ARGB_G_SHIFT)
+                          |  (uint32_t)e[2];
+        }
+        SDL_UpdateTexture(s_tex, NULL, s_pixels32, w * ARGB_BYTES_PER_PIXEL);
     }
-    SDL_UpdateTexture(s_tex, NULL, s_pixels32, w * ARGB_BYTES_PER_PIXEL);
     SDL_RenderClear(s_ren);
     SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
     SDL_RenderPresent(s_ren);
