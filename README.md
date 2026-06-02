@@ -218,6 +218,25 @@ i `WACKI.EXE` w `data/`.
 
 ---
 
+## Zapis stanu
+
+Gra obsługuje:
+
+- **10 nazwanych slotów** dostępnych z menu Sejw / Load — każdemu
+  można nadać własną nazwę, slot trzyma rozdział i pozycję
+  w rozgrywce
+- **Quick-save / quick-load** — natychmiastowy zapis i wczytanie ze
+  slotu 0 z poziomu gry (na PC: `F5` zapis, `F9` odczyt; na
+  handheldzie: `R1` / `R2` zapis, `L1` / `L2` odczyt)
+
+Wszystkie sloty trzymane są w jednym pliku `Wacki.sav` w katalogu
+roboczym gry — obok binarki na PC, w `Roms/PORTS/Games/Wacki/` na
+handheldzie. Zapis jest atomowy (tymczasowy plik + rename), więc
+zanik zasilania lub crash w trakcie save'a nie psuje istniejących
+slotów.
+
+---
+
 ## Licencja i prawa
 
 Port silnika jest dziełem niezależnym i nie zawiera materiałów
