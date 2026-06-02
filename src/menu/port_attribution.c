@@ -48,16 +48,6 @@
 
 /* ---- layout constants --------------------------------------------- */
 
-/* Palette slot used for the post-Credits standalone screen (full-size
- * Futura.30 render — no downscale, plain index colour). 0x12 is the
- * "slot-name" indexed colour that slot_picker.c uses on Tlo.pal —
- * guaranteed to be a readable foreground on the title-screen palette
- * ramp. The title-screen footer ignores this constant: it does a
- * half-resolution render and picks the brightest palette entry at
- * runtime so the small text actually reads as "white" regardless of
- * how the active palette is laid out. */
-#define PORT_ATTRIBUTION_COLOR          0x12
-
 /* Hold time for the post-Credits standalone attribution screen. */
 #define PORT_ATTRIBUTION_HOLD_MS        4000
 
@@ -124,16 +114,18 @@ static int find_palette_white_index(void)
 static uint8_t s_attribution_scratch[WACKI_SCREEN_W * PORT_ATTRIBUTION_LINE_H];
 
 /* Paint a single attribution line to the back-shadow buffer at full
- * size (Futura.30 native 30 px). Used by the post-Credits standalone
- * screen. */
-static void paint_line_full(int x, int y, const uint8_t *text)
+ * size (Futura.30 native 30 px). `color` is the palette index — the
+ * standalone post-Credits screen overrides two slots to guaranteed
+ * black/white before calling this, so it can ignore whatever palette
+ * the credits AVI left behind. */
+static void paint_line_full(int x, int y, uint8_t color, const uint8_t *text)
 {
     if (!g_default_font || !g_back_shadow || !text) return;
     if (y < 0 || y >= WACKI_SCREEN_H) return;
     TextRenderTarget t = {
         .stride     = WACKI_SCREEN_W,
         .x          = (uint16_t)x,
-        .color_base = PORT_ATTRIBUTION_COLOR,
+        .color_base = color,
         .pixels     = g_back_shadow + (size_t)y * WACKI_SCREEN_W,
         .font       = g_default_font,
     };
@@ -235,11 +227,32 @@ void paint_title_attribution_footer(void)
  * Dane_12.dta (the Credits AVI) finishes — clears the back buffer,
  * centres the two attribution lines vertically and horizontally,
  * flushes once, holds for the timeout unless the user clicks/keys
- * through. */
+ * through.
+ *
+ * The credits AVI leaves an arbitrary palette installed; index 0 was
+ * often saturated blue and 0x12 (our default attribution colour) some
+ * other arbitrary entry, giving the user a "blue text on blue
+ * background" non-screen. To stay palette-independent we force two
+ * specific palette slots — 0 and 0xFF — to true black and true white
+ * for the duration of the screen, clear with 0 and paint with 0xFF.
+ *
+ * The next user action — returning to the title menu — calls
+ * install_main_menu_palettes which re-installs Tlo.pal in full and
+ * blows away both overrides, so no explicit restore here. */
+#define ATTRIBUTION_SCREEN_BG_INDEX  0
+#define ATTRIBUTION_SCREEN_FG_INDEX  0xFF
 void play_port_attribution_screen(void)
 {
     if (!g_default_font || !g_back_shadow) return;
-    FlipBuffersClearWith(0);
+
+    g_palette_rgb[ATTRIBUTION_SCREEN_BG_INDEX * 3 + 0] = 0x00;
+    g_palette_rgb[ATTRIBUTION_SCREEN_BG_INDEX * 3 + 1] = 0x00;
+    g_palette_rgb[ATTRIBUTION_SCREEN_BG_INDEX * 3 + 2] = 0x00;
+    g_palette_rgb[ATTRIBUTION_SCREEN_FG_INDEX * 3 + 0] = 0xFF;
+    g_palette_rgb[ATTRIBUTION_SCREEN_FG_INDEX * 3 + 1] = 0xFF;
+    g_palette_rgb[ATTRIBUTION_SCREEN_FG_INDEX * 3 + 2] = 0xFF;
+
+    FlipBuffersClearWith(ATTRIBUTION_SCREEN_BG_INDEX);
 
     int total_h = 2 * PORT_ATTRIBUTION_LINE_H;
     int y_line1 = (WACKI_SCREEN_H - total_h) / 2;
@@ -252,8 +265,8 @@ void play_port_attribution_screen(void)
     if (x1 < 0) x1 = 0;
     if (x2 < 0) x2 = 0;
 
-    paint_line_full(x1, y_line1, PORT_ATTRIBUTION_LINE1);
-    paint_line_full(x2, y_line2, PORT_ATTRIBUTION_LINE2);
+    paint_line_full(x1, y_line1, ATTRIBUTION_SCREEN_FG_INDEX, PORT_ATTRIBUTION_LINE1);
+    paint_line_full(x2, y_line2, ATTRIBUTION_SCREEN_FG_INDEX, PORT_ATTRIBUTION_LINE2);
     FlushFrameToPrimary();
 
     /* Hold with a per-tick poll so user can dismiss with a click /
