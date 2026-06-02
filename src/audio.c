@@ -191,6 +191,35 @@ int mixer_ensure_open(void)
     return 1;
 }
 
+/* Tear down the SDL mixer device so the mmiyoo single-slot audio
+ * hardware is free for an AVI playback. Pauses + closes the device,
+ * marks all channels inactive (so any lingering refs don't think
+ * playback is still happening) and zeroes s_mix_dev. The next
+ * mixer_ensure_open call re-opens lazily on the first SFX/music
+ * play after the AVI returns.
+ *
+ * Needed on mmiyoo specifically: the backend wraps a single hardware
+ * audio-out slot and refuses a second SDL_OpenAudioDevice with
+ * "Audio device already open". Without this, replaying the intro or
+ * Credits cutscene from the menu silently dropped audio because the
+ * mixer was holding the slot. */
+void mixer_release(void)
+{
+    if (!s_mix_dev) return;
+    SDL_PauseAudioDevice(s_mix_dev, 1);
+    SDL_LockAudioDevice(s_mix_dev);
+    for (int i = 0; i < MIX_CHANNEL_COUNT; ++i) {
+        s_mix[i].active = 0;
+        if (s_mix[i].buf) { SDL_free(s_mix[i].buf); s_mix[i].buf = NULL; }
+        s_mix[i].len = 0;
+        s_mix[i].pos = 0;
+    }
+    SDL_UnlockAudioDevice(s_mix_dev);
+    SDL_CloseAudioDevice(s_mix_dev);
+    s_mix_dev = 0;
+    LOG_INFO("mixer", "released (next play re-opens lazily)");
+}
+
 /* Load a WAV (from filesystem or DTA) and convert to output spec.
  * Returns 1 on success with out_buf/out_len owned by caller (must SDL_free
  * after audio callback no longer references it). */

@@ -61,6 +61,13 @@ static void audio_ensure(uint32_t sample_rate, uint16_t channels, uint16_t bits)
 
     if (s_audio_open) { SDL_CloseAudioDevice(s_audio_dev); s_audio_open = 0; }
 
+    /* mmiyoo holds a single audio device slot — close the SFX/music
+     * mixer if it's up so SDL_OpenAudioDevice below doesn't bounce
+     * off "Audio device already open". The mixer re-opens lazily on
+     * the first SFX/music play after audio_release. */
+    extern void mixer_release(void);
+    mixer_release();
+
     SDL_AudioSpec want = {0};
     want.freq     = (int)sample_rate;
     want.format   = (bits == 8) ? AUDIO_U8 : AUDIO_S16LSB;
