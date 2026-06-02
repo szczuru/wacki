@@ -207,7 +207,7 @@ ENGINE_SRCS = \
 	src/anim/paint_primitives.c src/anim/alpha_blit.c             \
 	src/menu/chapter_select.c src/menu/slot_picker.c                 \
 	src/menu/options.c        src/menu/menu_loop.c                   \
-	src/menu/main_menu.c
+	src/menu/main_menu.c      src/menu/port_attribution.c
 
 # Platform-specific glue is appended only for the matching TARGET.
 # src/platform_miyoo.c carries the OnionOS/MStar bits (MI_AO volume

@@ -474,6 +474,13 @@ static void play_loading_screen(void)
     if (PlatformShouldQuit()) return;
 }
 
+/* Port-attribution helpers live in src/menu/port_attribution.c —
+ * referenced here as externs so the title SceneDef can wire the
+ * footer paint, and the Credits-AVI handler can chain the standalone
+ * "Port: ..." screen. */
+extern void paint_title_attribution_footer(void);
+extern void play_port_attribution_screen(void);
+
 /* ---- title-menu SceneDef builders + helpers ----------------------- */
 
 static SceneDef make_title_scene(void)
@@ -482,6 +489,7 @@ static SceneDef make_title_scene(void)
         .background_pic = NULL,
         .mask_file      = TITLE_MASK_FILENAME,
         .on_click       = HandleMainMenuClick,
+        .after_paint    = paint_title_attribution_footer,
         .button_count   = TITLE_BUTTON_COUNT,
         .flags          = SCENE_FLAG_FORCE_CB,
         .buttons = {
@@ -672,6 +680,11 @@ static int dispatch_main_menu_rc(int rc, int *should_return)
 
     case MAIN_MENU_RC_CREDITS:
         PlaySceneCutsceneAvi(CREDITS_AVI);
+        /* Tail the Credits AVI with a standalone screen crediting
+         * this C/SDL2 port — same context (it's a credits sequence)
+         * so it doesn't feel out of place; centred text, ~4 s hold,
+         * user can click through. */
+        play_port_attribution_screen();
         return 1;
     }
     return 1;
