@@ -245,10 +245,20 @@ slotów.
 
 ## Licencja i prawa
 
+Kod portu silnika udostępniony jest na licencji **GNU General
+Public License v3.0** — pełny tekst w pliku [`LICENSE`](LICENSE).
+W skrócie: możesz kod kopiować, modyfikować i redystrybuować, ale
+każda pochodna praca musi pozostać pod tą samą licencją, ze źródłami
+udostępnionymi odbiorcom.
+
+Copyright © 2026 Mateusz Szuła.
+
 Port silnika jest dziełem niezależnym i nie zawiera materiałów
 chronionych prawem autorskim z oryginalnej gry. Pliki danych
-(`Dane_*.dta`, `WACKI.EXE`) pozostają własnością ich twórców i nie
-są dystrybuowane wraz z tym repozytorium.
+(`Dane_*.dta`, `WACKI.EXE`) pozostają własnością ich twórców
+(Seven Stars Multimedia, TopWare Interactive Polska) i nie są
+dystrybuowane wraz z tym repozytorium — licencja GPL v3 obejmuje
+wyłącznie kod portu, nie zawartość oryginalnej gry.
 
 ## Podziękowania
 
