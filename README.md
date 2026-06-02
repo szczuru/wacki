@@ -5,7 +5,7 @@ point-and-click adventure. The game is in Polish, set in Poland, and
 was made in Poland; for that reason the rest of this README is in
 Polish too.
 
-![Wacki](https://i.ytimg.com/vi/pVzsMB6r3hE/maxresdefault.jpg)
+![Wacki: Kosmiczna rozgrywka](docs/img/wacki.jpg)
 
 ## O grze
 
