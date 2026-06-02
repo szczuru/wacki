@@ -22,8 +22,6 @@ Wacki.sav
 
 # Logs / diagnostics
 *.log
-diag-*.log
-diag2.log
 
 # Game assets (symlinked, not committed)
 /data
