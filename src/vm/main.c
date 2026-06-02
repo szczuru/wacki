@@ -353,10 +353,17 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                     if (PlatformShouldQuit() || g_game_over_code) break;
                     EnginePaceFrame(33);
                 }
+                if (safety <= 0) {
+                    LOG_INFO("vm-wait", "OP_WAIT_ENTITY_IDLE id=0x%04X "
+                                        "WATCHDOG — walk_dx=%u walk_dy=%u",
+                             reg_id,
+                             *(uint32_t *)(eb + 0x4C),
+                             *(uint32_t *)(eb + 0x50));
+                }
             }
             break;
         }
-        case OP_WAIT_ANIM_FRAME: {                            /* WAIT_ANIM_FRAME — 
+        case OP_WAIT_ANIM_FRAME: {                            /* WAIT_ANIM_FRAME —
  * with Ghidra case OP_WAIT_ANIM_FRAME:
  * if (e) while (e[+0x30] != target) ProcessGameFrameTick;
  *
@@ -372,6 +379,12 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                     ProcessGameFrameTick();
                     if (PlatformShouldQuit() || g_game_over_code) break;
                     EnginePaceFrame(33);
+                }
+                if (safety <= 0) {
+                    LOG_INFO("vm-wait", "OP_WAIT_ANIM_FRAME id=0x%04X "
+                                        "WATCHDOG — target=%u got=%u",
+                             reg_id, (unsigned)target,
+                             (unsigned)*(uint16_t *)(eb + 0x30));
                 }
             }
             break;
@@ -391,6 +404,12 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
                     ProcessGameFrameTick();
                     if (PlatformShouldQuit() || g_game_over_code) break;
                     EnginePaceFrame(33);
+                }
+                if (safety <= 0) {
+                    LOG_INFO("vm-wait", "OP_WAIT_KIND2_FRAME id=0x%04X "
+                                        "WATCHDOG — target=%u got=%u",
+                             reg_id, (unsigned)target,
+                             (unsigned)*(uint16_t *)(eb + 0x30));
                 }
             }
             break;
