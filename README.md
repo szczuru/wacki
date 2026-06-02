@@ -34,9 +34,6 @@ Do uruchomienia gry potrzebne są:
 
 - gotowa binarka portu (sekcja niżej) — dla docelowej platformy
 - pliki danych z oryginalnej płyty: `Dane_*.dta`
-- oryginalna binarka `WACKI.EXE` z tej samej płyty (wymagana
-  jednorazowo w momencie budowania portu; **nie jest potrzebna w
-  trakcie gry**, jeśli korzystasz z gotowej binarki z sekcji Releases)
 
 Wspierane platformy:
 
@@ -137,7 +134,9 @@ Wymagania:
 
 - kompilator C (gcc lub clang)
 - biblioteka SDL2 z plikami nagłówkowymi
-- `WACKI.EXE` z oryginalnej płyty w katalogu `data/`
+- `WACKI.EXE` z oryginalnej płyty w katalogu `data/` — narzędzie
+  `tools/embed-pe-data` wycina z niej dwa segmenty (`.rdata` + `.data`)
+  i zaszywa je w binarce portu; bez tego pliku build nie ruszy
 
 Instalacja SDL2:
 
