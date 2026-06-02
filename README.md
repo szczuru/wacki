@@ -197,10 +197,6 @@ Krzyżak przyspiesza w miarę przytrzymania — krótkie naciśnięcia
 służą do precyzyjnego pozycjonowania kursora, dłuższe trzymanie
 do szybkiego przemieszczania go po ekranie.
 
-Głośnością systemową (klawisze Vol+ / Vol-) zarządza OnionOS — port
-sam odczytuje aktualnie ustawiony poziom z `system.json` przy
-każdym otwarciu urządzenia audio.
-
 ### Budowanie ze źródeł
 
 Build cross-kompilowany dla Miyoo Mini Plus odbywa się w kontenerze
