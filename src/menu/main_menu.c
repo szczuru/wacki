@@ -170,14 +170,49 @@ static void install_main_menu_palettes(void)
     }
 }
 
+/* Paint the LOLDING (krazek.pic) holding screen and flush it. Used as
+ * a "something's happening" indicator during slow loads — the engine
+ * is single-threaded so the painted frame stays on screen until the
+ * next FlushFrameToPrimary call (typically inside the next game loop).
+ *
+ * paint_rawb_pic with as_overlay=0 calls MergePalette(krazek_pal) which
+ * blends krazek.pic's palette into whatever is currently installed.
+ * That mutation persists past this function and would poison the menu's
+ * Tlo.pal — sprite colour ramps would shift, giving the title screen a
+ * "broken palette" look once the load completes. To keep the merge for
+ * LOLDING itself (its disc/text use krazek.pic's entries) but not for
+ * what comes after, we re-install Tlo.pal AFTER the flush: the user
+ * keeps seeing the LOLDING frame because it's already on the primary
+ * surface, and the next flush (first menu iteration) will colour the
+ * back buffer with clean Tlo.pal again. */
+static void paint_lolding_holding_screen(void)
+{
+    void    *bg_raw  = NULL;
+    uint32_t bg_size = 0;
+    if (!LoadFileFromDta("krazek.pic", &bg_raw, &bg_size)) return;
+    FlipBuffersClearWith(0);
+    paint_rawb_pic(bg_raw, bg_size, 0);
+    FlushFrameToPrimary();
+    xfree(bg_raw);
+
+    /* Roll back the palette merge that paint_rawb_pic just did so the
+     * menu's first paint runs with a clean Tlo.pal. */
+    install_main_menu_palettes();
+}
+
 /* INIT-trigger handler — runs once when the title is first entered:
- * clear the backbuffer, install both palettes, reset the flipbook
- * counters, and start the looping menu BGM. */
+ * install the menu palettes FIRST so the LOLDING holding screen uses
+ * the correct colour ramp, then paint LOLDING so the user sees a
+ * meaningful "still loading" indicator during the heavy mask-atlas
+ * load that follows. Without this, on a slow SD card (Miyoo, ~1.5 s
+ * for Tlo.wyc) the user would see the previous scene's residue —
+ * the intro AVI's end-palette typically left index 0 as saturated
+ * blue, and after the palette fix it came out as white. LOLDING is
+ * a clearer signal that the engine is doing something. */
 static void enter_main_menu(void)
 {
-    FlipBuffersClearWith(0);
-    FlushFrameToPrimary();
     install_main_menu_palettes();
+    paint_lolding_holding_screen();
     s_anim_frame   = MAIN_MENU_ANIM_FIRST_FRAME;
     s_anim_delay   = 0;
     s_save_request = 0;
@@ -398,29 +433,45 @@ static void play_fiacik_intro(void)
 
 /* play_loading_screen — the "LOLDING" screen between Maluch and the
  * first gameplay scene. krazek.pic is a 203×220 RAWB of a vinyl-CD
- * shape with the text "LOLDING" baked in; we paint it centred
- * (paint_rawb_pic does the math + color-keys index 0 so the corners
- * are transparent) and hold for LOADING_SCREEN_HOLD_MS. */
+ * shape with the text "LOLDING" baked in; paint_rawb_pic centres it
+ * and colour-keys index 0 so the corners are transparent.
+ *
+ * Previously held the screen up for LOADING_SCREEN_HOLD_MS (1.5 s)
+ * BEFORE calling LoadStage. On the original 1997 PC where stage
+ * loading itself took multiple seconds this was an artistic beat;
+ * on modern hosts (especially Miyoo where load is sub-100 ms) it
+ * was 1.5 s of dead time and *then* the player saw the partially-
+ * rendered scene flash up because LOLDING had already been torn
+ * down.
+ *
+ * New behaviour: paint LOLDING, present it once, return immediately.
+ * The caller invokes RunGameStageLoop next — that loads assets, runs
+ * the enter_script and only then calls FlushFrameToPrimary again,
+ * which is the moment LOLDING gets replaced by the first real
+ * gameplay frame. Single-threaded engine means nothing else
+ * redraws the screen in between, so LOLDING stays visible for the
+ * full duration of the load. Minimum-hold of LOADING_SCREEN_MIN_HOLD_MS
+ * keeps a brief pause so even sub-100 ms loads don't flash. */
+#define LOADING_SCREEN_MIN_HOLD_MS  400
 static void play_loading_screen(void)
 {
     void *bg_raw = NULL;
     uint32_t bg_size = 0;
     if (!LoadFileFromDta("krazek.pic", &bg_raw, &bg_size)) return;
 
-    uint32_t start = SDL_GetTicks();
-    while (SDL_GetTicks() - start < LOADING_SCREEN_HOLD_MS) {
-        if (PlatformShouldQuit()) break;
-        PumpEvents();
-        FlipBuffersClearWith(0);
-        paint_rawb_pic(bg_raw, bg_size, 0);
-        FlushFrameToPrimary();
-        EnginePaceFrame(LOADING_SCREEN_FRAME_DELAY_MS);
-        if (HasPendingKey()) {
-            uint16_t k = WaitForKey();
-            if (k == VK_ESCAPE) break;
-        }
-    }
+    PumpEvents();
+    FlipBuffersClearWith(0);
+    paint_rawb_pic(bg_raw, bg_size, 0);
+    FlushFrameToPrimary();
     xfree(bg_raw);
+
+    /* Brief minimum hold so very fast loaders still register the
+     * screen visually. Anything past this point happens while
+     * LOLDING is still on display — LoadStage runs synchronously
+     * and doesn't redraw until it's done. */
+    SDL_Delay(LOADING_SCREEN_MIN_HOLD_MS);
+    PumpEvents();
+    if (PlatformShouldQuit()) return;
 }
 
 /* ---- title-menu SceneDef builders + helpers ----------------------- */
