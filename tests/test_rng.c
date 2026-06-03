@@ -1,20 +1,20 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * tests/test_rng.c — WackiRand ROL3 PRNG (FUN_00410F50).
+ * tests/test_rng.c — WackiRand ROL3 PRNG.
  *
- * The original engine uses a deterministic ROL3-based RNG seeded from
- * time(). Determinism is required by the smoke harness (`--seed N`)
- * and used by:
+ * The original engine uses a deterministic ROL3-based PRNG advanced
+ * by a fixed additive constant. Same-seed → same sequence — the
+ * contract these tests pin. Used by:
  *   - actor.c case 6/9 (random animation frame pick)
  *   - audio.c PlaySfx random voice line picker
  *   - script.c op 0x2A IS_SOUND_PLAYING / WackiRand(bound)
  *
- * If we ever refactor the RNG (e.g. switch state width, change
- * advance constant) and lose determinism, the entire smoke harness
- * goes flaky. These tests pin the contract.
+ * If we ever refactor the RNG (e.g. switch state width, change the
+ * advance constant) and break the contract, several tests below will
+ * fail.
  *
- * Reference: src/stubs.c:1371+ (WackiRandSeed / WackiRand).
+ * Reference: src/util/rng.c (WackiRandSeed / WackiRand).
  */
 
 #include "test.h"

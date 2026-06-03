@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# T44 — deterministic smoke harness.
+# T44 — smoke harness.
 #
-# Runs ./wacki --headless with a fixed seed for a bounded duration,
-# captures stage/komnata transitions, asserts that the game made
-# meaningful progress (at least one komnata transition observed,
-# zero crashes, zero ASAN findings if running ./wacki-debug).
+# Runs ./wacki --headless for a bounded duration, captures
+# stage/komnata transitions, asserts that the game made meaningful
+# progress (at least one komnata transition observed, zero crashes,
+# zero ASAN findings if running ./wacki-debug).
 #
 # Usage:
-#   ./tools/smoke-runner.sh               # default: 30s run, seed=42, ./wacki
-#   ./tools/smoke-runner.sh -d 60 -s 1234 # 60s run, seed 1234
+#   ./tools/smoke-runner.sh               # default: 30s run, ./wacki
+#   ./tools/smoke-runner.sh -d 60         # 60s run
 #   ./tools/smoke-runner.sh -b debug      # use ./wacki-debug (ASAN+UBSan)
 #
 # Exit codes:
@@ -19,13 +19,11 @@
 set -u
 
 DUR=30
-SEED=42
 BIN=./wacki
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -d) DUR="$2"; shift 2 ;;
-    -s) SEED="$2"; shift 2 ;;
     -b) [[ "$2" == "debug" ]] && BIN=./wacki-debug; shift 2 ;;
     -h|--help)
       grep -E '^# ' "$0" | sed 's/^# \?//'
@@ -43,14 +41,14 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 LOG=$(mktemp -t wacki-smoke.XXXXXX)
-echo "[smoke] $BIN --headless --seed $SEED for ${DUR}s → $LOG"
+echo "[smoke] $BIN --headless for ${DUR}s → $LOG"
 
 # Disable ASAN leak detection (we don't aim for leak-free yet) and
 # bound the runtime so CI never hangs. The exit-status from timeout
 # of 124 = process was killed by timeout (expected); other codes
 # indicate the binary aborted on its own.
 ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
-  timeout "$DUR" "$BIN" --headless --seed "$SEED" >"$LOG" 2>&1
+  timeout "$DUR" "$BIN" --headless >"$LOG" 2>&1
 RC=$?
 
 # 0 = clean exit, 124 = timed out (expected for headless), 137 = SIGKILL

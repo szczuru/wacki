@@ -115,7 +115,7 @@ For end-to-end coverage of the above, use:
 ```
 make tools && ./tools/dta-validate.sh      # PKv2 byte-perfect (1782 files)
 make debug && ./wacki-debug --headless     # ASAN/UBSan smoke
-./tools/smoke-runner.sh                    # deterministic seed-based run
+./tools/smoke-runner.sh                    # headless smoke run
 ```
 
 ## Framework reference
@@ -236,7 +236,7 @@ Not yet wired. Suggested when someone adds GitHub Actions:
 ```yaml
 - run: make tools && ./tools/dta-validate.sh
 - run: make test
-- run: make debug && ./wacki-debug --headless --seed 1
+- run: make debug && ./wacki-debug --headless
 ```
 
 `make test` exits non-zero on any failure, so it's drop-in.

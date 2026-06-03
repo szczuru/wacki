@@ -211,8 +211,6 @@ static void sigint_handler(int sig)
 /* ---- CLI parsing ------------------------------------------------ */
 
 typedef struct CliArgs {
-    uint32_t    seed_override;
-    int         seed_set;
     int         start_stage;     /* 1..5 = dev jump, 0 = normal flow */
     const char *play_avi;        /* single-AVI test mode (--play-avi) */
     int         test_cutscenes;  /* batch cutscene sweep (--test-cutscenes) */
@@ -231,12 +229,6 @@ static void parse_cli_args(int argc, char **argv, CliArgs *out)
             if (n < DEV_START_STAGE_CLAMP_MIN ||
                 n > DEV_START_STAGE_CLAMP_MAX) n = 0;
             out->start_stage = n;
-        }
-        /* T44 — deterministic smoke harness: --seed N seeds WackiRand
-         * before any rand call. */
-        else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
-            out->seed_override = (uint32_t)strtoul(argv[++i], NULL, 0);
-            out->seed_set      = 1;
         }
         /* T54 — HiDPI scaling. --scale N enlarges window NxN, --scaler
          * nearest|linear|best controls upscale filtering. */
@@ -302,14 +294,6 @@ static void apply_env_overrides(CliArgs *args)
         }
     }
 
-    if (!args->seed_set) {
-        env = getenv("WACKI_SEED");
-        if (env && *env) {
-            args->seed_override = (uint32_t)strtoul(env, NULL, 0);
-            args->seed_set      = 1;
-        }
-    }
-
     if (g_scale_factor == 0) {
         env = getenv("WACKI_SCALE");
         if (env && *env) g_scale_factor = atoi(env);
@@ -325,8 +309,8 @@ static void apply_env_overrides(CliArgs *args)
 }
 
 /* Apply the parsed args' early-side effects: dev-stage jump, headless
- * SDL drivers, RNG seed override. Runs after env merge but before SDL
- * init so the env-forced drivers stick. */
+ * SDL drivers. Runs after env merge but before SDL init so the env-
+ * forced drivers stick. */
 static void apply_early_cli_effects(const CliArgs *args)
 {
     if (args->start_stage) {
@@ -348,10 +332,6 @@ static void apply_early_cli_effects(const CliArgs *args)
         if (!SDL_getenv("SDL_AUDIODRIVER"))
             SDL_setenv("SDL_AUDIODRIVER", "dummy", 1);
         LOG_INFO("wacki", "headless mode");
-    }
-    if (args->seed_set) {
-        WackiRandSeed(args->seed_override);
-        LOG_INFO("wacki", "WackiRand seed = 0x%08x", args->seed_override);
     }
 }
 

@@ -68,7 +68,7 @@ Tools (separate binaries in `tools/`):
 | `pkv2-depack` | Dekompresuje pojedynczy blob PKv2 |
 | `embed-pe-data` | Build-time — czyta `WACKI.EXE`, emituje `src/embedded_wacki_pe.c` |
 | `dta-validate.sh` | Regresja byte-perfect depack (1782 SHA-256) |
-| `smoke-runner.sh` | Deterministyczny smoke CI (`--seed N`) |
+| `smoke-runner.sh` | Headless smoke CI (bounded run) |
 | `build-miyoo.sh` | Cross-compile w Docker dla Miyoo Mini Plus |
 | `pack-miyoo.sh` | Pakuje binarkę w OnionOS Ports `.zip` |
 
@@ -79,7 +79,7 @@ Tools (separate binaries in `tools/`):
 ```
 int main(argc, argv)
 └── WackiMain
-    ├── parsuj --headless / --seed / --scale / --scaler
+    ├── parsuj --headless / --scale / --scaler / --fullscreen
     ├── FindDataRoot           → szukaj Dane_02.dta (env, ./data, …)
     ├── PeLoaderInit           → mapuj embed PE jako passive image
     ├── PlatformInit           → SDL_Init + Window + Renderer + Texture
@@ -318,9 +318,9 @@ Flagi runtime:
 | Flaga | Env equivalent | Efekt |
 |---|---|---|
 | `--headless` | `WACKI_HEADLESS=1` | Skip Window/Renderer/Texture (CI smoke) |
-| `--seed N` | `WACKI_SEED=N` | Ustaw `WackiRand` seed (deterministic playback) |
 | `--scale N` | `WACKI_SCALE=N` | Window N×640 × N×480 (framebuffer 640×480) |
 | `--scaler MODE` | `WACKI_SCALER=MODE` | `nearest` / `linear` / `best` — jakość scaling'u |
+| `--fullscreen` / `-f` | `WACKI_FULLSCREEN=1` | Pełny ekran (F11 toggle w grze) |
 | — | `WACKI_PATH=...` | Override ścieżki do `Dane_*.dta` |
 
 CI matrix: macOS arm64, Linux x86_64, Windows x86_64 (MSYS2/mingw),
