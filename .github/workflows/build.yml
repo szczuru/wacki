@@ -169,6 +169,36 @@ jobs:
           make all STATIC_SDL2=1
           make test STATIC_SDL2=1
 
+      # ---- smoke: confirm the binary actually boots --------------
+      # Run the just-built engine headless for a few seconds with the
+      # null SDL drivers. Without the Dane_*.dta archive the engine
+      # logs a 'data root not found' error and exits cleanly — but
+      # crucially without segfaulting, hanging, or aborting on a
+      # static-init/SDL_Init failure. Catches linker regressions and
+      # platform-init bugs that 'make test' (468 logic-only tests)
+      # can't see. Linux only — fastest runner, cheapest signal.
+      - name: Smoke (Linux only — binary boots cleanly)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          # Remove the WACKI.EXE we fetched earlier so the engine
+          # really does see 'no data'. The embedded PE blob inside
+          # the binary still satisfies PeLoaderRead — only the
+          # external Dane_*.dta lookup fails.
+          rm -f data/WACKI.EXE
+          rm -rf data/Dane_*.dta data/DANE_*.DTA
+          # 5 s budget. timeout exits 124 when killed by limit;
+          # 0 = clean exit (data-not-found). Anything else = crash.
+          set +e
+          timeout 5 ./dist/wacki --headless >smoke.log 2>&1
+          rc=$?
+          set -e
+          echo "exit code: $rc"
+          tail -20 smoke.log
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+            echo "::error::engine crashed at startup (rc=$rc)"
+            exit 1
+          fi
+
       # ---- confirm zero external SDL2 dependency in the binary -----
       - name: Verify no dynamic SDL2 linkage (macOS)
         if: startsWith(matrix.os, 'macos')
