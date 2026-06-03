@@ -96,6 +96,18 @@ else
     EXE :=
 endif
 
+# Windows resource: assets/icons/wacki.rc references wacki.ico — the
+# multi-size (16/32/48/64/128/256) Win32 icon. windres compiles the
+# .rc into a COFF object that gets linked directly into the .exe so
+# Explorer + Alt-Tab + taskbar show the artwork even before the
+# binary starts (SDL_SetWindowIcon takes over once the window opens).
+# POSIX hosts skip this — there's no equivalent embed-file-icon-in-
+# ELF pattern.
+ifeq ($(OS),Windows_NT)
+    WACKI_RES := $(DIST)/wacki.res.o
+    WINDRES   ?= windres
+endif
+
 # Extra link flags for fully-static Windows: drop the mingw gcc /
 # winpthread DLLs that linker pulls in by default. POSIX builds
 # don't need this — the static SDL2 already lists every system
@@ -314,8 +326,13 @@ TEST_CFLAGS = -O2 -Wall -Wextra -Wpedantic \
 all: engine tools
 
 engine: $(DIST)/$(BIN_NAME)$(EXE)
-$(DIST)/$(BIN_NAME)$(EXE): $(ENGINE_SRCS) | $(DIST)
-	$(CC) $(CFLAGS) $(CFLAGS_SIZE) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(SDL_LIB) $(LDFLAGS_STATIC) $(LDFLAGS_SIZE)
+$(DIST)/$(BIN_NAME)$(EXE): $(ENGINE_SRCS) $(WACKI_RES) | $(DIST)
+	$(CC) $(CFLAGS) $(CFLAGS_SIZE) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(WACKI_RES) $(SDL_LIB) $(LDFLAGS_STATIC) $(LDFLAGS_SIZE)
+
+ifeq ($(OS),Windows_NT)
+$(WACKI_RES): assets/icons/wacki.rc assets/icons/wacki.ico | $(DIST)
+	$(WINDRES) --include-dir=assets/icons -i $< -o $@
+endif
 
 # Convenience target: build through the union-miyoomini-toolchain
 # Docker image so callers don't need a host-installed ARM cross compiler.

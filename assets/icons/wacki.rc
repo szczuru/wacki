@@ -1,0 +1,4 @@
+/* Windows resource script — embeds wacki.ico into the engine binary
+ * so Explorer + Alt-Tab + taskbar pre-launch show the artwork.
+ * SDL_SetWindowIcon takes over once the process is running. */
+1 ICON "wacki.ico"
