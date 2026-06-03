@@ -185,9 +185,24 @@ $(EMBED_PE_TOOL): tools/embed-pe-data.c | $(DIST)
 $(EMBEDDED_PE_SRC): $(EMBEDDED_PE_BIN) $(EMBED_PE_TOOL)
 	$(EMBED_PE_TOOL) $(EMBEDDED_PE_BIN) $(EMBEDDED_PE_SRC)
 
+# Window icon: embed the 64×64 BMP from assets/icons/wacki-window.bmp
+# as a C byte array so SDL_SetWindowIcon can hand it to whichever
+# window system the user runs (macOS Dock / Linux taskbar / Windows
+# titlebar). Generator is plain `xxd -i` plus a hand-written SPDX
+# header; checked into git so contributors without xxd installed can
+# still build. Regenerate by running this target after changing the
+# BMP source. */
+EMBEDDED_ICON_SRC = src/embedded_icon.c
+EMBEDDED_ICON_BIN = assets/icons/wacki-window.bmp
+
+$(EMBEDDED_ICON_SRC): $(EMBEDDED_ICON_BIN)
+	@which xxd >/dev/null || { echo "xxd missing — install vim-common"; exit 1; }
+	@(printf '/* SPDX-License-Identifier: GPL-3.0-or-later\n * Copyright (C) 2026 Mateusz Szu\xc5\x82\x61\n *\n * src/embedded_icon.c — GENERATED from %s.\n * Loaded as an SDL_Surface via SDL_LoadBMP_RW and handed to\n * SDL_SetWindowIcon in PlatformInit so the engine'\''s window /\n * taskbar / dock entry carry the game artwork.\n */\n\n#include <stddef.h>\n\n' "$(EMBEDDED_ICON_BIN)"; xxd -i -n wacki_icon_bmp $(EMBEDDED_ICON_BIN)) > $@
+
 # ---- modules ----------------------------------------------------------------
 ENGINE_SRCS = \
 	$(EMBEDDED_PE_SRC) \
+	$(EMBEDDED_ICON_SRC) \
 	src/main.c     src/game.c    src/graphics.c  src/audio.c     \
 	src/archive.c  src/depack.c  src/assets.c    src/vm/main.c   \
 	src/actor/intern.c    src/actor/registration.c \

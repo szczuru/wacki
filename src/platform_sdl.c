@@ -197,6 +197,25 @@ int PlatformInit(int w, int h, const char *title)
         return 0;
     }
 
+    /* Embedded window icon — the 64×64 BMP baked into the binary by
+     * the embedded_icon.c slot. SDL scales it for whatever target
+     * surface the window manager asks for (taskbar 16×16, dock 128×128,
+     * Alt-Tab thumbnail …). Failure to load is non-fatal; falls back
+     * to the SDL2 default cross icon. */
+    extern unsigned char wacki_icon_bmp[];
+    extern unsigned int  wacki_icon_bmp_len;
+    SDL_RWops *icon_rw = SDL_RWFromConstMem(wacki_icon_bmp,
+                                            (int)wacki_icon_bmp_len);
+    if (icon_rw) {
+        SDL_Surface *icon = SDL_LoadBMP_RW(icon_rw, 1 /* freesrc */);
+        if (icon) {
+            SDL_SetWindowIcon(s_win, icon);
+            SDL_FreeSurface(icon);
+        } else {
+            LOG_INFO("platform", "SDL_LoadBMP_RW (icon): %s", SDL_GetError());
+        }
+    }
+
     /* T31 v2 — hide the OS cursor; PaintCursor blits the olowek /
      * kaseta / magnes / drzwi sprite at mouse pos every frame
      * (matches the original DirectDraw build where the GDI cursor was
