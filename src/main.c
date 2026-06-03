@@ -391,7 +391,11 @@ int WackiMain(int argc, char **argv)
             "  • ustaw WACKI_PATH=/sciezka/do/danych");
         return 1;
     }
-    LOG_INFO("wacki", "build " __DATE__ " " __TIME__ "");
+#ifndef WACKI_VERSION
+#define WACKI_VERSION "unknown"
+#endif
+    LOG_INFO("wacki", "Wacki port %s (build " __DATE__ " " __TIME__ ")",
+             WACKI_VERSION);
     LOG_INFO("wacki", "data source: %s", g_data_root);
 
     /* WACKI.EXE's .rdata + .data sections are linked into the binary

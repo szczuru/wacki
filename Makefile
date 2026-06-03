@@ -34,6 +34,14 @@ CFLAGS   ?= -O2 -Wall -Wextra -Wpedantic \
             -fno-strict-aliasing \
             -std=gnu99 -I include
 
+# Version string baked into the binary's startup banner. Defaults to
+# git describe so dev builds carry "<last-tag>-<n>-g<sha>[-dirty]";
+# users running a release can read it back from the wacki.log + paste
+# it into bug reports. Falls back to "unknown" if we're outside a git
+# checkout (release tarball extracted somewhere weird, etc.).
+WACKI_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
+CFLAGS        += -DWACKI_VERSION='"$(WACKI_VERSION)"'
+
 # Miyoo Mini Plus tunings: Cortex-A7 + NEON + hardfloat. Same ABI as
 # Anbernic RG35XX and other SigmaStar SSD20x-based handhelds. Don't
 # enable LTO here — the Miyoo toolchain's ld + linker plugins have
