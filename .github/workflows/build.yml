@@ -217,18 +217,24 @@ jobs:
           # external Dane_*.dta lookup fails.
           rm -f data/WACKI.EXE
           rm -rf data/Dane_*.dta data/DANE_*.DTA
-          # 5 s budget. timeout exits 124 when killed by limit;
-          # 0 = clean exit (data-not-found). Anything else = crash.
+          # 5 s budget. Accepted exit codes:
+          #   0   — clean exit (somehow found data and ran)
+          #   1   — clean "no data found" exit (expected here — main()
+          #         returns 1 after FindDataRoot fails; --headless
+          #         skips the GUI folder picker so it bails fast)
+          #   124 — timeout killed it (made it into the main loop)
+          # A real startup crash shows up as a signal code: 134
+          # (SIGABRT / sanitizer), 139 (SIGSEGV), etc. — those fail.
           set +e
           timeout 5 ./dist/wacki --headless >smoke.log 2>&1
           rc=$?
           set -e
           echo "exit code: $rc"
           tail -20 smoke.log
-          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
-            echo "::error::engine crashed at startup (rc=$rc)"
-            exit 1
-          fi
+          case "$rc" in
+            0|1|124) echo "[smoke] OK (rc=$rc)" ;;
+            *) echo "::error::engine crashed at startup (rc=$rc)"; exit 1 ;;
+          esac
 
       # ---- confirm zero external SDL2 dependency in the binary -----
       - name: Verify no dynamic SDL2 linkage (macOS)

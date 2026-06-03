@@ -301,6 +301,13 @@ static int run_picker_command(const char *cmd, char *out, size_t out_sz)
  * user cancelled, or selected a folder without the archive). */
 static int ask_user_for_data_location(void)
 {
+    /* No GUI in headless mode (CI smoke, --headless dev runs): a
+     * folder picker on a runner with no display either errors out
+     * instantly or hangs until the harness timeout. Skip straight
+     * to the no-data exit. */
+    extern int g_headless;
+    if (g_headless) return 0;
+
     char picked[1024] = {0};
 
 #if defined(__APPLE__)
