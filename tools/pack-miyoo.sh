@@ -49,16 +49,35 @@ chmod +x "$games_dir/wacki"
 
 # Tell the user which files they have to provide. OnionOS' Package
 # Manager surfaces this list in the "required files" UI.
+#
+# Full list of Dane_NN.dta files the engine references at runtime —
+# determined by grep over the source plus the per-stage SceneDef
+# table. Skipping any of these triggers intermittent
+# "Brak takiego pliku w bazie Dane_NN.dta" failures: menu music
+# (01), per-stage intros + finale + credits (10..14), and the
+# per-stage alt archives (21..52, two per stage 1..5).
+#
+# Files NOT listed: Dane_03..09 don't exist on the original CD —
+# the engine never references them.
 cat > "$games_dir/_required_files.txt" <<'EOF'
+data/Dane_01.dta
 data/Dane_02.dta
-data/Dane_03.dta
-data/Dane_04.dta
-data/Dane_05.dta
-data/Dane_06.dta
-data/Dane_07.dta
-data/Dane_08.dta
-data/Dane_09.dta
 data/Dane_10.dta
+data/Dane_11.dta
+data/Dane_12.dta
+data/Dane_13.dta
+data/Dane_14.dta
+data/Dane_21.dta
+data/Dane_22.dta
+data/Dane_30.dta
+data/Dane_31.dta
+data/Dane_32.dta
+data/Dane_40.dta
+data/Dane_41.dta
+data/Dane_42.dta
+data/Dane_50.dta
+data/Dane_51.dta
+data/Dane_52.dta
 EOF
 
 # Optional launcher icon. Drop a 250×250 PNG at assets/icons/wacki-miyoo.png
