@@ -1,0 +1,90 @@
+name: Zgłoszenie błędu
+description: Coś się sypie, gra crashuje, źle renderuje, dźwięk znika itp.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Dzięki za zgłoszenie! Im więcej konkretów, tym szybciej da się to naprawić.
+
+  - type: input
+    id: version
+    attributes:
+      label: Wersja portu
+      description: |
+        Pierwsza linia w `wacki.log` (lub stderr) po uruchomieniu —
+        `[info/wacki] Wacki port <wersja> (build ...)`.
+      placeholder: "v0.1.0-15-gabc123"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platforma
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux x86_64
+        - Windows 10/11
+        - Miyoo Mini Plus / OnionOS
+        - Miyoo Mini / OnionOS
+        - Inne (opisz w polu poniżej)
+    validations:
+      required: true
+
+  - type: input
+    id: platform_detail
+    attributes:
+      label: Wersja systemu / firmware
+      placeholder: "macOS 14.5 / Ubuntu 24.04 / OnionOS 4.3.1 / itd."
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: Co się stało?
+      description: Opisz co zaobserwowałeś — bez interpretacji, tylko fakty.
+      placeholder: "Po wejściu do drugiej komnaty Ebek zniknął i nie reagował na klikanie."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Co miało się stać?
+      placeholder: "Ebek powinien chodzić po komnacie i reagować na lewy klik."
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Kroki reprodukcji
+      description: |
+        Co konkretnie robiłeś bezpośrednio przed problemem? Numeruj
+        kroki — pomaga jak ktoś inny próbuje to powtórzyć.
+      placeholder: |
+        1. Nowa gra → maluch
+        2. Wziąłem śrubokręt z bara
+        3. Kliknąłem na koło Malucha
+        4. Ebek miał wykonać animację montażu — zamiast tego zniknął
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Zawartość wacki.log
+      description: |
+        Zawartość pliku `wacki.log` (lub stderr) — szczególnie ostatnie
+        ~50 linii przed problemem. Na Miyoo plik leży obok binarki:
+        `Roms/PORTS/Games/Wacki/wacki.log`.
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Dodatkowe info
+      description: |
+        Screenshoty, video, save file (`Wacki.sav`) jeśli problem
+        występuje od konkretnego punktu w grze, cokolwiek co może
+        pomóc zlokalizować.

@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Pytania o jak to działa pod maską
+    url: https://github.com/mszula/wacki/tree/master/docs
+    about: |
+      Zanim otworzysz issue z pytaniem, zerknij do docs/ —
+      tam jest pełna dokumentacja techniczna silnika (script VM,
+      audio pipeline, save format, FLIC decoder, layout danych).
+  - name: Pomoc z instalacją na Miyoo
+    url: https://github.com/mszula/wacki#wersja-na-handheld-miyoo-mini-plus-i-pokrewne
+    about: |
+      Sekcja README z instrukcją instalacji na OnionOS Ports.
+      Większość problemów to brakujący plik Dane_*.dta lub
+      niezgodna wersja firmware.

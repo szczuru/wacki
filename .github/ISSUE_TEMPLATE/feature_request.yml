@@ -1,0 +1,45 @@
+name: Feature request
+description: Pomysł na nową funkcjonalność, opcję, port na inną platformę.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Po co?
+      description: |
+        Jaki problem to rozwiązuje albo co umożliwia? Krótko —
+        2-3 zdania.
+      placeholder: |
+        Save'y są obecnie w katalogu binarki, co utrudnia synchronizację
+        między PC a handheldem. Lepiej byłoby trzymać je w XDG state dir
+        (Linux) / Application Support (macOS) / AppData (Windows).
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Propozycja
+      description: |
+        Jak by to mogło wyglądać? Konkretne CLI flagi, env vars,
+        zachowanie defaultowe. Im konkretniej tym lepiej.
+      placeholder: |
+        Default: zapisuj w platform-specific state dir.
+        Override: WACKI_SAVE_PATH=... env var lub --save-path flaga.
+        Migracja: jeśli stary Wacki.sav istnieje w cwd a nowy katalog
+        jest pusty, przenieś automatycznie przy pierwszym uruchomieniu.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatywy
+      description: Jakie inne podejścia rozważałeś?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Dodatkowy kontekst
+      description: |
+        Linki, screenshoty, kod referencyjny z innych projektów,
+        cokolwiek co ułatwia ocenę pomysłu.
