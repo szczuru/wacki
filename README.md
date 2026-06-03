@@ -103,6 +103,12 @@ Wybrane opcje można podać z linii poleceń lub przez zmienne
 |------------------------|--------------------------|--------------------------------------------------|
 | —                      | `WACKI_PATH=...`         | ścieżka do katalogu z `Dane_*.dta` (default: `./data/`) |
 
+**Rozgrywka:**
+
+| Flaga                  | Zmienna środowiskowa     | Działanie                                        |
+|------------------------|--------------------------|--------------------------------------------------|
+| `--start-stage N`      | `WACKI_START_STAGE=N`    | start od razu od etapu **N** (1..5), pomija menu i intro |
+
 **Logowanie:**
 
 | Flaga                  | Zmienna środowiskowa     | Działanie                                        |
@@ -122,10 +128,15 @@ Pełny ekran (zachowuje rozdzielczość pulpitu, letterbox 640×480) —
 ./wacki --fullscreen
 ```
 
-Niżej-poziomowe / dev opcje (`--headless`, `--start-stage N`,
-`--play-avi`, `--test-cutscenes`, `--no-pacing`, `WACKI_INPUT_DEBUG`)
-udokumentowane są w
-[`docs/architecture.md`](docs/architecture.md#11-flagi-runtime).
+Skok prosto do etapu 3 (kiosk) —
+
+```bash
+./wacki --start-stage 3
+```
+
+Pozostałe niżej-poziomowe / dev opcje (`--headless`, `--play-avi`,
+`--test-cutscenes`, `--no-pacing`, `WACKI_INPUT_DEBUG`) udokumentowane
+są w [`docs/architecture.md`](docs/architecture.md#11-flagi-runtime).
 
 ### Budowanie ze źródeł
 
