@@ -745,15 +745,15 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
  * case OP_DIALOG_CLOSE: if (InventoryPagePrev) PanelPageSwap
  * Page-up (panel left arrow).
  *
- * case OP_DIALOG_TBD: (reg)
- * Drop / consume currently-held item. is a
- * small helper that clears the inventory slot holding the
- * given verb. Stubbed for now — needs porting alongside
- * the full pickup/drop pipeline.
+ * case OP_DIALOG_TBD (0x1F): hide/deactivate the named entity — find
+ * it by verb id, clear its bytecode slot and move it off-screen
+ * (X=1000). Used to make an item's world sprite vanish (e.g. on
+ * pickup). Fully implemented by InventoryDropItem (legacy name) —
+ * see hud/inventory.c.
  *
- * Without a full dialog UI, these ops still move data correctly;
- * the panel verbs change but won't visually render dialog text
- * until the panel-label render path is ported (see D2 in REVIEW). */
+ * Without a full dialog UI, the 0x1A..0x1D panel ops still move data
+ * correctly; the panel verbs change but won't visually render dialog
+ * text until the panel-label render path is ported (see D2 in REVIEW). */
         case OP_DIALOG_SHOW: {
             /* (line 765):
  * ((uint)puVar15); // InventoryAddItem(reg_id)
@@ -805,13 +805,9 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             if (InventoryPagePrev()) PanelPageSwap();
             break;
         }
-        case OP_DIALOG_TBD: {
-            /*
- * (reg_id); // InventoryDropItem
- */
+        case OP_DIALOG_TBD:   /* 0x1F — hide/deactivate entity by id */
             InventoryDropItem(reg_id);
             break;
-        }
 
         /* ---- exits / scene transitions ------------------------------- */
         case OP_GO_EXIT: {                            /* GO_EXIT

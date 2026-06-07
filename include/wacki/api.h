@@ -76,6 +76,10 @@ void PaintImageToBackbuffer(int16_t dx, int16_t dy,
 void FlushFrameToPrimary(void);
 void RestorePrevFrameRects(void);
 void FlipBuffersClearWith(uint8_t value);
+/* Gradual palette fade of the current frame toward palette entry 0
+ * (scene's index-0 colour, normally black). Used before game-over
+ * cutscenes. Mutates g_palette_rgb in place; no-op in headless. */
+void FadeOutToBlack(void);
 
 /* Scene-BG atlas copy — see graphics.c. Save() copies a kind=2 atlas
  * frame's pixels as the scene's persistent BG; Paint() blits that

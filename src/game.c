@@ -573,6 +573,11 @@ static void handle_game_over_stage_end_avi(void)
  * codes are no-ops. */
 static int run_game_over_epilogue(void)
 {
+    /* Fade the last gameplay frame to black before any transition AVI —
+     * 1:1 with the original, which fades once for every non-zero
+     * game-over code before dispatching. */
+    if (g_game_over_code != GAME_OVER_NONE) FadeOutToBlack();
+
     switch (g_game_over_code) {
     case GAME_OVER_DEATH:
         PlaySceneCutsceneAvi(DEATH_AVI);

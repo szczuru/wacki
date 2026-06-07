@@ -219,6 +219,43 @@ void FlushFrameToPrimary(void)
  * No-op in the SDL build (we redraw the whole shadow each frame). */
 void RestorePrevFrameRects(void) { /* nop */ }
 
+/* ---- FadeOutToBlack ---------------------------------------------- *
+ * Gradual palette fade of the current frame, mirroring the original's
+ * game-over transition: LERP every palette entry toward palette entry 0
+ * — the scene's index-0 colour, normally black — re-presenting each
+ * step. Used before death / chapter / stage-end cutscenes so the screen
+ * fades instead of snapping to the AVI.
+ *
+ * Mutates g_palette_rgb in place and does NOT restore it: every caller
+ * is immediately followed by an AVI (sets its own palette) or a scene
+ * load (re-installs), so the faded palette is always overwritten next.
+ * No-op in headless (nothing is presented). */
+#define FADE_OUT_STEPS      16
+#define FADE_OUT_FRAME_MS   25
+void FadeOutToBlack(void)
+{
+    extern int g_headless;
+    if (g_headless || !g_back_shadow) return;
+
+    uint8_t start[sizeof g_palette_rgb];
+    memcpy(start, g_palette_rgb, sizeof start);
+    const int tr = start[0], tg = start[1], tb = start[2];   /* entry 0 */
+
+    for (int s = 1; s <= FADE_OUT_STEPS; ++s) {
+        if (PlatformShouldQuit()) break;
+        int t = (s * 256) / FADE_OUT_STEPS;                  /* 0..256 */
+        for (int i = 0; i < 256; ++i) {
+            int r = start[i * 3 + 0], g = start[i * 3 + 1], b = start[i * 3 + 2];
+            g_palette_rgb[i * 3 + 0] = (uint8_t)(r + ((tr - r) * t) / 256);
+            g_palette_rgb[i * 3 + 1] = (uint8_t)(g + ((tg - g) * t) / 256);
+            g_palette_rgb[i * 3 + 2] = (uint8_t)(b + ((tb - b) * t) / 256);
+        }
+        FlushFrameToPrimary();
+        PumpEvents();
+        EnginePaceFrame(FADE_OUT_FRAME_MS);
+    }
+}
+
 /* ---- BlitSpriteScaledColorKey + Flip ----------------------------- *
  *
  * Nearest-neighbour scaled colour-key blit, used for perspective-

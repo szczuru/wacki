@@ -67,6 +67,11 @@ void PlatformPresent(const uint8_t *shadow, const uint8_t *palette_rgb,
 { (void)shadow; (void)palette_rgb; (void)w; (void)h; }
 
 void PlatformPumpEvents(void) {}
+void PumpEvents(void) {}
+
+/* Headless: graphics.c FadeOutToBlack early-returns on this, so the fade
+ * loop never runs under tests (and no frames are presented anyway). */
+int g_headless = 1;
 
 /* Settable: PlatformShouldQuit return value. Wait loops in script.c
  * (op 0x14/0x15/0x26/0x3D) check this each iteration and break if

@@ -207,6 +207,11 @@ int InventoryRemoveItem(uint16_t item_verb)
     return 0;
 }
 
+/* VM op 0x1F. NOTE: name is legacy/misleading — this does NOT touch the
+ * inventory. It hides/deactivates a WORLD entity: find it by verb id,
+ * clear its bytecode slot (stop its script) and move it off-screen
+ * (X=1000). Used to make an item's world sprite vanish (e.g. on pickup).
+ * Faithful to the original (used 112× in shipped scripts). */
 void InventoryDropItem(uint16_t item_verb)
 {
     Entity *e = FindEntityByVerbId(item_verb);
