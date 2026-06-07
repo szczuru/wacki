@@ -436,7 +436,15 @@ void PlatformMenuScreenshot(void)
 static void handle_keydown(const SDL_Event *ev)
 {
     SDL_Keycode sym = ev->key.keysym.sym;
-    g_key_state = (uint16_t)(sym & 0xFF);
+    /* Latch only real character keys in the low byte. SDL's non-character
+     * keys (arrows, F-keys, keypad, …) carry SDLK_SCANCODE_MASK (1<<30);
+     * masking them to 8 bits ALIASES letters — SDLK_LEFT (0x40000050) →
+     * 0x50 = 'P' and SDLK_F9 (0x40000042) → 0x42 = 'B', which the debug-
+     * screenshot handler (frame_tick.c) reads as its PCX/BMP keys. On a
+     * handheld the d-pad arrives as arrow keysyms, so holding d-pad LEFT
+     * latched 'P' and spammed a screenshot every 500 ms. Store 0 for
+     * non-character keys so they can't impersonate a printable key. */
+    g_key_state = (sym & SDLK_SCANCODE_MASK) ? 0 : (uint16_t)(sym & 0xFF);
 
     if (sym == SDLK_ESCAPE) s_quit = 1;
 
