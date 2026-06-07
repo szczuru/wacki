@@ -118,7 +118,12 @@ int EntityListCount(int click_list)
  * - render list: actor entries (g_actor[0]/[1])
  * - click list: click payloads owned by an actor
  * - update table: actor entries (kind=2) + their click payloads (kind=4)
- * - intern table: NOT reset (surviving entities' slots stay valid)
+ * - intern table: RESET, then the survivors above are re-interned. The
+ *   table only grows otherwise (mask_list.c interns per frame), so it
+ *   used to exhaust its 1024 slots mid-playthrough — after which
+ *   ent_ptr_intern() returns slot 0 for live pointers and sprites/exit
+ *   hotspots silently vanish. Resetting per scene caps it at one
+ *   scene's working set.
  *
  * The kind=4 id=1/2 click payload filter is owner-based, NOT id-based.
  * Per-scene masks (e.g. komnata 4 wejw_lpg.msk) register at id=1/2 too;
@@ -240,4 +245,48 @@ void EntityListClearAll(void)
 
     /* Speech balloon (kind=1 entity) is per-scene scenery, not persisted. */
     g_speech_balloon = NULL;
+
+    /* Reclaim the pointer-slot intern table. Every interned slot lives in
+     * an entity field, and the only entities still reachable after the
+     * clears above are the two actors and their click payloads — so we
+     * capture THOSE live pointers, wipe the table, and re-intern just
+     * them. Capturing the live pointers (not assuming old slots) matters
+     * because an actor's per-entity VM re-interns its own atlas/bytecode
+     * mid-scene, so its current slots can sit anywhere in the table.
+     *
+     * Gated on "actors exist": only real gameplay has persistent actors
+     * to preserve, and only gameplay churns the table (per-scene masks
+     * intern per frame). With no actors — boot, menus, or unit-test
+     * fixtures that call this as a plain list-reset — there's nothing to
+     * keep and resetting would wipe slots the caller still holds, so we
+     * leave the table untouched. */
+    if (g_actor[0] || g_actor[1]) {
+        void *a_atlas[2], *a_bc[2], *a_pix[2];
+        for (int i = 0; i < 2; ++i) {
+            Entity *a = g_actor[i];
+            a_atlas[i] = a ? ent_ptr_resolve(EOFF(a, ENT_OFF_ATLAS_SLOT,     uint32_t)) : NULL;
+            a_bc[i]    = a ? ent_ptr_resolve(EOFF(a, ENT_OFF_BYTECODE_SLOT,  uint32_t)) : NULL;
+            a_pix[i]   = a ? ent_ptr_resolve(EOFF(a, ENT_OFF_PIXEL_SLOT_ALT, uint32_t)) : NULL;
+        }
+        void *c_owner[MAX_PROTECTED_CLICK_PAYLOADS];
+        void *c_verb [MAX_PROTECTED_CLICK_PAYLOADS];
+        for (int i = 0; i < keep_n; ++i) {
+            c_owner[i] = ent_ptr_resolve(EOFF(keep_click[i], CLICK_OFF_OWNER_SLOT,      uint32_t));
+            c_verb [i] = ent_ptr_resolve(EOFF(keep_click[i], CLICK_OFF_VERB_TABLE_SLOT, uint32_t));
+        }
+
+        ent_ptr_reset();
+
+        for (int i = 0; i < 2; ++i) {
+            Entity *a = g_actor[i];
+            if (!a) continue;
+            EOFF(a, ENT_OFF_ATLAS_SLOT,     uint32_t) = a_atlas[i] ? ent_ptr_intern(a_atlas[i]) : 0;
+            EOFF(a, ENT_OFF_BYTECODE_SLOT,  uint32_t) = a_bc[i]    ? ent_ptr_intern(a_bc[i])    : 0;
+            EOFF(a, ENT_OFF_PIXEL_SLOT_ALT, uint32_t) = a_pix[i]   ? ent_ptr_intern(a_pix[i])   : 0;
+        }
+        for (int i = 0; i < keep_n; ++i) {
+            EOFF(keep_click[i], CLICK_OFF_OWNER_SLOT,      uint32_t) = c_owner[i] ? ent_ptr_intern(c_owner[i]) : 0;
+            EOFF(keep_click[i], CLICK_OFF_VERB_TABLE_SLOT, uint32_t) = c_verb [i] ? ent_ptr_intern(c_verb [i]) : 0;
+        }
+    }
 }

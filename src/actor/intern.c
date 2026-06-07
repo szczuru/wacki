@@ -51,3 +51,15 @@ void *ent_ptr_resolve(uint32_t slot)
     if (slot == 0 || slot >= (uint32_t)g_ent_ptr_n) return NULL;
     return g_ent_ptr_tbl[slot];
 }
+
+/* Drop every slot (slot 0 stays the reserved NULL). The table only ever
+ * grows as scenes intern their props/masks/atlases — mask_list.c interns
+ * per FRAME — so without a periodic reset it exhausts mid-playthrough and
+ * intern() starts handing back slot 0 for live pointers (→ NULL atlases =
+ * vanished sprites, NULL mask owners = dead exit hotspots). The scene-
+ * transition clear calls this AFTER capturing the few surviving entities'
+ * pointers, then re-interns them — see EntityListClearAll. */
+void ent_ptr_reset(void)
+{
+    g_ent_ptr_n = 1;
+}

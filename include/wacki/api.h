@@ -174,11 +174,17 @@ int      IsDialogLinePlaying(void);
 void ResetDynamicSfxTable(void);
 void ParseSamplTagsForKomnata(const uint8_t *start, const uint8_t *end);
 
-/* Positional sound queue. */
+/* Positional alpha-tint source queue (VM op 0x41/0x42 — dynamic
+ * lighting on alpha-plane sprites, NOT sound; see audio/sound_queue.c). */
 void     SoundQueueReset(void);
-void     SoundQueueEnqueue(int16_t x, int16_t y, uint32_t sound_id,
-                           uint16_t volume);
-uint32_t SoundQueueMixForListener(int16_t listener_x, int16_t listener_y);
+void     SoundQueueEnqueue(int16_t x, int16_t y, uint32_t rgb,
+                           uint16_t radius);
+/* Blend all sources at (lx, ly) → packed 0xBBGGRR tint (empty → 0x808080). */
+uint32_t AlphaTintForListener(int16_t lx, int16_t ly);
+
+/* Grafika menu "video_mode" toggle — gates the alpha-plane tint/lighting
+ * effect. Non-zero = effect on. */
+int      GraphicsAlphaFxEnabled(void);
 
 /* ---- archive.c / depack.c ---------------------------------------- */
 
@@ -240,6 +246,7 @@ void    FreeEntity(Entity *e);
  * setter to keep the original 32-bit slot layout on 64-bit hosts). */
 uint32_t ent_ptr_intern(void *p);
 void    *ent_ptr_resolve(uint32_t slot);
+void     ent_ptr_reset(void);   /* drop all slots; slot 0 stays NULL */
 
 /* Entity list management. Two parallel lists — render (drawables)
  * and click (hotspots). `LinkEntityToList` takes the address of a
