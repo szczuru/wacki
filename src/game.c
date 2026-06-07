@@ -491,13 +491,15 @@ static void play_stage_avi_if(const char *avi, int code, const char *kind)
 /* game_over_code == GAME_OVER_CHAPTER_PICK (3). Plays the just-finished
  * stage's outro, stashes its transition AVI, shows the chapter-select
  * map, loads the picked stage, then plays the stashed transition.
+ * Returns the stage the player picked (1..5) so RunGameStageLoop runs
+ * it next, or 0 when no valid pick was made.
  *
  * 8-step order mirrors the original engine exactly. Step 4 (all_done →
  * credits sting + DROP into the map) intentionally does NOT bail so
  * the user can see the assembled ACME map and click the green finale
  * button — an earlier port `break`ed here and made stage 5 unreachable
  * from a regular playthrough. */
-static void handle_game_over_chapter_pick(void)
+static int handle_game_over_chapter_pick(void)
 {
     /* Step 1: refresh buttons; tells us whether all 4 stages are done. */
     int all_done = SelTloRefreshButtons();
@@ -538,6 +540,16 @@ static void handle_game_over_chapter_pick(void)
     if (!all_done && stashed_alt3) {
         play_stage_avi_if(stashed_alt3, GAME_OVER_CHAPTER_PICK, "transition");
     }
+
+    /* Step 9: hand the picked stage back to RunGameStageLoop. Steps 5-6
+     * loaded it into g_stage/g_cur_komnata but nothing has run it yet;
+     * returning the pick makes the stage loop re-enter the new stage.
+     * Without this the loaded stage was silently dropped — the "going
+     * to X" transition played and control then unwound all the way back
+     * to the title intro + menu instead of the new stage. */
+    if (s_chapter_pick >= 1 && s_chapter_pick <= DEV_PICK_FINALE)
+        return s_chapter_pick;
+    return 0;
 }
 
 /* game_over_code == GAME_OVER_STAGE_END_AVI (4). Plays both the outro
@@ -555,42 +567,61 @@ static void handle_game_over_stage_end_avi(void)
 }
 
 /* Post-loop game-over dispatcher: 1=death AVI, 3=chapter-pick UI,
- * 4=stage-end double AVI + completion bit. Unknown codes are no-ops. */
-static void run_game_over_epilogue(void)
+ * 4=stage-end double AVI + completion bit. Returns the stage the player
+ * picked from the chapter-select map (1..5) so RunGameStageLoop can run
+ * it next, or 0 when control should fall back to the title menu. Unknown
+ * codes are no-ops. */
+static int run_game_over_epilogue(void)
 {
     switch (g_game_over_code) {
     case GAME_OVER_DEATH:
         PlaySceneCutsceneAvi(DEATH_AVI);
-        return;
+        return 0;
     case GAME_OVER_CHAPTER_PICK:
-        handle_game_over_chapter_pick();
-        return;
+        return handle_game_over_chapter_pick();
     case GAME_OVER_STAGE_END_AVI:
         handle_game_over_stage_end_avi();
-        return;
+        return 0;
     }
+    return 0;
 }
 
 void RunGameStageLoop(uint8_t flags)
 {
-    g_game_over_code = GAME_OVER_NONE;
-
-    prepare_stage_state(flags);
-
     extern uint32_t g_tick_counter;
     extern void     LoadActorWalkAnims(uint32_t stage_va);
 
-    g_stats.boot_tick = g_tick_counter;
-    ensure_stage_va_default();
-    LoadActorWalkAnims(g_stage_va);
+    /* One stage per iteration. The original engine's main loop reads the
+     * game-over code at the bottom of each pass and, on a chapter-select
+     * pick (code 3), re-enters the freshly loaded stage. Mirror that: the
+     * epilogue shows the map, loads the picked stage and returns its
+     * number; we loop to run it. The Monter finale (pick 5) runs once and
+     * then drops back to the title menu, never re-showing the map — same
+     * as the dev start-stage flow. */
+    int stop_after_this = 0;
+    for (;;) {
+        g_game_over_code = GAME_OVER_NONE;
 
-    uint16_t cur_komnata = (g_cur_komnata != 0) ? g_cur_komnata
-                                                : KOMNATA_FALLBACK;
-    g_cur_komnata = cur_komnata;
+        prepare_stage_state(flags);
 
-    run_initial_komnata_scene(cur_komnata);
+        g_stats.boot_tick = g_tick_counter;
+        ensure_stage_va_default();
+        LoadActorWalkAnims(g_stage_va);
 
-    if (g_game_over_code) run_game_over_epilogue();
+        uint16_t cur_komnata = (g_cur_komnata != 0) ? g_cur_komnata
+                                                    : KOMNATA_FALLBACK;
+        g_cur_komnata = cur_komnata;
+
+        run_initial_komnata_scene(cur_komnata);
+
+        int next_stage = g_game_over_code ? run_game_over_epilogue() : 0;
+        if (stop_after_this || next_stage < 1) break;
+
+        /* Stages reached through the chapter-select map restore from the
+         * loaded StageDef — save-load semantics, never a full reset. */
+        flags = STAGE_LOAD_FLAG_SAVE_LOAD;
+        stop_after_this = (next_stage == DEV_PICK_FINALE);
+    }
 }
 
 /* ---- InitializeGameSubsystems ------------------------------------ */
