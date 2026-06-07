@@ -442,9 +442,9 @@ static void play_fiacik_intro(void)
 }
 
 /* play_film_intro — the projector cutscene fired when the player clicks
- * the film-strip icon (New, 0x13). 1:1 with the original's New click
- * script (RunScriptInterpreter @ DAT_00427b40), which loads film.wyc,
- * spawns it and plays it once to its last frame. film.wyc is a 20-frame
+ * the film-strip icon (New, 0x13). Mirrors the original's New click
+ * script, which loads film.wyc, spawns it and plays it once to its last
+ * frame. film.wyc is a 20-frame
  * raw atlas anchored at (260,326) — the exact slot of the static film
  * icon (Tlo.wyc frame 1) — so it animates that button in place. After it
  * finishes, RunMainGameLoop's outer loop replays the title intro AVI
@@ -741,10 +741,9 @@ static int dispatch_main_menu_rc(int rc, int *should_return)
         return 1;
 
     case MAIN_MENU_RC_NEW_GAME:
-        /* Film-reel button (0x13). The original's click script
-         * (RunScriptInterpreter @ DAT_00427b40) plays film.wyc once,
-         * then case 6 breaks the inner loop so the title intro AVI
-         * replays. Mirror that: projector cutscene, then return 0. */
+        /* Film-reel button (0x13). The original's click script plays
+         * film.wyc once, then breaks the inner loop so the title intro
+         * AVI replays. Mirror that: projector cutscene, then return 0. */
         play_film_intro();
         return 0;
 

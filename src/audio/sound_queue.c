@@ -1,30 +1,28 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/audio/sound_queue.c — positional sound queue + script bridges.
+ * src/audio/sound_queue.c — positional ALPHA-TINT source queue.
  *
- * Two concerns in one module:
+ * NOTE: despite the "sound" names (kept for now to bound the rename),
+ * VM op 0x41 / 0x42 are NOT sound — they drive the original's dynamic
+ * colored-lighting on alpha-plane sprites:
  *
- * 1. Positional queue. The script VM op 0x41 SOUND_PLAY pushes a
- * (source_x, source_y, sound_id, volume) tuple onto a 16-entry
- * queue. Per frame, SoundQueueMixForListener walks the queue,
- * computes distance + pan against the listener position, and
- * returns an aggregate (L, C, R) gain packet that the mixer can
- * use to set master volume.
+ *   op 0x41: push a tint source (x, y, RGB packed in a u32, radius) onto
+ *            a 16-entry queue.
+ *   op 0x42: reset the queue (does NOT touch audio).
+ *   The blend at a point sums every source with a raised-cosine distance
+ *   falloff → packed 0xBBGGRR; empty queue → 0x808080 (identity). The
+ *   entity render feeds the result to SetAlphaTint.
  *
- * The original engine doesn't trigger direct playback from op 0x41
- * either — actual SFX firing is frame-driven via [sampl] tags in
- * Wacky.scr (handled by TriggerFrameSfx). Op 0x41 just contributes
- * POSITIONAL state to the aggregate gain calculation.
+ * Real SFX are unrelated — they fire frame-driven from the [sampl] tags
+ * in Wacky.scr (TriggerFrameSfx). The shipped game uses op 0x41 in just
+ * two scenes ("dark room + light spot"): a global ~50% darken source
+ * plus one small identity-bright spot.
  *
- * 2. Script bridges. ScriptCallSoundPlay enqueues a positional source
- * and logs the computed pan; ScriptCallSoundStop resets the queue
- * and stops menu music.
- *
- * The pan calculation here is a portable approximation of the
- * original's distance + ftol triple. The shape (left-of-listener is
- * quieter on the right channel etc.) and identity-output behaviour
- * (empty queue → 0x808080) match exactly.
+ * AlphaTintForListener reproduces the original's blend exactly, with the
+ * float pipeline replaced by an integer raised-cosine LUT + integer sqrt
+ * so we pull in no libm (handheld targets link without it). Decompiler
+ * addresses for this system live in ANALYSIS.md.
  */
 
 #include "wacki.h"
@@ -33,128 +31,136 @@
 #include <stdint.h>
 #include <stdio.h>
 
-extern Entity   *g_actor[2];
-extern uint16_t  g_active_actor;
-
-extern void StopMenuMusic(void);
-
 /* ---- queue storage ------------------------------------------------- */
 
-#define SOUND_QUEUE_MAX  16
+#define TINT_SOURCE_MAX  16
 
-typedef struct SoundQueueEntry {
-    int16_t  x, y;
-    uint16_t volume;
-    uint8_t  sound_id[3];
+typedef struct TintSource {
+    int16_t  x, y;       /* source position (screen px) */
+    uint16_t radius;     /* falloff radius (original "volume" arg)   */
+    uint8_t  rgb[3];     /* R, G, B (0x80 = identity per channel)    */
     uint8_t  pad;
-} SoundQueueEntry;
+} TintSource;
 
-static SoundQueueEntry s_sound_queue[SOUND_QUEUE_MAX];
-static uint16_t        s_sound_queue_count = 0;
+static TintSource s_tint_src[TINT_SOURCE_MAX];
+static uint16_t   s_tint_count = 0;
 
+/* op 0x42 — clear all tint sources. Audio is untouched. Also called on
+ * every komnata load (scene/komnata.c) so a scene's tint never leaks
+ * into the next room. */
 void SoundQueueReset(void)
 {
-    s_sound_queue_count = 0;
+    s_tint_count = 0;
 }
 
-void SoundQueueEnqueue(int16_t x, int16_t y, uint32_t sound_id, uint16_t volume)
+/* op 0x41 — push one tint source. `rgb` packs R/G/B in the low three
+ * bytes; `radius` is the falloff distance. */
+void SoundQueueEnqueue(int16_t x, int16_t y, uint32_t rgb, uint16_t radius)
 {
-    if (s_sound_queue_count >= SOUND_QUEUE_MAX) return;
+    if (s_tint_count >= TINT_SOURCE_MAX) return;
 
-    SoundQueueEntry *e = &s_sound_queue[s_sound_queue_count++];
-    e->x       = x;
-    e->y       = y;
-    e->volume  = volume;
-    e->sound_id[0] = (uint8_t)(sound_id      );
-    e->sound_id[1] = (uint8_t)(sound_id >>  8);
-    e->sound_id[2] = (uint8_t)(sound_id >> 16);
+    TintSource *e = &s_tint_src[s_tint_count++];
+    e->x      = x;
+    e->y      = y;
+    e->radius = radius;
+    e->rgb[0] = (uint8_t)(rgb      );
+    e->rgb[1] = (uint8_t)(rgb >>  8);
+    e->rgb[2] = (uint8_t)(rgb >> 16);
 }
 
-/* ---- mixer-facing aggregate gain ----------------------------------- */
+/* ---- positional tint blend ----------------------------------------- */
 
-/* Identity gain packet: each channel at 0x80 (= no attenuation). */
-#define GAIN_IDENTITY_PACKET   0x00808080u
+/* Identity tint: every channel at 0x80 (Q1.7 1.0 in the alpha blit). */
+#define TINT_IDENTITY_PACKED   0x00808080u
 
-/* Distance clamp. Sources further than D_MAX pixels from the listener
- * contribute zero. Tuned for a 640×480 stage — anything more than
- * half the diagonal collapses to silence. */
-#define SOUND_DISTANCE_MAX     240
+/* Raised-cosine falloff w(t) = (cos(pi*t) + 1) / 2 in Q0.8 (0..256),
+ * t = i / TINT_LUT_N over [0,1]. This folds the original's
+ * (cos(min(dist/radius, PI)) - (-1.0)) * 0.5 — i.e. C1=-1.0, C2=0.5,
+ * clamp=PI — into a table indexed by
+ * t = min(dist/radius, PI) / PI. Computed offline. */
+#define TINT_LUT_N   32
+static const uint16_t s_falloff_lut[TINT_LUT_N + 1] = {
+    256, 255, 254, 250, 246, 241, 234, 227, 219,
+    209, 199, 188, 177, 165, 153, 141, 128, 115,
+    103,  91,  79,  68,  57,  47,  37,  29,  22,
+     15,  10,   6,   2,   1,   0
+};
 
-/* Pack three 8-bit channel gains into a u32: R << 16 | C << 8 | L. */
-static uint32_t pack_lcr(int L, int C, int R)
+/* PI in Q14 fixed point (3.14159 * 16384). Used to scale `radius` to the
+ * distance at which the falloff reaches zero (dist = radius * PI). */
+#define TINT_PI_Q14  51472u
+
+static uint32_t isqrt32(uint32_t v)
 {
-    if (L < 0)   L = 0;
-    if (C < 0)   C = 0;
-    if (R < 0)   R = 0;
-    if (L > 255) L = 255;
-    if (C > 255) C = 255;
-    if (R > 255) R = 255;
-    return (uint32_t)((R << 16) | (C << 8) | L);
+    uint32_t res = 0, bit = 1u << 30;
+    while (bit > v) bit >>= 2;
+    while (bit) {
+        if (v >= res + bit) { v -= res + bit; res = (res >> 1) + bit; }
+        else                {                 res >>= 1; }
+        bit >>= 2;
+    }
+    return res;
 }
 
-uint32_t SoundQueueMixForListener(int16_t listener_x, int16_t listener_y)
+/* Blend all active tint sources at (lx, ly) and return the packed
+ * 0xBBGGRR tint (R in the low byte, matching SetAlphaTint). Empty queue
+ * → identity. */
+uint32_t AlphaTintForListener(int16_t lx, int16_t ly)
 {
-    if (s_sound_queue_count == 0) return GAIN_IDENTITY_PACKET;
+    if (s_tint_count == 0) return TINT_IDENTITY_PACKED;
 
-    int L = 0, C = 0, R = 0;
+    int acc[3] = { 0, 0, 0 };
+    for (uint16_t i = 0; i < s_tint_count; ++i) {
+        const TintSource *s = &s_tint_src[i];
+        if (s->radius == 0) continue;
 
-    for (uint16_t i = 0; i < s_sound_queue_count; ++i) {
-        int dx = (int)s_sound_queue[i].x - (int)listener_x;
-        int dy = (int)s_sound_queue[i].y - (int)listener_y;
-        int abs_dx = dx < 0 ? -dx : dx;
-        int abs_dy = dy < 0 ? -dy : dy;
-        int dist_sq = abs_dx * abs_dx + 2 * abs_dy * abs_dy;
-        int v       = (int)s_sound_queue[i].volume;
+        int dx = (int)lx - (int)s->x;
+        int dy = (int)ly - (int)s->y;
+        /* Original weights the vertical delta 2× (iso foreshortening). */
+        uint32_t dist = isqrt32((uint32_t)(dx * dx + 2 * dy * dy));
 
-        if (v <= 0) continue;
-        if (dist_sq > SOUND_DISTANCE_MAX * SOUND_DISTANCE_MAX) {
-            dist_sq = SOUND_DISTANCE_MAX * SOUND_DISTANCE_MAX;
+        /* idx (Q8) = (dist / (radius*PI)) * TINT_LUT_N, clamped to N. */
+        uint32_t radius_pi = (uint32_t)(((uint64_t)s->radius * TINT_PI_Q14) >> 14);
+        if (radius_pi == 0) radius_pi = 1;
+        uint64_t idx_q8 = ((uint64_t)dist * TINT_LUT_N * 256u) / radius_pi;
+
+        uint32_t w;  /* Q0.8 raised-cosine weight, 0..256 */
+        uint32_t idx = (uint32_t)(idx_q8 >> 8);
+        if (idx >= TINT_LUT_N) {
+            w = s_falloff_lut[TINT_LUT_N];           /* = 0 */
+        } else {
+            uint32_t frac = (uint32_t)(idx_q8 & 0xff);
+            int a = s_falloff_lut[idx];
+            int b = s_falloff_lut[idx + 1];
+            w = (uint32_t)(a + ((b - a) * (int)frac) / 256);
         }
 
-        int contrib = (v * 256) / (dist_sq + 256);
-        if (contrib > 255) contrib = 255;
-
-        int pan = (dx * 255) / SOUND_DISTANCE_MAX;          /* -255..+255 */
-        if (pan < -255) pan = -255;
-        if (pan >  255) pan =  255;
-
-        int gL = ((255 - pan) * contrib) / 510;
-        int gR = ((255 + pan) * contrib) / 510;
-        int gC = (contrib * (SOUND_DISTANCE_MAX - abs_dy)) /
-                 (SOUND_DISTANCE_MAX + abs_dy + 1);
-
-        L += gL;
-        C += gC;
-        R += gR;
+        acc[0] += (int)((w * s->rgb[0]) >> 8);
+        acc[1] += (int)((w * s->rgb[1]) >> 8);
+        acc[2] += (int)((w * s->rgb[2]) >> 8);
     }
-    return pack_lcr(L, C, R);
+    for (int c = 0; c < 3; ++c) {
+        if (acc[c] > 255) acc[c] = 255;
+        if (acc[c] < 0)   acc[c] = 0;
+    }
+    return (uint32_t)((acc[2] << 16) | (acc[1] << 8) | acc[0]);
 }
 
 /* ---- script bridges ------------------------------------------------- */
 
+/* op 0x41. Maps to: x=reg_id, y=a1, rgb=u32, radius=a2. */
 void ScriptCallSoundPlay(uint16_t id, uint16_t a, uint32_t b, uint16_t c)
 {
-    /* Op 0x41 maps to: source_x=reg_id, source_y=a1, sound_id=u32, volume=a2.
- * Source coords are 16-bit signed. */
     SoundQueueEnqueue((int16_t)id, (int16_t)a, b, c);
-
-    /* Diagnostic: compute the current aggregate pan relative to the
- * active actor's position. The result is informational — actual
- * SFX playback fires frame-driven via TriggerFrameSfx, not here. */
-    int16_t lx = WACKI_SCREEN_W / 2;
-    int16_t ly = WACKI_SCREEN_H / 2;
-    if (g_actor[g_active_actor & 1]) {
-        uint8_t *eb = (uint8_t *)g_actor[g_active_actor & 1];
-        lx = *(int16_t *)(eb + 0x22);
-        ly = *(int16_t *)(eb + 0x24);
-    }
-    uint32_t lcr = SoundQueueMixForListener(lx, ly);
-    LOG_TRACE("script", "sound enqueue id=0x%04x src=(%d,%d) vol=%u "
-            "pan=L%u/C%u/R%u", id, (int)id, (int)a, c, lcr & 0xFF, (lcr >> 8) & 0xFF, (lcr >> 16) & 0xFF);
+    LOG_TRACE("tint", "source #%u at (%d,%d) rgb=0x%06x radius=%u",
+              s_tint_count, (int)(int16_t)id, (int)(int16_t)a,
+              (unsigned)(b & 0xffffff), c);
 }
 
+/* op 0x42. Only zeroes the queue — it does NOT stop audio (an earlier
+ * port mistakenly called StopMenuMusic here, which cut the track whenever
+ * a scene reset its tint sources). */
 void ScriptCallSoundStop(void)
 {
     SoundQueueReset();
-    StopMenuMusic();
 }

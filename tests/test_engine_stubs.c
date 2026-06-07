@@ -115,6 +115,10 @@ uint32_t PlayDialogLine(const char *wav)              { (void)wav; return 0; }
 void StopDialogLine(void)                             {}
 int  IsDialogLinePlaying(void)                       { return 0; }
 
+/* From menu/options.c — render.c reads the Grafika tint toggle. Tests
+ * exercise the tint math directly, so report the effect as enabled. */
+int  GraphicsAlphaFxEnabled(void)                    { return 1; }
+
 /* ---- game.c stubs --------------------------------------------------- */
 
 /* From game.c — save.c LoadSaveSlot calls this. Tests don't exercise

@@ -55,6 +55,10 @@ static uint8_t s_opt_extra     = 0;   /* semantic still under RE */
 static uint8_t s_opt_gfx1 = 1;        /* video_mode */
 static uint8_t s_opt_gfx2 = 1;        /* fast-transitions flag */
 
+/* Exposed for the render path: gfx1 (video_mode) gates the alpha-plane
+ * positional tint/lighting effect. */
+int GraphicsAlphaFxEnabled(void) { return s_opt_gfx1; }
+
 /* SceneDefs are defined further down; forward-declared here so the
  * apply / refresh helpers see them. */
 static SceneDef g_solund_scene;

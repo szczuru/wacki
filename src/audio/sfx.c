@@ -608,10 +608,9 @@ void PlaySfx(const char *wav_name)
     PlaySfxPanned(wav_name, SFX_DEFAULT_GAIN, SFX_DEFAULT_GAIN);
 }
 
-/* PlaySfxPanned — same as PlaySfx with explicit L/R gain. Caller
- * computes gains from positional source-vs-listener via
- * SoundQueueMixForListener (which returns packed 0xRRCCLL — split
- * the C contribution equally into L+R for our 2-channel mixer). */
+/* PlaySfxPanned — same as PlaySfx with explicit L/R gain. The caller
+ * supplies the gains (frame-driven [sampl] SFX use the listener-relative
+ * pan computed at trigger time). */
 void PlaySfxPanned(const char *wav_name, uint8_t gain_l, uint8_t gain_r)
 {
     (void)PlaySfxPannedAndGetChannel(wav_name, gain_l, gain_r);

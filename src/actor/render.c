@@ -236,6 +236,26 @@ static void paint_walkbehind_mask(int16_t dx, int16_t dy,
     }
 }
 
+/* ---- alpha-plane positional tint (dynamic lighting) ---------------- *
+ *
+ * Mirrors the original entity render: when the Grafika "video_mode"
+ * option is on AND the entity carries EFLAG_LIT, blend the
+ * scene's tint sources (VM op 0x41) at the entity anchor and install the
+ * result as the alpha-tint; otherwise install identity. Drives the
+ * "dark room + light spot" mood in the two scenes that place tint
+ * sources — every other scene has an empty queue, so AlphaTintForListener
+ * returns identity and nothing changes. */
+static void apply_entity_alpha_tint(Entity *e, uint16_t flags)
+{
+    if (GraphicsAlphaFxEnabled() && (flags & EFLAG_LIT)) {
+        int16_t ax = EOFF(e, ENT_OFF_ANCHOR_X, int16_t);
+        int16_t ay = EOFF(e, ENT_OFF_ANCHOR_Y, int16_t);
+        SetAlphaTint(AlphaTintForListener(ax, ay));
+    } else {
+        SetAlphaTint(0x808080u);   /* identity */
+    }
+}
+
 /* ---- main render walk ---------------------------------------------- */
 
 void EntityRenderAll(Entity *head)
@@ -378,6 +398,7 @@ void EntityRenderAll(Entity *head)
             }
 
             if ((flags & EFLAG_ALPHA_PLANE) && !(flags & EFLAG_DOUBLED)) {
+                apply_entity_alpha_tint(e, flags);
                 BlitAlphaScaledToBackbuffer(dx, dy, fw, fh, dw, dh, px, 2);
             } else {
                 BlitSpriteScaledColorKeyFlip(dx, dy, fw, fh, dw, dh, px,

@@ -1116,26 +1116,20 @@ int RunScriptInterpreter(uint16_t this_id, uint16_t that_id,
             g_cursor_speed     = a0;   /* full halfword (was uint8_t — bug) */
             break;
 
-        /* ---- sound --------------------------------------------------- *
+        /* ---- alpha-plane tint sources (NOT sound) -------------------- *
          *
-         * The original engine maintains a sound_id → asset-filename
-         * table that maps the opcode's 32-bit `id` arg to a specific
-         * WAV in Dane_02.dta. That
- * table hasn't been RE'd from the binary yet; port's
- * `s_sound_table` in stubs.c is empty, so most positional sound
- * calls only end up in the queue (consumed by stereo pan calc
- * via SoundQueueMixForListener) without playing a WAV. The
- * positional queue itself + the stereo pan computation are 
- * with the original ; only the id→asset mapping is
- * stubbed. See TASKS-2 T36 polish notes. */
+         * op 0x41/0x42 drive the original's positional colored-lighting
+         * on alpha-plane sprites, despite the legacy "sound" opcode
+         * names. op 0x41 pushes a tint source
+         * (x=reg_id, y=a1, rgb=u32@+8, radius=a2); op 0x42 clears the
+         * queue. The blend + apply happen in the render path
+         * (AlphaTintForListener → SetAlphaTint, actor/render.c). Real
+         * SFX are frame-driven via the [sampl] system. */
         case OP_SOUND_PLAY: {
-            /*:
- * the u32 argument is at byte +8 of the instruction, NOT +4.
- * Earlier port passed i32_at4 (= u32 at byte +4) which fed
- * the wrong dword into the sound id slot. */
-            uint32_t i32_at8 = 0;
-            if (len >= 3) memcpy(&i32_at8, ((const uint8_t *)pc) + 8, 4);
-            ScriptCallSoundPlay(reg_id, a1, i32_at8, a2);
+            /* The rgb u32 is at instruction byte +8, NOT +4. */
+            uint32_t rgb_at8 = 0;
+            if (len >= 3) memcpy(&rgb_at8, ((const uint8_t *)pc) + 8, 4);
+            ScriptCallSoundPlay(reg_id, a1, rgb_at8, a2);
             break;
         }
         case OP_SOUND_STOP: ScriptCallSoundStop(); break;

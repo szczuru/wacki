@@ -79,6 +79,7 @@
 /* Primary flags (byte at ENT_OFF_FLAGS1 / +0x08, accessed as u16). */
 #define EFLAG_RENDERABLE        0x0001
 #define EFLAG_DOUBLED           0x0004    /* sprite drawn at 2× */
+#define EFLAG_LIT               0x0010    /* receives positional alpha-tint (lighting) */
 #define EFLAG_ONESHOT_BG_PEND   0x0020    /* paired with FADE_OR_BG for one-shot blit */
 #define EFLAG_FOOT_BAKED        EFLAG_ONESHOT_BG_PEND    /* alias — set when fade-out clears +0x26 */
 #define EFLAG_FADE_OR_BG        0x0040    /* fade-out or one-shot BG paint */
