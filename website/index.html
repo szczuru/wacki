@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wacki: Kosmiczna rozgrywka — darmowy port na PC i handheldy</title>
+    <meta
+      name="description"
+      content="Wierny, otwarty port polskiej gry przygodowej Wacki: Kosmiczna rozgrywka (1998). Gra się od początku do końca na macOS, Linux, Windows oraz na konsolach Miyoo, Anbernic i innych (PortMaster). Pobierz za darmo."
+    />
+    <link rel="canonical" href="https://mszula.github.io/wacki/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pl_PL" />
+    <meta
+      property="og:title"
+      content="Wacki: Kosmiczna rozgrywka — darmowy port"
+    />
+    <meta
+      property="og:description"
+      content="Wierny port polskiej gry przygodowej z 1998 r. Gra się od początku do końca na PC i dziesiątkach handheldów. Pobierz za darmo."
+    />
+    <meta property="og:url" content="https://mszula.github.io/wacki/" />
+    <meta property="og:image" content="assets/cover.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="assets/favicon-32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="assets/favicon-16.png"
+    />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <meta name="theme-color" content="#e8330d" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bangers&family=Patrick+Hand&family=Nunito:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="nav" id="top">
+      <div class="nav__inner">
+        <a class="nav__brand" href="#top">
+          <img src="assets/favicon-32.png" alt="" width="28" height="28" />
+          <span>WACKI</span>
+        </a>
+        <button class="nav__burger" aria-label="Menu" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+        <nav class="nav__links" aria-label="Główne">
+          <a href="#o-grze">O grze</a>
+          <a href="#status">Port</a>
+          <a href="#pobierz">Pobierz</a>
+          <a href="#handheldy">Handheldy</a>
+          <a href="#start">Jak grać</a>
+          <a href="#sterowanie">Sterowanie</a>
+          <a href="#faq">FAQ</a>
+          <a class="nav__support" href="#wesprzyj">☕ Wesprzyj</a>
+          <a
+            class="nav__gh"
+            href="https://github.com/mszula/wacki"
+            target="_blank"
+            rel="noopener"
+            >GitHub ↗</a
+          >
+        </nav>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="hero__art">
+        <img
+          src="assets/cover.png"
+          alt="Wacki: Kosmiczna rozgrywka — kosmita Aargh oraz dwaj nastolatkowie Franc i Edek"
+          width="640"
+          height="480"
+        />
+      </div>
+      <div class="hero__body">
+        <h1 class="hero__title">Wacki<span>Kosmiczna rozgrywka</span></h1>
+        <p class="hero__lead">
+          Wierny, otwarty port silnika gry — odtworzony piksel po pikselu ze
+          zdekompilowanej oryginalnej binarki. Gra się od intra do napisów
+          końcowych na <strong>macOS, Linux i Windows</strong>, a także na
+          <strong>Miyoo, Anbernic i dziesiątkach innych handheldów</strong>.
+        </p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" id="hero-download" href="#pobierz"
+            >Pobierz za darmo</a
+          >
+          <a class="btn btn--ghost" href="#handheldy">Gra na handheldach</a>
+        </div>
+        <div class="rel">
+          <span class="rel__badge">najnowsza wersja</span>
+          <span class="rel__ver" id="rel-ver"></span>
+          <span class="rel__date">wydana <strong id="rel-date"></strong></span>
+        </div>
+      </div>
+      <img
+        class="deco deco--maluch"
+        src="assets/px-maluch.png"
+        alt=""
+        aria-hidden="true"
+      />
+    </section>
+
+    <main>
+      <section class="section" id="o-grze">
+        <div class="wrap">
+          <h2 class="h2"><span class="h2__tag">01</span> O grze</h2>
+          <div class="grid grid--2">
+            <div class="prose">
+              <p>
+                <strong>Wacki: Kosmiczna rozgrywka</strong> to polska gra
+                przygodowa typu point-and-click, wydana
+                <strong>1 lipca 1998</strong> przez studio
+                <strong>Seven Stars Multimedia</strong> na komputery z Microsoft
+                Windows.
+              </p>
+              <p>
+                Akcja rozgrywa się na polskim osiedlu, gdzie dwaj nastolatkowie
+                —
+                <strong>Franc</strong> i <strong>Edek</strong> — spotykają
+                kosmitę <strong>Aargha</strong>. Obcy prosi ich o pomoc w
+                odnalezieniu części zagubionego urządzenia
+                <strong>ACME</strong> (Atomowego Czasoprzestrzennego
+                Modyfikatora Energii), które uległo rozpadowi.
+              </p>
+              <p>
+                Sterujesz dwiema postaciami naraz, eksplorujesz kolejne lokacje,
+                rozwiązujesz zagadki, zbierasz przedmioty i prowadzisz dialogi.
+                Gra jest pełna absurdalnego humoru i odwołań do polskiej kultury
+                lat 90.
+              </p>
+            </div>
+            <ul class="facts">
+              <li>
+                <span class="facts__k">Rok</span
+                ><span class="facts__v">1998</span>
+              </li>
+              <li>
+                <span class="facts__k">Studio</span
+                ><span class="facts__v">Seven Stars Multimedia</span>
+              </li>
+              <li>
+                <span class="facts__k">Wydawca</span
+                ><span class="facts__v">TopWare Interactive Polska</span>
+              </li>
+              <li>
+                <span class="facts__k">Gatunek</span
+                ><span class="facts__v">Przygodowa point-and-click</span>
+              </li>
+              <li>
+                <span class="facts__k">Język</span
+                ><span class="facts__v">Polski</span>
+              </li>
+              <li>
+                <span class="facts__k">Bohaterowie</span
+                ><span class="facts__v">Franc, Edek, kosmita Aargh</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="status">
+        <div class="wrap">
+          <h2 class="h2"><span class="h2__tag">02</span> O porcie</h2>
+          <p class="lead-center">
+            To <strong>niezależny port silnika</strong> napisany od zera w
+            C/SDL2, odtworzony ze zdekompilowanego <code>WACKI.EXE</code>. Jest
+            <strong>funkcjonalnie kompletny</strong> — gra przechodzi się od
+            intra do napisów końcowych z większością mechanik i detali
+            oryginału.
+          </p>
+          <ul class="chips">
+            <li>Sterowanie dwoma postaciami</li>
+            <li>Ekwipunek</li>
+            <li>Zapis i wczytanie (sloty + quick save)</li>
+            <li>Pełna animacja postaci i obiektów</li>
+            <li>Muzyka, SFX i kwestie mówione</li>
+            <li>Intra i cutscenki AVI</li>
+            <li>Panel z paskiem życia i menu opcji</li>
+          </ul>
+          <div class="callout callout--save">
+            <div class="callout__icon">💾</div>
+            <div>
+              <h3>Zapisy zgodne z oryginałem co do bajta</h3>
+              <p>
+                Plik <code>Wacki.sav</code> jest byte-identyczny z oryginałem z
+                1998 r. Stan zapisany w porcie wczytasz w oryginalnym
+                <code>WACKI.EXE</code> i odwrotnie — możesz zacząć etap na PC, a
+                dokończyć na handheldzie.
+              </p>
+            </div>
+          </div>
+          <img
+            class="deco deco--pies"
+            src="assets/px-pies.png"
+            alt=""
+            aria-hidden="true"
+          />
+        </div>
+      </section>
+
+      <section class="section" id="pobierz">
+        <div class="wrap">
+          <h2 class="h2"><span class="h2__tag">03</span> Pobierz</h2>
+          <img
+            class="deco deco--rocket"
+            src="assets/px-rocket.png"
+            alt=""
+            aria-hidden="true"
+          />
+          <p class="lead-center">
+            Wybierz paczkę dla swojego sprzętu. Rozpakuj w dowolnym katalogu —
+            <strong>nie trzeba nic instalować</strong>.
+          </p>
+
+          <div class="notice">
+            <strong>⚠️ Potrzebujesz oryginalnych plików gry.</strong>
+            Port to wyłącznie silnik — nie zawiera materiałów chronionych prawem
+            autorskim. Aby zagrać, musisz mieć własną kopię oryginalnej płyty i
+            skopiować z niej pliki <code>Dane_*.dta</code>. Jak to zrobić —
+            patrz <a href="#start">Jak grać</a>.
+          </div>
+
+          <div class="cards" id="download-cards">
+            <article
+              class="card"
+              data-platform="windows"
+              data-asset="wacki-windows-x86_64.zip"
+            >
+              <div class="card__os">🪟</div>
+              <h3>Windows</h3>
+              <p class="card__sub">Windows 10 / 11 · 64-bit</p>
+              <a
+                class="btn btn--dl"
+                href="https://github.com/mszula/wacki/releases/latest/download/wacki-windows-x86_64.zip"
+                >Pobierz <span class="card__size"></span
+              ></a>
+              <p class="card__file">wacki-windows-x86_64.zip</p>
+            </article>
+
+            <article
+              class="card"
+              data-platform="mac"
+              data-asset="wacki-macos-arm64.tar.gz"
+            >
+              <div class="card__os">🍎</div>
+              <h3>macOS</h3>
+              <p class="card__sub">Apple Silicon (M1+)</p>
+              <a
+                class="btn btn--dl"
+                href="https://github.com/mszula/wacki/releases/latest/download/wacki-macos-arm64.tar.gz"
+                >Pobierz <span class="card__size"></span
+              ></a>
+              <p class="card__file">wacki-macos-arm64.tar.gz</p>
+            </article>
+
+            <article
+              class="card"
+              data-platform="linux"
+              data-asset="wacki-linux-x86_64.tar.gz"
+            >
+              <div class="card__os">🐧</div>
+              <h3>Linux</h3>
+              <p class="card__sub">x86_64</p>
+              <a
+                class="btn btn--dl"
+                href="https://github.com/mszula/wacki/releases/latest/download/wacki-linux-x86_64.tar.gz"
+                >Pobierz <span class="card__size"></span
+              ></a>
+              <p class="card__file">wacki-linux-x86_64.tar.gz</p>
+            </article>
+
+            <article
+              class="card"
+              data-platform="miyoo"
+              data-asset="wacki-miyoo.zip"
+            >
+              <div class="card__os">🕹️</div>
+              <h3>Miyoo</h3>
+              <p class="card__sub">Mini / Mini Plus · OnionOS</p>
+              <a
+                class="btn btn--dl"
+                href="https://github.com/mszula/wacki/releases/latest/download/wacki-miyoo.zip"
+                >Pobierz <span class="card__size"></span
+              ></a>
+              <p class="card__file">wacki-miyoo.zip</p>
+            </article>
+
+            <article
+              class="card"
+              data-platform="portmaster"
+              data-asset="wacki-portmaster.zip"
+            >
+              <div class="card__os">🎮</div>
+              <h3>Anbernic i inne</h3>
+              <p class="card__sub">PortMaster (muOS, ROCKNIX…)</p>
+              <a
+                class="btn btn--dl"
+                href="https://github.com/mszula/wacki/releases/latest/download/wacki-portmaster.zip"
+                >Pobierz <span class="card__size"></span
+              ></a>
+              <p class="card__file">wacki-portmaster.zip</p>
+            </article>
+          </div>
+
+          <p class="cards__foot">
+            Wszystkie wydania i pełna historia zmian:
+            <a
+              href="https://github.com/mszula/wacki/releases"
+              target="_blank"
+              rel="noopener"
+              >github.com/mszula/wacki/releases</a
+            >. Wolisz zbudować ze źródeł? Zajrzyj do
+            <a
+              href="https://github.com/mszula/wacki/blob/master/BUILDING.md"
+              target="_blank"
+              rel="noopener"
+              >BUILDING.md</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="handheldy">
+        <div class="wrap">
+          <h2 class="h2"><span class="h2__tag">04</span> Handheldy</h2>
+          <p class="lead-center">
+            Wacki przechodzi się od początku do końca także na
+            <strong>dziesiątkach kieszonkowych konsol</strong>. Sterujesz gałką
+            lub krzyżakiem, przyciski A/B to klik lewy i prawy, a
+            <strong>zapis przenosisz między PC a handheldem</strong>
+            w obie strony.
+          </p>
+
+          <ul class="chips">
+            <li>Anbernic (RG35XX, RG40XX, RG353x…)</li>
+            <li>Miyoo (Mini, Mini Plus, Flip)</li>
+            <li>Powkiddy</li>
+            <li>TrimUI</li>
+            <li>RGB30</li>
+            <li>…i wiele innych</li>
+          </ul>
+
+          <div class="callout">
+            <div class="callout__icon">🎮</div>
+            <div>
+              <h3>Jak odpalić</h3>
+              <p>
+                Na większość sprzętu użyjesz paczki
+                <a
+                  href="https://portmaster.games/"
+                  target="_blank"
+                  rel="noopener"
+                  >PortMaster</a
+                >
+                (<code>wacki-portmaster.zip</code>) — muOS, ROCKNIX, ArkOS,
+                JELOS i inne. Dla Miyoo z OnionOS jest osobna paczka
+                (<code>wacki-miyoo.zip</code>). W obu wrzucasz port, dorzucasz
+                pliki <code>Dane_*.dta</code> i grasz — paczki są w sekcji
+                <a href="#pobierz">Pobierz</a>, a instrukcje per urządzenie w
+                <a
+                  href="https://github.com/mszula/wacki/blob/master/README.md"
+                  target="_blank"
+                  rel="noopener"
+                  >README</a
+                >.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="start">
+        <div class="wrap">
+          <h2 class="h2">
+            <span class="h2__tag">05</span> Jak grać — szybki start
+          </h2>
+          <img
+            class="deco deco--babcia"
+            src="assets/px-babcia.png"
+            alt=""
+            aria-hidden="true"
+          />
+          <ol class="steps">
+            <li class="step">
+              <div class="step__n">1</div>
+              <div>
+                <h3>Pobierz i rozpakuj</h3>
+                <p>
+                  Ściągnij paczkę dla swojego systemu z sekcji
+                  <a href="#pobierz">Pobierz</a> i rozpakuj ją w dowolnym
+                  folderze.
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <div class="step__n">2</div>
+              <div>
+                <h3>Dorzuć pliki gry</h3>
+                <p>
+                  Skopiuj pliki <code>Dane_*.dta</code> z oryginalnej płyty do
+                  podkatalogu <code>data/</code> obok gry. Na macOS po prostu
+                  wrzuć folder <code>data/</code> obok <code>Wacki.app</code>.
+                  Wielkość liter w nazwach nie ma znaczenia.
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <div class="step__n">3</div>
+              <div>
+                <h3>Uruchom</h3>
+                <p>
+                  Windows: dwuklik <code>wacki.exe</code>. macOS: dwuklik
+                  <code>Wacki.app</code>. Linux: <code>./wacki</code>. Przy
+                  pierwszym starcie gra zapyta o tryb wyświetlania (pełny ekran
+                  / okno).
+                </p>
+              </div>
+            </li>
+          </ol>
+
+          <div class="callout callout--mac">
+            <div class="callout__icon">🍎</div>
+            <div>
+              <h3>Pierwsze uruchomienie na macOS</h3>
+              <p>
+                Binarki nie są podpisane certyfikatem Apple (port jest darmowy),
+                więc przy pierwszym starcie Gatekeeper zablokuje aplikację. To
+                jednorazowe: otwórz
+                <strong
+                  >Ustawienia systemowe → Prywatność i bezpieczeństwo</strong
+                >, przewiń na dół i kliknij <strong>„Otwórz mimo to"</strong>.
+                Alternatywnie w terminalu:
+                <code>xattr -dr com.apple.quarantine Wacki.app</code>.
+              </p>
+            </div>
+          </div>
+
+          <p class="lead-center">
+            Pełna instrukcja dla każdej platformy (w tym Miyoo i PortMaster),
+            opcje uruchomienia i rozwiązywanie problemów —
+            <a
+              href="https://github.com/mszula/wacki/blob/master/README.md"
+              target="_blank"
+              rel="noopener"
+              >w pełnym README na GitHubie</a
+            >.
+          </p>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="galeria">
+        <div class="wrap">
+          <h2 class="h2"><span class="h2__tag">06</span> Jak to wygląda</h2>
+          <figure class="shot">
+            <img
+              src="assets/screenshot-gameplay.png"
+              alt="Zrzut ekranu z gry: osiedle z blokiem nr 13, żółty maluch, Franc i Edek na jezdni, panel ekwipunku w stylu dżinsów na dole"
+              width="640"
+              height="480"
+              loading="lazy"
+            />
+            <figcaption>
+              Osiedle, blok nr 13, maluch i panel ekwipunku w stylu dżinsów —
+              wszystko renderowane wewnętrznie w 640×480 i skalowane z
+              zachowaniem proporcji.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="section" id="sterowanie">
+        <div class="wrap">
+          <h2 class="h2"><span class="h2__tag">07</span> Sterowanie</h2>
+          <div class="grid grid--2">
+            <div class="ctrl">
+              <h3 class="ctrl__h">🖥️ PC (mysz + klawiatura)</h3>
+              <table class="ktab">
+                <tbody>
+                  <tr>
+                    <td>Ruch kursora</td>
+                    <td><kbd>mysz</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Kliknięcie (idź / akcja)</td>
+                    <td><kbd>LPM</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Przełącz postać</td>
+                    <td><kbd>Spacja</kbd> / <kbd>PPM</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Quick-save / quick-load</td>
+                    <td><kbd>F5</kbd> / <kbd>F9</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Menu pauzy</td>
+                    <td><kbd>F12</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Pełny ekran</td>
+                    <td><kbd>F11</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Wyjście z gry</td>
+                    <td><kbd>Esc</kbd></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="ctrl">
+              <h3 class="ctrl__h">🎮 Handheld (Miyoo / Anbernic)</h3>
+              <table class="ktab">
+                <tbody>
+                  <tr>
+                    <td>Ruch kursora</td>
+                    <td><kbd>gałka / krzyżak</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Kliknięcie (idź / akcja)</td>
+                    <td><kbd>A</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Przełącz postać</td>
+                    <td><kbd>B</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Menu pauzy</td>
+                    <td><kbd>START</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Quick-save</td>
+                    <td><kbd>R1</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Quick-load</td>
+                    <td><kbd>L1</kbd></td>
+                  </tr>
+                  <tr>
+                    <td>Wyjście z gry</td>
+                    <td><kbd>MENU</kbd> / <kbd>START+SELECT</kbd></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section--alt" id="faq">
+        <div class="wrap wrap--narrow">
+          <h2 class="h2">
+            <span class="h2__tag">08</span> Najczęstsze pytania
+          </h2>
+
+          <details class="faq">
+            <summary>Skąd wziąć pliki <code>Dane_*.dta</code>?</summary>
+            <p>
+              Z własnej, oryginalnej płyty z grą
+              <em>Wacki: Kosmiczna rozgrywka</em>. Port nie zawiera i nie
+              rozprowadza materiałów z gry — to silnik, do którego podajesz
+              własne dane. Pliki znajdziesz w głównym katalogu płyty.
+            </p>
+          </details>
+
+          <details class="faq">
+            <summary>
+              macOS mówi, że nie może sprawdzić aplikacji — co robić?
+            </summary>
+            <p>
+              To normalne dla niepodpisanych, darmowych aplikacji. Otwórz
+              <strong>Ustawienia systemowe → Prywatność i bezpieczeństwo</strong
+              >, przewiń na dół i kliknij <strong>„Otwórz mimo to"</strong>.
+              Albo w terminalu:
+              <code>xattr -dr com.apple.quarantine Wacki.app</code>. Blokada
+              jest jednorazowa.
+            </p>
+          </details>
+
+          <details class="faq">
+            <summary>Mam stary zapis z oryginalnej gry — zadziała?</summary>
+            <p>
+              Tak! Format <code>Wacki.sav</code> jest byte-identyczny z
+              oryginałem z 1998 r. Zapisy działają w obie strony — z oryginału
+              do portu i z portu z powrotem do <code>WACKI.EXE</code>.
+            </p>
+          </details>
+
+          <details class="faq">
+            <summary>Na jakim sprzęcie to działa?</summary>
+            <p>
+              Na PC: macOS (Apple Silicon), Linux x86_64, Windows 10/11. Na
+              handheldach: Miyoo Mini / Mini Plus (OnionOS) oraz — przez
+              PortMaster — Anbernic (RG35XX, RG40XX, RG353x i wiele innych),
+              Powkiddy, TrimUI, RGB30, Miyoo Flip i dziesiątki kolejnych
+              urządzeń.
+            </p>
+          </details>
+
+          <details class="faq">
+            <summary>Coś się sypie — jak zgłosić błąd?</summary>
+            <p>
+              Otwórz zgłoszenie na
+              <a
+                href="https://github.com/mszula/wacki/issues/new/choose"
+                target="_blank"
+                rel="noopener"
+                >GitHubie</a
+              >. Dołącz wersję portu, platformę i — jeśli to błąd wizualny —
+              zrzut ekranu. Szczegóły (gdzie znaleźć <code>wacki.log</code>) są
+              w README.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="support" id="wesprzyj">
+        <div class="support__inner">
+          <span class="support__mug" aria-hidden="true">☕</span>
+          <h2 class="support__h">Spodobało się?</h2>
+          <p class="support__p">
+            Wacki portuję po godzinach, za darmo i z czystej miłości do tej
+            zwariowanej gry. Jeśli przywołał uśmiech (albo łezkę nostalgii),
+            możesz dorzucić się na kawę — to paliwo do kolejnych poprawek i
+            portów.
+          </p>
+          <a
+            class="btn support__btn"
+            href="https://suppi.pl/mszula"
+            target="_blank"
+            rel="noopener"
+            >☕ Postaw kawę na Suppi</a
+          >
+          <p class="support__url">suppi.pl/mszula</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap">
+        <div class="footer__grid">
+          <div>
+            <div class="footer__brand">
+              <img src="assets/favicon-32.png" alt="" width="32" height="32" />
+              <span>WACKI</span>
+            </div>
+            <p class="footer__tag">
+              Wierny port polskiej klasyki przygodowej z 1998 roku.
+            </p>
+          </div>
+          <nav class="footer__links" aria-label="Stopka">
+            <a
+              href="https://github.com/mszula/wacki"
+              target="_blank"
+              rel="noopener"
+              >Repozytorium</a
+            >
+            <a
+              href="https://github.com/mszula/wacki/releases"
+              target="_blank"
+              rel="noopener"
+              >Wydania</a
+            >
+            <a
+              href="https://github.com/mszula/wacki/blob/master/README.md"
+              target="_blank"
+              rel="noopener"
+              >README</a
+            >
+            <a
+              href="https://github.com/mszula/wacki/blob/master/BUILDING.md"
+              target="_blank"
+              rel="noopener"
+              >Budowanie</a
+            >
+            <a
+              href="https://github.com/mszula/wacki/issues/new/choose"
+              target="_blank"
+              rel="noopener"
+              >Zgłoś błąd</a
+            >
+            <a href="https://suppi.pl/mszula" target="_blank" rel="noopener"
+              >☕ Wesprzyj (Suppi)</a
+            >
+          </nav>
+        </div>
+        <div class="footer__legal">
+          <p>
+            Kod portu na licencji <strong>GNU GPL v3.0</strong>. Copyright ©
+            2026 Mateusz Szuła.
+          </p>
+          <p>
+            Oryginalna gra © 1998 <strong>Seven Stars Multimedia</strong> ·
+            wydawca <strong>TopWare Interactive Polska</strong>. Niniejszy port
+            jest dziełem niezależnym i nie zawiera materiałów z oryginalnej gry.
+            Strona fanowska, niepowiązana z wydawcą.
+          </p>
+        </div>
+      </div>
+    </footer>
+
+    <a href="#top" class="totop" aria-label="Na górę">↑</a>
+
+    <script src="main.js"></script>
+  </body>
+</html>
