@@ -95,6 +95,7 @@ extern void            ProcessGameFrameTickInner(void);
 extern void            LoadKomnataScene(uint16_t id);
 extern int             g_no_pacing;
 extern SceneDef       *opt_get_pytanie_scene(void);
+extern void            SnapshotBackbufferForMenu(void);  /* menu_loop.c */
 
 /* Scene-state globals defined in game.c. */
 extern int                    g_walk_x0;
@@ -265,6 +266,10 @@ static void handle_pause_menu_request(int *quit, const char **next_scene)
 {
     if (!g_pause_menu_request) return;
     g_pause_menu_request = 0;
+    /* Capture the live gameplay frame so the Pytanie overlay's margins
+     * show the current scene, not a stale snapshot from an earlier menu.
+     * Mirrors OpenOptionsMenu / the Load sub-menu, which snapshot first. */
+    SnapshotBackbufferForMenu();
     int rc = RunMenuScene(1, opt_get_pytanie_scene());
     LOG_TRACE("scene", "F12 Pytanie rc=%d", rc);
     if (rc == PYTANIE_RC_TAK) {
