@@ -503,6 +503,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Full history + every tag so tools/gen-changelog.sh can diff this
+      # tag against its predecessor. Checkout MUST be the first step: a
+      # checkout after download-artifact would `git clean` the workspace
+      # and delete the archives we just pulled.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -513,10 +521,17 @@ jobs:
                 -exec mv {} . \;
           ls -la wacki-*
 
+      # GitHub's own generate_release_notes only summarises merged PRs —
+      # this repo pushes straight to master, so it produced an empty
+      # "Full Changelog" line. Build a changelog grouped by commit type
+      # (feat/fix/docs/...) from the commits since the previous tag.
+      - name: Generate changelog
+        run: bash tools/gen-changelog.sh "${GITHUB_REF_NAME}" | tee RELEASE_NOTES.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             wacki-*.tar.gz
             wacki-*.zip
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
