@@ -7,6 +7,30 @@
  * (FLCCODEC NE DLL) on Win 9x. We ship a portable C decoder of the
  * FLIC frame format here, walking the AVI container ourselves.
  *
+ * Streaming, not slurping. The cutscene AVIs are large (Dane_11 is
+ * ~117 MB) and playback is strictly forward — no seek-back, no scrub.
+ * So instead of malloc'ing the whole file, we keep the file open and
+ * pull one chunk at a time, holding only a tiny bounded window in RAM:
+ *
+ *   - a 64 KB header prefix (read once, freed) to locate movi + parse
+ *     stream formats;
+ *   - one reusable scratch buffer for the current audio chunk;
+ *   - a small ring of pending video frames (look-ahead, see below).
+ *
+ * Resident RAM during playback is single-digit MB regardless of file
+ * size. A large stdio buffer (setvbuf) turns the per-chunk freads into
+ * big sequential block reads — the ideal pattern for SD/eMMC on the
+ * handheld targets.
+ *
+ * Audio cushion. The audio device drains in real time on its own
+ * thread; if the video loop stalls (a slow DELTA frame after a palette
+ * change can overrun the per-frame budget) the device must not starve.
+ * We keep its FIFO topped to a fixed time cushion (AUDIO_CUSHION_MS) by
+ * reading audio chunks ahead of the displayed frame, buffering the
+ * video frames we race past into a bounded ring. This is the streamed
+ * equivalent of the old "pre-queue the entire audio stream" trick, but
+ * with a bounded window instead of the whole file.
+ *
  * Frame chunk types (the only ones the Wacki AVIs use in practice):
  *   COLOR_256 (4)  palette update, 6-bit DAC scaled to 8-bit
  *   DELTA_FLC (7)  line-based delta with skip / RLE / 2-byte runs
@@ -24,6 +48,7 @@
 
 extern uint8_t *g_back_shadow;
 extern uint8_t  g_palette_rgb[256*3];
+extern int      g_no_pacing;                /* T29 — batch-test pacing bypass */
 
 /* T43b — AVI chunk headers aren't guaranteed 4-byte aligned (chunks
  * are byte-aligned in the container). Use memcpy to avoid UBSan
@@ -32,21 +57,61 @@ static inline uint32_t rd_u32(const uint8_t *p) {
     uint32_t v; memcpy(&v, p, 4); return v;
 }
 
-/* ---- AVI walker --------------------------------------------------------- */
+static inline uint16_t rd_u16(const uint8_t *p) {
+    uint16_t v; memcpy(&v, p, 2); return v;
+}
+
+/* ---- tuning knobs ------------------------------------------------------- */
+
+/* Fully-buffered stdio buffer. The playback loop issues one fread per
+ * AVI chunk (KB-sized); stdio coalesces them into 1 MiB sequential
+ * block reads — best case for SD/eMMC. */
+#define STREAM_IO_BUFFER_BYTES      (1u << 20)
+
+/* The RIFF/AVI header (hdrl + per-stream strl lists) always precedes the
+ * movi data and is at most a couple KB. We read this prefix, parse it
+ * in RAM, then stream the (huge) movi body straight off disk. */
+#define STREAM_BOOTSTRAP_BYTES      (64u * 1024)
+
+/* Target depth of queued-but-unplayed audio. ~16× the mmiyoo device
+ * buffer (1024 samples ≈ 46 ms) so a stalled video frame can't starve
+ * the audio thread. At 10 fps this buffers ~7-8 video frames ahead. */
+#define AUDIO_CUSHION_MS            750
+
+/* Hard cap on look-ahead video frames held in RAM. Steady state is
+ * ~AUDIO_CUSHION_MS / frame_ms (≈7-8 at 10 fps); 32 is generous head-
+ * room and bounds worst-case ring memory regardless of interleave. */
+#define VIDEO_RING_MAX              32
+
+/* ---- AVI streaming context ---------------------------------------------- */
+
+typedef struct { uint8_t *data; uint32_t size; } VidFrame;
+
 typedef struct {
-    uint8_t  *buf;
-    uint32_t  size;
-    uint32_t  movi_start;
-    uint32_t  movi_end;
-    uint32_t  cursor;
+    FILE     *fp;
+    uint32_t  pos;               /* current read offset (mirrors ftell) */
+    uint32_t  movi_end;          /* file offset where movi data ends */
+    int       eof;
+
     uint16_t  width;
     uint16_t  height;
     uint32_t  fps_us;            /* microseconds per frame */
+
     /* audio stream info — populated from the second strl LIST if present */
     uint16_t  audio_channels;
     uint16_t  audio_bits;
     uint32_t  audio_samples_per_sec;
-} AviCtx;
+    int       need_downmix;      /* stereo source → mono device */
+    uint32_t  cushion_bytes;     /* AUDIO_CUSHION_MS in device-rate bytes */
+
+    /* reusable scratch for the current audio chunk */
+    uint8_t  *ascratch;
+    uint32_t  ascratch_cap;
+
+    /* bounded look-ahead ring of pending (undecoded) video frames */
+    VidFrame  ring[VIDEO_RING_MAX];
+    int       r_head, r_tail, r_count;
+} AviStream;
 
 /* SDL audio device, opened on demand and reused across cutscenes. */
 static SDL_AudioDeviceID s_audio_dev = 0;
@@ -131,6 +196,8 @@ static void audio_release(void)
 #define FOURCC_STRF                     0x66727473u   /* "strf" */
 #define FOURCC_MOVI                     0x69766F6Du   /* "movi" */
 #define FOURCC_AUDS                     0x73647561u   /* "auds" */
+#define FOURCC_00DC                     0x63643030u   /* "00dc" video chunk */
+#define FOURCC_01WB                     0x62773130u   /* "01wb" audio chunk */
 
 /* RIFF chunk header is 8 bytes: 4-byte FourCC + 4-byte size. LIST
  * chunks add a 4-byte type, so list bodies start at +12. */
@@ -164,198 +231,253 @@ static inline uint32_t riff_chunk_advance(uint32_t sz)
     return RIFF_CHUNK_HEADER_BYTES + sz + (sz & 1);
 }
 
-/* Parse the avih chunk inside an hdrl LIST. q points at the chunk
- * header ("avih" + size + data). */
-static void parse_avih(AviCtx *c, uint32_t q)
+/* ---- video look-ahead ring ---------------------------------------------- */
+
+static int ring_push(AviStream *s, uint8_t *data, uint32_t size)
 {
-    if (memcmp(c->buf + q, "avih", 4) != 0) return;
-    c->fps_us = rd_u32(c->buf + q + AVIH_DATA_FPS_US_OFFSET);
-    c->width  = (uint16_t)rd_u32(c->buf + q + AVIH_DATA_WIDTH_OFFSET);
-    c->height = (uint16_t)rd_u32(c->buf + q + AVIH_DATA_HEIGHT_OFFSET);
+    if (s->r_count >= VIDEO_RING_MAX) return 0;
+    s->ring[s->r_tail].data = data;
+    s->ring[s->r_tail].size = size;
+    s->r_tail = (s->r_tail + 1) % VIDEO_RING_MAX;
+    ++s->r_count;
+    return 1;
 }
 
-/* Pre-queue every "01wb" audio chunk in the movi range so SDL's FIFO
- * holds the entire stream before the first video frame draws. On the
- * mmiyoo backend the device buffer is forced to 1024 samples (~46 ms
- * at 22 kHz mono) while video chunks arrive every ~100 ms. Drip-feeding
- * audio one chunk per video frame in that environment guarantees
- * underrun the moment one decode + present pass overruns the 100 ms
- * budget — and FLIC delta frames after a palette change can easily do
- * that. Pre-queueing pushes all bytes upfront; the audio thread drains
- * them at the device rate independent of how slowly the video loop
- * runs.
- *
- * The AVI is short (intro Dane_10.dta is ~30 s) so the queue stays
- * under a few MB. SDL_QueueAudio is essentially memcpy + a linked-list
- * head update, so the cost is one-time at AVI open.
- *
- * If the source is stereo S16 but the device negotiated mono (mmiyoo
- * passes SDL_AUDIO_ALLOW_CHANNELS_CHANGE because it can only output
- * mono) we downmix L+R → (L+R)/2 in place before queuing. Without
- * this the device interprets stereo bytes as a mono stream and plays
- * the audio at double speed with alternating channels — sounds like
- * garbled fast audio with chop artefacts at every chunk boundary.
- * The in-place edit touches only bytes inside the chunk's data area;
- * the RIFF chunk header (and therefore avi_next_video's cursor walk)
- * is unaffected. */
-static void prequeue_all_audio(AviCtx *c)
+static int ring_pop(AviStream *s, VidFrame *out)
 {
-    if (!s_audio_open) return;
-    int need_downmix = (c->audio_channels == 2 &&
-                        s_audio_spec_cur.channels == 1 &&
-                        c->audio_bits == 16);
-    uint32_t cur = c->movi_start;
-    uint32_t total_pushed = 0, chunks = 0;
-    while (cur + RIFF_CHUNK_HEADER_BYTES <= c->movi_end) {
-        uint32_t tag = rd_u32(c->buf + cur);
-        uint32_t sz  = rd_u32(c->buf + cur + 4);
-        uint32_t next = cur + RIFF_CHUNK_HEADER_BYTES + sz + (sz & 1);
-        if (tag == 0x62773130 /* "01wb" */ && sz) {
-            uint8_t *src = c->buf + cur + RIFF_CHUNK_HEADER_BYTES;
-            if (need_downmix && (sz & 3) == 0) {
-                int16_t *s = (int16_t *)src;
-                uint32_t frames = sz / 4;
-                for (uint32_t i = 0; i < frames; ++i) {
-                    int v = (int)s[i * 2] + (int)s[i * 2 + 1];
-                    s[i] = (int16_t)(v / 2);
-                }
-                SDL_QueueAudio(s_audio_dev, src, frames * 2);
-                total_pushed += frames * 2;
-            } else {
-                SDL_QueueAudio(s_audio_dev, src, sz);
-                total_pushed += sz;
-            }
-            ++chunks;
-        }
-        if (next <= cur || next > c->movi_end) break;
-        cur = next;
-    }
-    LOG_INFO("avi", "pre-queued audio: %u chunks, %u bytes (downmix=%d)",
-             chunks, total_pushed, need_downmix);
+    if (s->r_count == 0) return 0;
+    *out = s->ring[s->r_head];
+    s->r_head = (s->r_head + 1) % VIDEO_RING_MAX;
+    --s->r_count;
+    return 1;
+}
+
+static void ring_clear(AviStream *s)
+{
+    VidFrame f;
+    while (ring_pop(s, &f)) free(f.data);
+}
+
+static int ascratch_ensure(AviStream *s, uint32_t need)
+{
+    if (s->ascratch_cap >= need) return 1;
+    uint8_t *n = (uint8_t *)realloc(s->ascratch, need);
+    if (!n) return 0;
+    s->ascratch     = n;
+    s->ascratch_cap = need;
+    return 1;
+}
+
+/* ---- header parse (runs on the in-RAM bootstrap prefix) ----------------- */
+
+/* Parse the avih chunk inside an hdrl LIST. q is the chunk-header offset
+ * ("avih" + size + data) into buf. */
+static void parse_avih(AviStream *s, const uint8_t *buf, uint32_t bufsz, uint32_t q)
+{
+    if ((uint64_t)q + AVIH_DATA_HEIGHT_OFFSET + 4 > bufsz) return;
+    if (memcmp(buf + q, "avih", 4) != 0) return;
+    s->fps_us = rd_u32(buf + q + AVIH_DATA_FPS_US_OFFSET);
+    s->width  = (uint16_t)rd_u32(buf + q + AVIH_DATA_WIDTH_OFFSET);
+    s->height = (uint16_t)rd_u32(buf + q + AVIH_DATA_HEIGHT_OFFSET);
 }
 
 /* Parse one strl LIST: walk strh (decide audio vs video) + strf
- * (WAVEFORMATEX for audio streams). q points just past the LIST
- * header (= first sub-chunk). */
-static void parse_strl(AviCtx *c, uint32_t q, uint32_t end)
+ * (WAVEFORMATEX for audio streams). q points at the first sub-chunk. */
+static void parse_strl(AviStream *s, const uint8_t *buf, uint32_t bufsz,
+                       uint32_t q, uint32_t end)
 {
+    if (end > bufsz) end = bufsz;
     int is_audio = 0;
     while (q + RIFF_CHUNK_HEADER_BYTES <= end) {
-        uint32_t t2 = rd_u32(c->buf + q);
-        uint32_t s2 = rd_u32(c->buf + q + 4);
+        uint32_t t2 = rd_u32(buf + q);
+        uint32_t s2 = rd_u32(buf + q + 4);
         if (t2 == FOURCC_STRH) {
-            uint32_t fcc = rd_u32(c->buf + q + RIFF_CHUNK_HEADER_BYTES);
-            is_audio = (fcc == FOURCC_AUDS);
+            if (q + RIFF_CHUNK_HEADER_BYTES + 4 <= end)
+                is_audio = (rd_u32(buf + q + RIFF_CHUNK_HEADER_BYTES) == FOURCC_AUDS);
         } else if (t2 == FOURCC_STRF && is_audio) {
-            const uint8_t *wfe = c->buf + q + RIFF_CHUNK_HEADER_BYTES;
-            c->audio_channels        = *(const uint16_t *)(wfe + WFE_OFF_CHANNELS);
-            c->audio_samples_per_sec = rd_u32(wfe + WFE_OFF_SAMPLES_PER_SEC);
-            c->audio_bits            = *(const uint16_t *)(wfe + WFE_OFF_BITS_PER_SAMPLE);
+            const uint8_t *wfe = buf + q + RIFF_CHUNK_HEADER_BYTES;
+            if (q + RIFF_CHUNK_HEADER_BYTES + WFE_OFF_BITS_PER_SAMPLE + 2 <= end) {
+                s->audio_channels        = rd_u16(wfe + WFE_OFF_CHANNELS);
+                s->audio_samples_per_sec = rd_u32(wfe + WFE_OFF_SAMPLES_PER_SEC);
+                s->audio_bits            = rd_u16(wfe + WFE_OFF_BITS_PER_SAMPLE);
+            }
         }
         q += riff_chunk_advance(s2);
     }
 }
 
-/* Slurp the whole AVI into c->buf. Returns 1 on success, 0 on
- * fopen/malloc/read failure (caller treats 0 as "couldn't load"). */
-static int avi_slurp_file(AviCtx *c, const char *path)
+/* Walk the top-level RIFF structure in the bootstrap prefix to extract
+ * dimensions/fps (hdrl/avih), audio format (strl), and the movi data
+ * range. movi_start/movi_end are FILE offsets (the prefix starts at
+ * file offset 0). Returns 1 once movi is located, 0 on failure. */
+static int avi_parse_header(AviStream *s, const uint8_t *buf, uint32_t bufsz,
+                            uint32_t filesz)
 {
-    FILE *fp = fopen(path, "rb");
-    if (!fp) return 0;
-    fseek(fp, 0, SEEK_END);
-    c->size = (uint32_t)ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    c->buf = (uint8_t *)malloc(c->size);
-    if (!c->buf) { fclose(fp); return 0; }
-    fread(c->buf, 1, c->size, fp);
-    fclose(fp);
-    return 1;
-}
+    if (bufsz < AVI_FILE_HEADER_BYTES) return 0;
+    if (memcmp(buf, "RIFF", 4) != 0 ||
+        memcmp(buf + AVI_FORMAT_TYPE_OFFSET, "AVI ", 4) != 0)
+        return 0;
 
-/* Validate the RIFF / AVI file header. */
-static int avi_validate_header(const AviCtx *c)
-{
-    return memcmp(c->buf,                            "RIFF", 4) == 0
-        && memcmp(c->buf + AVI_FORMAT_TYPE_OFFSET,   "AVI ", 4) == 0;
-}
-
-static int avi_open(AviCtx *c, const char *path)
-{
-    if (!avi_slurp_file(c, path)) return 0;
-    if (!avi_validate_header(c)) { free(c->buf); return 0; }
-
-    /* Walk top-level LIST chunks: hdrl supplies fps + dimensions, each
-     * strl describes one stream (video / audio), movi marks the start
-     * of the encoded frame data. */
     uint32_t p = AVI_FILE_HEADER_BYTES;
-    while (p + RIFF_CHUNK_HEADER_BYTES <= c->size) {
-        uint32_t tag = rd_u32(c->buf + p);
-        uint32_t sz  = rd_u32(c->buf + p + 4);
+    while (p + RIFF_CHUNK_HEADER_BYTES <= bufsz) {
+        uint32_t tag = rd_u32(buf + p);
+        uint32_t sz  = rd_u32(buf + p + 4);
 
         if (tag != FOURCC_LIST) {
             p += riff_chunk_advance(sz);
             continue;
         }
+        if (p + RIFF_LIST_BODY_OFFSET > bufsz) break;
 
-        uint32_t fourcc = rd_u32(c->buf + p + RIFF_CHUNK_HEADER_BYTES);
+        uint32_t fourcc = rd_u32(buf + p + RIFF_CHUNK_HEADER_BYTES);
         if (fourcc == FOURCC_HDRL) {
-            parse_avih(c, p + RIFF_LIST_BODY_OFFSET);
+            parse_avih(s, buf, bufsz, p + RIFF_LIST_BODY_OFFSET);
             p += RIFF_LIST_BODY_OFFSET;   /* descend into hdrl body */
             continue;
         }
         if (fourcc == FOURCC_STRL) {
-            parse_strl(c, p + RIFF_LIST_BODY_OFFSET,
-                          p + RIFF_CHUNK_HEADER_BYTES + sz);
+            parse_strl(s, buf, bufsz, p + RIFF_LIST_BODY_OFFSET,
+                       p + RIFF_CHUNK_HEADER_BYTES + sz);
             p += riff_chunk_advance(sz);
             continue;
         }
         if (fourcc == FOURCC_MOVI) {
-            c->movi_start = p + RIFF_LIST_BODY_OFFSET;
-            c->movi_end   = p + RIFF_CHUNK_HEADER_BYTES + sz;
-            c->cursor     = c->movi_start;
-            if (c->audio_samples_per_sec) {
-                audio_ensure(c->audio_samples_per_sec,
-                             c->audio_channels, c->audio_bits);
-                prequeue_all_audio(c);
-            }
+            uint32_t movi_start = p + RIFF_LIST_BODY_OFFSET;
+            uint32_t movi_end   = p + RIFF_CHUNK_HEADER_BYTES + sz;
+            if (movi_end > filesz || movi_end < movi_start) movi_end = filesz;
+            s->movi_end = movi_end;
+            s->pos      = movi_start;
             return 1;
         }
         p += riff_chunk_advance(sz);
     }
-
-    free(c->buf);
     return 0;
 }
 
-/* Walk forward until we hit "00dc" (video). "01wb" (audio) chunks are
- * skipped here — prequeue_all_audio already pushed them into SDL's
- * FIFO at avi_open time, so this loop only consumes video. */
-static int avi_next_video(AviCtx *c, uint8_t **out_data, uint32_t *out_size)
+/* ---- open / stream / close ---------------------------------------------- */
+
+static int avi_open_stream(AviStream *s, const char *path)
 {
-    while (c->cursor + 8 <= c->movi_end) {
-        uint32_t tag = rd_u32(c->buf + c->cursor);
-        uint32_t sz  = rd_u32(c->buf + c->cursor + 4);
-        uint32_t next = c->cursor + 8 + sz + (sz & 1);
-        if (tag == 0x63643030 /* "00dc" */) {
-            *out_data = c->buf + c->cursor + 8;
-            *out_size = sz;
-            c->cursor = next;
+    s->fp = fopen(path, "rb");
+    if (!s->fp) return 0;
+    setvbuf(s->fp, NULL, _IOFBF, STREAM_IO_BUFFER_BYTES);
+
+    fseek(s->fp, 0, SEEK_END);
+    long fsz_l = ftell(s->fp);
+    fseek(s->fp, 0, SEEK_SET);
+    if (fsz_l <= 0) { fclose(s->fp); s->fp = NULL; return 0; }
+    uint32_t filesz = (uint32_t)fsz_l;
+
+    /* Read the header prefix and parse it in RAM, then free it. */
+    uint32_t boot = filesz < STREAM_BOOTSTRAP_BYTES ? filesz : STREAM_BOOTSTRAP_BYTES;
+    uint8_t *hdr = (uint8_t *)malloc(boot);
+    if (!hdr) { fclose(s->fp); s->fp = NULL; return 0; }
+    int ok = (fread(hdr, 1, boot, s->fp) == boot) &&
+             avi_parse_header(s, hdr, boot, filesz);
+    free(hdr);
+    if (!ok) { fclose(s->fp); s->fp = NULL; return 0; }
+
+    /* Open the audio device now — but DON'T prequeue. Audio is streamed
+     * in the playback loop and kept ahead of video by the cushion. */
+    if (s->audio_samples_per_sec) {
+        audio_ensure(s->audio_samples_per_sec, s->audio_channels, s->audio_bits);
+        if (s_audio_open) {
+            /* Source stereo but device negotiated mono (mmiyoo only
+             * outputs mono and passes ALLOW_CHANNELS_CHANGE). */
+            s->need_downmix = (s->audio_channels == 2 &&
+                               s_audio_spec_cur.channels == 1 &&
+                               s->audio_bits == 16);
+            int bytes_per_sample = SDL_AUDIO_BITSIZE(s_audio_spec_cur.format) / 8;
+            uint32_t bps = (uint32_t)s_audio_spec_cur.freq *
+                           s_audio_spec_cur.channels * (uint32_t)bytes_per_sample;
+            s->cushion_bytes = bps * AUDIO_CUSHION_MS / 1000;
+        }
+    }
+
+    fseek(s->fp, (long)s->pos, SEEK_SET);   /* to first movi chunk */
+    return 1;
+}
+
+/* Read exactly one movi chunk: queue audio into the device FIFO, push
+ * video into the look-ahead ring, skip anything else. Returns 1 if a
+ * chunk was consumed (call again to advance), 0 at end-of-movi / on a
+ * short or corrupt read. */
+static int stream_pump_one(AviStream *s)
+{
+    if (s->eof) return 0;
+    if (s->pos + RIFF_CHUNK_HEADER_BYTES > s->movi_end) { s->eof = 1; return 0; }
+
+    uint8_t hdr[RIFF_CHUNK_HEADER_BYTES];
+    if (fread(hdr, 1, RIFF_CHUNK_HEADER_BYTES, s->fp) != RIFF_CHUNK_HEADER_BYTES) {
+        s->eof = 1; return 0;
+    }
+    uint32_t tag = rd_u32(hdr);
+    uint32_t sz  = rd_u32(hdr + 4);
+    uint32_t pad = (sz & 1);
+    uint32_t next = s->pos + RIFF_CHUNK_HEADER_BYTES + sz + pad;
+    /* Truncated / corrupt size field — stop rather than read past movi. */
+    if (next <= s->pos || next > s->movi_end) { s->eof = 1; return 0; }
+
+    if (tag == FOURCC_00DC) {
+        uint8_t *data = (uint8_t *)malloc(sz ? sz : 1);
+        if (!data) {                                   /* OOM — drop frame */
+            fseek(s->fp, (long)(sz + pad), SEEK_CUR);
+            s->pos = next;
             return 1;
         }
-        /* Safety: a malformed chunk that would jump past movi_end
-         * means the AVI is truncated or has a corrupt size field —
-         * treat as EOF rather than reading garbage past the buffer. */
-        if (next <= c->cursor || next > c->movi_end) return 0;
-        c->cursor = next;
+        if (sz && fread(data, 1, sz, s->fp) != sz) { free(data); s->eof = 1; return 0; }
+        if (pad) fseek(s->fp, 1, SEEK_CUR);
+        if (!ring_push(s, data, sz)) free(data);       /* ring full guard */
+        s->pos = next;
+        return 1;
     }
-    return 0;
+
+    if (tag == FOURCC_01WB && sz && s_audio_open) {
+        if (!ascratch_ensure(s, sz)) {                 /* OOM — drop audio */
+            fseek(s->fp, (long)(sz + pad), SEEK_CUR);
+            s->pos = next;
+            return 1;
+        }
+        if (fread(s->ascratch, 1, sz, s->fp) != sz) { s->eof = 1; return 0; }
+        if (pad) fseek(s->fp, 1, SEEK_CUR);
+        if (s->need_downmix && (sz & 3) == 0) {
+            /* Fold L+R → (L+R)/2 in place before queuing; otherwise the
+             * mono device reads stereo bytes as a mono stream and plays
+             * at double speed with channel-alternation garble. */
+            int16_t *a = (int16_t *)s->ascratch;
+            uint32_t frames = sz / 4;
+            for (uint32_t i = 0; i < frames; ++i) {
+                int v = (int)a[i * 2] + (int)a[i * 2 + 1];
+                a[i] = (int16_t)(v / 2);
+            }
+            SDL_QueueAudio(s_audio_dev, s->ascratch, frames * 2);
+        } else {
+            SDL_QueueAudio(s_audio_dev, s->ascratch, sz);
+        }
+        s->pos = next;
+        return 1;
+    }
+
+    /* Audio with no device, or any other chunk type — skip the body. */
+    fseek(s->fp, (long)(sz + pad), SEEK_CUR);
+    s->pos = next;
+    return 1;
 }
 
-static void avi_close(AviCtx *c)
+static void avi_close(AviStream *s)
 {
-    if (c->buf) { free(c->buf); c->buf = NULL; }
+    ring_clear(s);
+    free(s->ascratch);
+    s->ascratch = NULL;
+    if (s->fp) { fclose(s->fp); s->fp = NULL; }
 }
 
+/* Is the audio device's FIFO below the cushion target? Always false when
+ * there's no audio stream (so the read-ahead loop becomes a no-op). */
+static int cushion_low(const AviStream *s)
+{
+    return s_audio_open && SDL_GetQueuedAudioSize(s_audio_dev) < s->cushion_bytes;
+}
 
 extern void flic_decode_frame(const uint8_t *fdata, uint32_t fsize, int w, int h);
 
@@ -367,56 +489,66 @@ extern uint16_t g_key_state;
 
 int PlayFlicAviFile(const char *path)
 {
-    AviCtx c = {0};
-    if (!avi_open(&c, path)) return 0;
+    AviStream s = {0};
+    if (!avi_open_stream(&s, path)) return 0;
     if (!g_back_shadow) {
         g_back_shadow = (uint8_t *)xmalloc(640 * 480);
         if (g_back_shadow) memset(g_back_shadow, 0, 640 * 480);
     }
-    LOG_TRACE("avi", "play %s (%dx%d, %u us/frame)", path, c.width, c.height, c.fps_us);
+    LOG_TRACE("avi", "play %s (%dx%d, %u us/frame)", path, s.width, s.height, s.fps_us);
 
-    uint8_t  *frame_data;
-    uint32_t  frame_size;
-    uint32_t  frame_us = c.fps_us ? c.fps_us : 100000;
-    int       skip = 0;
-    int       frame_count = 0;          /* T29 — for batch-test coverage report */
-    int       skipped     = 0;          /* whether user aborted via click/key */
-    while (avi_next_video(&c, &frame_data, &frame_size)) {
+    uint32_t frame_us    = s.fps_us ? s.fps_us : 100000;
+    int      frame_count = 0;          /* T29 — batch-test coverage report */
+    int      skipped     = 0;          /* user aborted via click/key */
+
+    for (;;) {
+        /* 1. Top the audio FIFO to the cushion, buffering any video
+         *    frames raced past into the ring. No-op without audio. */
+        while (!s.eof && cushion_low(&s) && s.r_count < VIDEO_RING_MAX)
+            stream_pump_one(&s);
+
+        /* 2. Make sure a video frame is ready; queue audio met en route. */
+        while (!s.eof && s.r_count == 0)
+            stream_pump_one(&s);
+
+        VidFrame vf;
+        if (!ring_pop(&s, &vf)) break;     /* EOF — nothing left to show */
+
         uint32_t t0 = SDL_GetTicks();
-        flic_decode_frame(frame_data, frame_size, c.width, c.height);
+        flic_decode_frame(vf.data, vf.size, s.width, s.height);
+        free(vf.data);
         ++frame_count;
 
-        if (!skip) {
-            FlushFrameToPrimary();
-            PlatformPumpEvents();
-            if (PlatformShouldQuit()) break;
-            if (g_lmb_clicked || g_rmb_clicked ||
-                (g_key_state & 0xFF) != 0)
-            {
-                /* Skip: stop audio NOW (pause device + clear queue)
-                 * and stop decoding further frames. Matches the
-                 * original MCI StopAviPlayback semantic where the
-                 * abort tears down both video and audio together. */
-                g_lmb_clicked = 0;
-                g_rmb_clicked = 0;
-                g_key_state &= 0xFF00;
-                if (s_audio_open) {
-                    SDL_PauseAudioDevice(s_audio_dev, 1);
-                    SDL_ClearQueuedAudio(s_audio_dev);
-                    SDL_PauseAudioDevice(s_audio_dev, 0);
-                }
-                skipped = 1;
-                break;
+        FlushFrameToPrimary();
+        PlatformPumpEvents();
+        if (PlatformShouldQuit()) break;
+        if (g_lmb_clicked || g_rmb_clicked || (g_key_state & 0xFF) != 0) {
+            /* Skip: stop audio NOW (pause + clear queue) and stop
+             * decoding. Matches the original MCI StopAviPlayback semantic
+             * where the abort tears down both video and audio together. */
+            g_lmb_clicked = 0;
+            g_rmb_clicked = 0;
+            g_key_state &= 0xFF00;
+            if (s_audio_open) {
+                SDL_PauseAudioDevice(s_audio_dev, 1);
+                SDL_ClearQueuedAudio(s_audio_dev);
+                SDL_PauseAudioDevice(s_audio_dev, 0);
             }
+            skipped = 1;
+            break;
+        }
+
+        if (!g_no_pacing) {
             uint32_t elapsed_ms = SDL_GetTicks() - t0;
             uint32_t target_ms  = frame_us / 1000;
-            extern int g_no_pacing;                /* T29 — batch-test bypass */
-            if (!g_no_pacing && elapsed_ms < target_ms)
+            if (elapsed_ms < target_ms)
                 SDL_Delay(target_ms - elapsed_ms);
         }
     }
-    LOG_TRACE("avi", "%s end — %d frames decoded%s", path, frame_count, skipped ? " (skipped)" : "");
+
+    LOG_TRACE("avi", "%s end — %d frames decoded%s", path, frame_count,
+              skipped ? " (skipped)" : "");
+    avi_close(&s);
     audio_release();
-    avi_close(&c);
     return 1;
 }
