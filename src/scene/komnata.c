@@ -89,10 +89,24 @@ extern int   FindScriptByStageAndRoom(void *self, const char *etap, const char *
 #define ENTER_SCRIPT_THIS_VERB     0x26
 #define ENTER_SCRIPT_THAT_VERB     0x26
 
-/* Two frame ticks between enter_va and second_va so one-shot BG-blit
- * entities (op 0x30 spawn with flags=0x0060) get a chance to paint
- * before secondary_va runs op 0x31 destroy on them. */
-#define SECONDARY_SETUP_TICKS          2
+/* Two frame ticks run UNCONDITIONALLY after the enter script, before the
+ * optional secondary script — mirrors the original FUN_00402a50, which
+ * pumps two ProcessGameFrameTick() between enter_va and secondary_va
+ * regardless of whether secondary_va exists. They give one-shot BG-blit
+ * entities (op 0x30 spawn with flags=0x0060) a render pass to paint
+ * themselves onto the BG (via paint_oneshot_bg → SaveSceneBgAtlas) so
+ * LoadKomnataScene's post-load PaintSceneBgAtlasIfAny can re-apply them
+ * over the freshly-painted .pic — AND so a later secondary_va op 0x31
+ * destroy can't drop them before they paint.
+ *
+ * NOTE: an earlier port gated these ticks on (second_va != 0). That left
+ * secondary-less rooms whose enter script spawns a one-shot overlay with
+ * the overlay never painted. Concretely: korlab5 (lab corridor, no
+ * secondary) re-rendered its opened airlock CLOSED on re-entry — the
+ * open-door overlay (id 51, flags 0x0060) is spawned in the var[0xDC]!=0
+ * branch but was never blitted, while the same branch's verb-mask still
+ * made the door passable and var[0xDC] kept the toggle "open". */
+#define POST_ENTER_SETUP_TICKS         2
 
 /* ---- helpers ------------------------------------------------------ */
 
@@ -281,10 +295,13 @@ const char *LoadKomnata(uint16_t id)
     PanelPageSwap();
     run_enter_script(enter_va);
 
+    /* Settle the enter script's one-shot BG entities onto the BG before
+     * the scene is presented — unconditional, matching FUN_00402a50.
+     * (See POST_ENTER_SETUP_TICKS for why this must not be gated on
+     * second_va.) */
+    for (int i = 0; i < POST_ENTER_SETUP_TICKS; ++i) ProcessGameFrameTick();
+
     if (second_va) {
-        /* Pump frames so one-shot BG-blit entities can paint before
-         * secondary_va potentially destroys them. */
-        for (int i = 0; i < SECONDARY_SETUP_TICKS; ++i) ProcessGameFrameTick();
         run_enter_script(second_va);
     }
     return name;

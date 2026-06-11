@@ -340,6 +340,7 @@ TEST_SRCS = \
 	tests/test_per_entity_vm_real.c                            \
 	tests/test_click_queue.c       tests/test_update_registration.c \
 	tests/test_ent_ptr_intern.c    tests/test_sampl_parser.c   \
+	tests/test_komnata_load.c                                  \
 	tests/test_engine_stubs.c
 
 TEST_ENGINE_SRCS = \
