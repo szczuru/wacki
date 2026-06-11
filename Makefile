@@ -270,7 +270,7 @@ ENGINE_SRCS = \
 	src/scene/walkability.c src/scene/scene_input.c                  \
 	src/scene/play_loop.c   src/scene/komnata_scene.c                \
 	src/audio/sound_queue.c   src/audio/cutscene.c                \
-	src/audio/sfx.c                                               \
+	src/audio/sfx.c           src/audio/music_stream.c           \
 	src/script_bridge/palette.c src/script_bridge/entity.c        \
 	src/text/balloon.c src/text/dialog.c                          \
 	src/anim/resolver.c src/util/screenshot.c                     \

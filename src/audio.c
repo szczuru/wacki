@@ -47,11 +47,10 @@
  * are declared in audio/mixer_internal.h so src/audio/sfx.c can read
  * the channel array for its replay-guard check. */
 #include "audio/mixer_internal.h"
+#include "audio/music_stream.h"
 
-#define MIX_OUT_FREQ          22050
-#define MIX_OUT_CHANS         2          /* stereo for max compatibility */
-#define MIX_OUT_FORMAT        AUDIO_S16SYS
-#define MIX_OUT_SAMPLE_BYTES  (2 * MIX_OUT_CHANS)   /* S16 stereo = 4 bytes */
+/* MIX_OUT_* output-spec macros live in mixer_internal.h (shared with the
+ * music-stream TU). */
 #define MIX_GAIN_IDENTITY     128        /* per-channel gain: 128 = unity */
 #define MIX_OPEN_SAMPLES      2048       /* device buffer in frames */
 
@@ -421,6 +420,9 @@ static int   s_last_music_loop    = 0;
 
 void StopMenuMusic(void)
 {
+    /* Tear down any active stream first (so the producer won't touch the
+     * ring), then stop the channel — which frees the ring it owns. */
+    music_stream_stop();
     if (s_mix_dev) mixer_stop_channel(MIX_CHAN_MUSIC);
 }
 
@@ -443,6 +445,11 @@ void PlayMenuMusic(const char *dta_name, int loop)
     }
     if (!mixer_ensure_open()) return;
     StopMenuMusic();
+
+    /* Large standalone BGM (e.g. the ~25 MB menu music) → stream a looping
+     * ring instead of loading the whole file into RAM. Small archived clips
+     * fall through to the whole-file load below. */
+    if (music_stream_try_open(dta_name, loop)) return;
 
     Uint8 *buf = NULL; Uint32 len = 0;
     if (!mixer_load_wav(dta_name, &buf, &len)) {
@@ -498,9 +505,10 @@ void AudioSetSoundEnabled(int on)
 
 void TickMenuMusic(void)
 {
-    /* Mixer callback handles loop natively — no per-frame top-up
-     * needed. Kept as a no-op for API compat (called from
-     * play_demo_scene frame loop). */
+    /* Drive the streaming menu BGM. No-op unless a large BGM is currently
+     * streaming — whole-loaded music loops natively in the mixer callback.
+     * Called once per frame by the menu loop. */
+    music_stream_refill();
 }
 
 

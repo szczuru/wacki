@@ -25,6 +25,13 @@
 #define MIX_CHAN_DIALOG         1   /* reserved: dialog speech */
 #define MIX_CHAN_SFX_START      2   /* SFX takes [2..MIX_CHANNEL_COUNT) */
 
+/* ---- output spec (fixed; every source is converted to this) ------- */
+
+#define MIX_OUT_FREQ          22050
+#define MIX_OUT_CHANS         2          /* stereo for max compatibility */
+#define MIX_OUT_FORMAT        AUDIO_S16SYS
+#define MIX_OUT_SAMPLE_BYTES  (2 * MIX_OUT_CHANS)   /* S16 stereo = 4 bytes */
+
 /* ---- per-channel state ------------------------------------------- */
 
 struct MixChannel {
