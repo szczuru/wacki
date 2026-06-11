@@ -517,6 +517,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write          # to dispatch the Pages deploy (gh workflow run)
     steps:
       # Full history + every tag so tools/gen-changelog.sh can diff this
       # tag against its predecessor. Checkout MUST be the first step: a
@@ -550,3 +551,15 @@ jobs:
             wacki-*.zip
           body_path: RELEASE_NOTES.md
           fail_on_unmatched_files: true
+
+      # Redeploy the Pages site so its version/date pick up this release.
+      # We can't lean on pages.yml's `release: published` trigger: events
+      # raised by this job's GITHUB_TOKEN don't cascade into other
+      # workflows. workflow_dispatch is the documented exception, and we
+      # target master because the github-pages environment's branch policy
+      # only permits deploys from master (a tag-ref deploy is rejected).
+      # The release exists by now, so pages.yml reads it as releases/latest.
+      - name: Trigger Pages deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref master

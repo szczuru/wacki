@@ -6,8 +6,12 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/pages.yml'
-  release:
-    types: [published]
+  # Tagged releases redeploy via `gh workflow run pages.yml --ref master`
+  # from the build workflow's release job — NOT a `release: published`
+  # trigger. That event never fires here (it's raised by the release
+  # job's GITHUB_TOKEN, which can't cascade into other workflows), and a
+  # release runs on the tag ref anyway, which the github-pages
+  # environment's master-only branch policy would reject.
   workflow_dispatch:
 
 permissions:
