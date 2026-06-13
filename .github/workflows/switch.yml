@@ -1,0 +1,56 @@
+name: Switch build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'Makefile'
+      - 'tools/**'
+      - '.github/workflows/switch.yml'
+
+jobs:
+  build-switch:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Przywróć WACKI.EXE z secreta
+        # WACKI.EXE jest zakodowane w base64 i wklejone jako repo secret
+        # (Settings -> Secrets and variables -> Actions -> WACKI_EXE_B64).
+        # Plik jest potrzebny tylko lokalnie w runnerze, nigdy nie trafia
+        # do repo / artefaktów.
+        run: |
+          mkdir -p data
+          echo "${{ secrets.WACKI_EXE_B64 }}" | base64 -d > data/WACKI.EXE
+          ls -la data/
+
+      - name: Zainstaluj SDL2 portlib dla aarch64 (devkitA64)
+        run: |
+          # devkitpro/devkita64 ma już dkp-pacman; doinstalowujemy SDL2
+          # oraz zależności (SDL2_mixer/image/ttf na wypadek, gdyby
+          # build ich potrzebował) z repo switch-dev.
+          (yes || true) | dkp-pacman -Syu --noconfirm
+          (yes || true) | dkp-pacman -S --noconfirm \
+            switch-sdl2 switch-sdl2_mixer switch-sdl2_image switch-sdl2_ttf \
+            switch-pkg-config switch-zlib switch-bzip2 switch-libpng switch-freetype
+
+      - name: Build (TARGET=switch)
+        run: |
+          source /etc/profile.d/devkit-env.sh || true
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=$DEVKITPRO/devkitA64
+          make TARGET=switch -j"$(nproc)"
+
+      - name: Wgraj artefakt .nro
+        uses: actions/upload-artifact@v4
+        with:
+          name: wacki-switch
+          path: dist/wacki.nro
+          if-no-files-found: error
