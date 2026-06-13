@@ -147,13 +147,13 @@ static void audio_ensure(uint32_t sample_rate, uint16_t channels, uint16_t bits)
      * through every gap → audible chopping. Larger is safer on the
      * Miyoo/mmiyoo backend which can't switch buffers on the fly. */
     want.samples  = 4096;
-    /* SDL_AUDIO_ALLOW_CHANNELS_CHANGE + SAMPLES_CHANGE — needed for
-     * mmiyoo which can only do mono and 1024-sample buffers. Without
-     * the channel flag stereo AVIs fail to open entirely; without the
-     * sample flag mmiyoo silently clamps and the audio thread fires
-     * twice as often as the calling code expects. */
+    /* CHANNELS + SAMPLES may flex (mmiyoo: mono-only, fixed buffer).
+     * NOT frequency: we queue PCM verbatim with no resampler, so the
+     * device must run at the AVI's rate. Windows/WASAPI can't change
+     * its mix rate and would replay our 22 kHz bytes ~2x too fast
+     * ("sped up, then silence"); omitting the flag lets SDL resample
+     * for us. Same reason the audio.c mixer pins its frequency. */
     s_audio_dev = SDL_OpenAudioDevice(NULL, 0, &want, &s_audio_spec_cur,
-                                      SDL_AUDIO_ALLOW_FREQUENCY_CHANGE |
                                       SDL_AUDIO_ALLOW_CHANNELS_CHANGE |
                                       SDL_AUDIO_ALLOW_SAMPLES_CHANGE);
     if (!s_audio_dev) {
