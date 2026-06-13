@@ -1,3 +1,8 @@
+Testowy port dla Nintendo Switch przy użyciu Claude.
+WIP
+
+Oryginalne readme:
+
 # Wacki: Kosmiczna rozgrywka
 
 A faithful, cross-platform port of **Wacki: Kosmiczna rozgrywka**
