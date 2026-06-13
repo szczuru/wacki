@@ -19,7 +19,17 @@
  *
  *   - Win32-equivalent shims: PumpEvents / HasPendingKey /
  *     WaitForKey — the engine's call sites still use the original
- *     Win32-style names, so this file provides portable aliases. */
+ *     Win32-style names, so this file provides portable aliases.
+ *
+ *   - WACKI_SWITCH: dynamic PE loading. The Switch build doesn't
+ *     embed WACKI.EXE's data sections at build time (no copyrighted
+ *     material in the public repo / CI — see BUILDING.md). Instead,
+ *     after FindDataRoot() succeeds, we call PeLoaderInit() on the
+ *     user's own WACKI.EXE, which they copy onto the SD card next to
+ *     Dane_*.dta (same place data_root.c's scan_handheld_card()
+ *     looks). PeLoaderInit's dynamic image takes precedence over the
+ *     (empty, for this target) embedded slice table — see
+ *     src/embedded_wacki_pe_stub.c + src/pe_loader.c. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -123,6 +133,55 @@ void StatsDump(void)
  * portable variant searches env → cwd → ./data → adjacent to the
  * binary → external media → handheld card paths → native folder
  * picker as a GUI fallback. See data_root.c for the full ladder. */
+
+/* ---- WACKI_SWITCH: dynamic WACKI.EXE loading ---------------------- *
+ *
+ * The Switch build links src/embedded_wacki_pe_stub.c (empty slice
+ * table, see that file's header comment) instead of the generated
+ * src/embedded_wacki_pe.c. PeLoaderRead checks the dynamic image
+ * (set by PeLoaderInit) BEFORE falling back to the embedded table, so
+ * loading the user's own WACKI.EXE here makes the rest of the engine
+ * work unmodified — same PeLoaderRead call sites, same VA resolution.
+ *
+ * We try a small set of locations, in the same spirit as
+ * data_root.c's scan_handheld_card(): first beside the located
+ * Dane_*.dta (g_data_root, the common case — user drops WACKI.EXE in
+ * the same folder as the data files), then the canonical
+ * sdmc:/switch/wacki/ locations as a fallback. */
+#ifdef WACKI_SWITCH
+static int load_wacki_exe_dynamic(void)
+{
+    char path[300];
+
+    /* 1. Next to the located data root — the expected normal case:
+     * user copies WACKI.EXE into the same folder as Dane_*.dta. */
+    if (g_data_root[0])
+    {
+        snprintf(path, sizeof path, "%s/WACKI.EXE", g_data_root);
+        if (PeLoaderInit(path)) return 1;
+
+        snprintf(path, sizeof path, "%s/wacki.exe", g_data_root);
+        if (PeLoaderInit(path)) return 1;
+    }
+
+    /* 2. Canonical Switch homebrew locations, in case WACKI.EXE lives
+     * one level up from the data/ folder data_root resolved to. */
+    static const char *const k_fallback_paths[] = {
+        "sdmc:/switch/wacki/WACKI.EXE",
+        "sdmc:/switch/wacki/wacki.exe",
+        "sdmc:/switch/wacki/data/WACKI.EXE",
+        "sdmc:/switch/wacki/data/wacki.exe",
+        "sdmc:/wacki/WACKI.EXE",
+        "sdmc:/wacki/wacki.exe",
+    };
+    for (size_t i = 0; i < sizeof k_fallback_paths / sizeof k_fallback_paths[0]; ++i)
+    {
+        if (PeLoaderInit(k_fallback_paths[i])) return 1;
+    }
+
+    return 0;
+}
+#endif /* WACKI_SWITCH */
 
 /* ---- SIGINT handler --------------------------------------------- */
 
@@ -429,9 +488,29 @@ int WackiMain(int argc, char **argv)
              WACKI_VERSION);
     LOG_INFO("wacki", "data source: %s", g_data_root);
 
-    /* WACKI.EXE's .rdata + .data sections are linked into the binary
-     * (see include/wacki/embedded_exe.h); PeLoaderRead resolves
-     * against them with no runtime init. */
+    /* WACKI.EXE's .rdata + .data sections are normally linked into the
+     * binary (see include/wacki/embedded_exe.h); PeLoaderRead resolves
+     * against them with no runtime init.
+     *
+     * WACKI_SWITCH builds link an EMPTY embedded table instead (see
+     * src/embedded_wacki_pe_stub.c) and load the user's own WACKI.EXE
+     * here. PeLoaderRead checks the dynamic image first, so the rest
+     * of the engine is unaffected once this succeeds. */
+#ifdef WACKI_SWITCH
+    if (!load_wacki_exe_dynamic())
+    {
+        const char *msg =
+            "Nie znalazłem pliku WACKI.EXE.\n\n"
+            "Skopiuj WACKI.EXE z oryginalnej płyty do tego samego "
+            "folderu co pliki Dane_*.dta (np. sdmc:/switch/wacki/data/) "
+            "i uruchom grę ponownie.";
+        LOG_INFO("log", "%s", msg);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
+                                 "Wacki — brak WACKI.EXE", msg, NULL);
+        return 1;
+    }
+    LOG_INFO("wacki", "WACKI.EXE loaded dynamically (PeLoaderInit)");
+#endif
 
     if (!PlatformInit(WACKI_SCREEN_W, WACKI_SCREEN_H, WACKI_WINDOW_TITLE))
         return 1;
