@@ -13,8 +13,16 @@ SDL2_CFG ?= sdl2-config
 #
 # In practice you run it through tools/build-miyoo.sh which sets up the
 # union-miyoomini-toolchain Docker image with the right sdl2-config.
+#
+# TARGET=switch cross-compiles for Nintendo Switch homebrew via
+# devkitA64 (devkitPro). Toolchain comes from the devkitpro/devkita64
+# Docker image — no CROSS_COMPILE prefix needed, DEVKITPRO env var
+# points at /opt/devkitpro and we call the aarch64-none-elf-* tools
+# directly.
 TARGET         ?=
 CROSS_COMPILE  ?=
+DEVKITPRO      ?= /opt/devkitpro
+DEVKITA64      ?= $(DEVKITPRO)/devkitA64
 # HOSTCC is the compiler for build-time tools (embed-pe-data) which
 # MUST run on the build machine, not the target. When cross-compiling
 # we still need a host gcc/cc to produce a runnable code generator;
@@ -57,12 +65,25 @@ CFLAGS        += -DWACKI_VERSION='"$(WACKI_VERSION)"'
 #                      Arch flags (aarch64 / armhf) come from the build
 #                      environment (tools/build-portmaster.sh), so this
 #                      profile stays architecture-agnostic.
+#   TARGET=switch      Nintendo Switch homebrew (libnx + SDL2 portlib).
+#                      WACKI_SWITCH additionally selects the dynamic
+#                      WACKI.EXE loading path in src/main.c (no embedded
+#                      PE data — see src/embedded_wacki_pe_stub.c).
 ifeq ($(TARGET),miyoo)
     CFLAGS  += -mcpu=cortex-a7 -mfpu=neon -mfloat-abi=hard \
                -DWACKI_HANDHELD -DWACKI_MIYOO
     BIN_NAME := wacki-miyoo
 else ifeq ($(TARGET),portmaster)
     CFLAGS  += -DWACKI_HANDHELD -DWACKI_PORTMASTER
+    BIN_NAME := wacki
+else ifeq ($(TARGET),switch)
+    CC       := $(DEVKITA64)/bin/aarch64-none-elf-gcc
+    HOSTCC   ?= cc
+    CFLAGS   += -D__SWITCH__ -DWACKI_HANDHELD -DWACKI_SWITCH \
+                -march=armv8-a -mtune=cortex-a57 -mtp=soft \
+                -ftls-model=local-exec \
+                -I$(DEVKITPRO)/libnx/include \
+                -I$(DEVKITPRO)/portlibs/switch/include
     BIN_NAME := wacki
 else
     BIN_NAME := wacki
@@ -74,23 +95,53 @@ endif
 # these → walker step loop misses the target-reached comparison and
 # overshoots by 1px per tick → cascading "actor walks past target"
 # bugs (Fjej weź-kwiatka overshoot, Ebek climb glitches).
-SDL_CFG  := $(shell $(SDL2_CFG) --cflags 2>/dev/null)
 
-# STATIC_SDL2=1 selects a fully self-contained engine binary: SDL2 +
-# its transitive system links are baked into the binary so the user
-# doesn't need libSDL2 installed. CI release builds set this; the
-# default (=0) keeps the developer build dynamic for fast iteration
-# + easier debugging.
+# ---- SDL2 flags / libs ----------------------------------------------------
 #
-# `SDL_LIB_DYN`  always dynamic — used by the sanitized debug build
-#                (ASan + static SDL2 don't mix).
-# `SDL_LIB`      tracks STATIC_SDL2 — used by the release engine.
-STATIC_SDL2 ?= 0
-SDL_LIB_DYN := $(shell $(SDL2_CFG) --libs 2>/dev/null)
-ifeq ($(STATIC_SDL2),1)
-    SDL_LIB := $(shell $(SDL2_CFG) --static-libs 2>/dev/null)
+# TARGET=switch: the portlibs ship pkg-config .pc files, not
+# sdl2-config. SDL2 on Switch is a static .a from portlibs linked into
+# the .elf — STATIC_SDL2 doesn't apply (no dynamic linking for
+# homebrew .nro), so we bypass the STATIC_SDL2 machinery entirely for
+# this target.
+ifeq ($(TARGET),switch)
+    SWITCH_PKGCONF := $(DEVKITPRO)/portlibs/switch/bin/aarch64-none-elf-pkg-config
+    SDL_CFG     := $(shell PKG_CONFIG_PATH=$(DEVKITPRO)/portlibs/switch/lib/pkgconfig $(SWITCH_PKGCONF) --cflags sdl2 2>/dev/null)
+    SDL_LIB_DYN := $(shell PKG_CONFIG_PATH=$(DEVKITPRO)/portlibs/switch/lib/pkgconfig $(SWITCH_PKGCONF) --libs sdl2 SDL2_mixer 2>/dev/null)
+    SDL_LIB     := $(SDL_LIB_DYN)
+    STATIC_SDL2 := 0
 else
-    SDL_LIB := $(SDL_LIB_DYN)
+    SDL_CFG  := $(shell $(SDL2_CFG) --cflags 2>/dev/null)
+
+    # STATIC_SDL2=1 selects a fully self-contained engine binary: SDL2 +
+    # its transitive system links are baked into the binary so the user
+    # doesn't need libSDL2 installed. CI release builds set this; the
+    # default (=0) keeps the developer build dynamic for fast iteration
+    # + easier debugging.
+    #
+    # `SDL_LIB_DYN`  always dynamic — used by the sanitized debug build
+    #                (ASan + static SDL2 don't mix).
+    # `SDL_LIB`      tracks STATIC_SDL2 — used by the release engine.
+    STATIC_SDL2 ?= 0
+    SDL_LIB_DYN := $(shell $(SDL2_CFG) --libs 2>/dev/null)
+    ifeq ($(STATIC_SDL2),1)
+        SDL_LIB := $(shell $(SDL2_CFG) --static-libs 2>/dev/null)
+    else
+        SDL_LIB := $(SDL_LIB_DYN)
+    endif
+endif
+
+# Extra link flags + libs for TARGET=switch: libnx, GPU/EGL stack the
+# SDL2 Switch backend needs, and the switch.specs file that wires up
+# the homebrew ABI / crt0. Empty for every other target.
+ifeq ($(TARGET),switch)
+    SWITCH_LIBS    := -lSDL2_mixer -lSDL2 -lEGL -lglapi -ldrm_nouveau \
+                       -lnx -lm
+    LDFLAGS_SWITCH := -L$(DEVKITPRO)/libnx/lib \
+                       -L$(DEVKITPRO)/portlibs/switch/lib \
+                       -specs=$(DEVKITA64)/aarch64-none-elf/lib/switch.specs
+else
+    SWITCH_LIBS    :=
+    LDFLAGS_SWITCH :=
 endif
 
 # All built binaries land in $(DIST). The directory is gitignored —
@@ -171,6 +222,10 @@ endif
 # means every kB counts even with dynamic SDL2). Miyoo also skips
 # -flto — the union toolchain's ld + linker plugins have been known
 # to mis-emit thumb thunks under -flto.
+#
+# TARGET=switch: -Os keeps the .nro lean (SD card + load time) and
+# section GC trims unused SDL2/libnx code; no -flto for the same
+# "be conservative with new toolchains" reasoning as Miyoo.
 ifeq ($(TARGET),miyoo)
     CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
     # -ldl: platform_sdl.c uses dlsym(RTLD_DEFAULT, "MI_AO_SetVolume") to
@@ -178,6 +233,9 @@ ifeq ($(TARGET),miyoo)
     # (alsa-style tinymix controls don't exist on MMP — kernel exposes
     # MI_AO instead, which the mmiyoo SDL2 backend has already loaded).
     LDFLAGS_SIZE := -Wl,--gc-sections -ldl
+else ifeq ($(TARGET),switch)
+    CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
+    LDFLAGS_SIZE := -Wl,--gc-sections
 else ifeq ($(STATIC_SDL2),1)
     CFLAGS_SIZE := -Os -ffunction-sections -fdata-sections -flto
     UNAME_S := $(shell uname -s 2>/dev/null)
@@ -217,6 +275,14 @@ DEBUG_LDFLAGS = -fsanitize=address -fsanitize=undefined
 # (.text x86 code, .idata, .rsrc) are skipped (we never reference
 # them). Build-time dep: data/WACKI.EXE must exist; generated file is
 # gitignored.
+#
+# TARGET=switch is the EXCEPTION: it does NOT embed WACKI.EXE at all
+# (no copyrighted data in the public repo / CI). Instead it links
+# src/embedded_wacki_pe_stub.c (an empty slice table) and the engine
+# loads the user's own WACKI.EXE at runtime from the SD card via
+# PeLoaderInit — see src/main.c's load_wacki_exe_dynamic(). The
+# EMBEDDED_PE_SRC variable below is therefore unused for this target
+# and data/WACKI.EXE is never required to build it.
 EMBEDDED_PE_SRC = src/embedded_wacki_pe.c
 EMBEDDED_PE_BIN = data/WACKI.EXE
 EMBED_PE_TOOL   = $(DIST)/embed-pe-data$(EXE)
@@ -246,8 +312,13 @@ $(EMBEDDED_ICON_SRC): $(EMBEDDED_ICON_BIN)
 	@(printf '/* SPDX-License-Identifier: GPL-3.0-or-later\n * Copyright (C) 2026 Mateusz Szu\xc5\x82\x61\n *\n * src/embedded_icon.c — GENERATED from %s.\n * Loaded as an SDL_Surface via SDL_LoadBMP_RW and handed to\n * SDL_SetWindowIcon in PlatformInit so the engine'\''s window /\n * taskbar / dock entry carry the game artwork.\n */\n\n#include <stddef.h>\n\n' "$(EMBEDDED_ICON_BIN)"; xxd -i -n wacki_icon_bmp $(EMBEDDED_ICON_BIN)) > $@
 
 # ---- modules ----------------------------------------------------------------
-ENGINE_SRCS = \
-	$(EMBEDDED_PE_SRC) \
+#
+# ENGINE_SRCS_COMMON is shared by every target. The embedded-PE source
+# differs: every target except switch generates+links
+# src/embedded_wacki_pe.c from data/WACKI.EXE; switch links the empty
+# src/embedded_wacki_pe_stub.c instead (see comment block above
+# EMBEDDED_PE_SRC).
+ENGINE_SRCS_COMMON = \
 	$(EMBEDDED_ICON_SRC) \
 	src/main.c     src/data_root.c src/config.c \
 	src/game.c    src/graphics.c  src/audio.c     \
@@ -279,16 +350,25 @@ ENGINE_SRCS = \
 	src/menu/options.c        src/menu/menu_loop.c                   \
 	src/menu/main_menu.c      src/menu/port_attribution.c
 
+ifeq ($(TARGET),switch)
+    ENGINE_SRCS = $(ENGINE_SRCS_COMMON) src/embedded_wacki_pe_stub.c
+else
+    ENGINE_SRCS = $(ENGINE_SRCS_COMMON) $(EMBEDDED_PE_SRC)
+endif
+
 # Platform-specific glue is appended only for the matching TARGET.
 # src/platform_miyoo.c carries the OnionOS/MStar bits (MI_AO volume
 # restore) and pulls in libdl — kept out of desktop builds because
 # desktop linkers wouldn't find dlsym + libmi_ao.so doesn't exist.
 # src/platform_portmaster.c carries the Anbernic SDL_GameController →
-# cursor/click input glue.
+# cursor/click input glue. src/platform_switch.c is the equivalent for
+# the Switch's combined Joy-Con / Pro Controller.
 ifeq ($(TARGET),miyoo)
     ENGINE_SRCS += src/platform_miyoo.c
 else ifeq ($(TARGET),portmaster)
     ENGINE_SRCS += src/platform_portmaster.c
+else ifeq ($(TARGET),switch)
+    ENGINE_SRCS += src/platform_switch.c
 endif
 
 # macOS desktop gets a small Objective-C helper that re-titles SDL's
@@ -384,7 +464,7 @@ all: engine tools
 
 engine: $(DIST)/$(BIN_NAME)$(EXE)
 $(DIST)/$(BIN_NAME)$(EXE): $(ENGINE_SRCS) $(WACKI_RES) | $(DIST)
-	$(CC) $(CFLAGS) $(CFLAGS_SIZE) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(WACKI_RES) $(SDL_LIB) $(LDFLAGS_STATIC) $(LDFLAGS_SIZE) $(MACOS_FRAMEWORKS)
+	$(CC) $(CFLAGS) $(CFLAGS_SIZE) $(SDL_CFG) -o $@ $(ENGINE_SRCS) $(WACKI_RES) $(LDFLAGS_SWITCH) $(SDL_LIB) $(SWITCH_LIBS) $(LDFLAGS_STATIC) $(LDFLAGS_SIZE) $(MACOS_FRAMEWORKS)
 
 ifeq ($(OS),Windows_NT)
 $(WACKI_RES): assets/icons/wacki.rc assets/icons/wacki.ico | $(DIST)
@@ -423,6 +503,30 @@ test: $(DIST)/run-tests$(EXE)
 
 $(DIST)/run-tests$(EXE): $(TEST_SRCS) $(TEST_ENGINE_SRCS) | $(DIST)
 	$(CC) $(TEST_CFLAGS) -o $@ $(TEST_SRCS) $(TEST_ENGINE_SRCS)
+
+# ---- Nintendo Switch packaging (.elf -> .nro) -------------------------------
+# elf2nro (part of devkitA64 / switch-tools) converts the statically
+# linked ELF into the .nro format Atmosphère / hbmenu can launch.
+# Bundles an icon (assets/icons/wacki-switch.jpg, 256x256 JPEG) and a
+# .nacp (name/author/version metadata) produced by nacptool.
+ifeq ($(TARGET),switch)
+
+SWITCH_ICON  := assets/icons/wacki-switch.jpg
+SWITCH_NACP  := $(DIST)/wacki.nacp
+SWITCH_NRO   := $(DIST)/wacki.nro
+NACPTOOL     := $(DEVKITPRO)/tools/bin/nacptool
+ELF2NRO      := $(DEVKITPRO)/tools/bin/elf2nro
+
+all: $(SWITCH_NRO)
+
+$(SWITCH_NACP): | $(DIST)
+	$(NACPTOOL) --create "Wacki: Kosmiczna rozgrywka" "mszula" "$(WACKI_VERSION)" $(SWITCH_NACP)
+
+$(SWITCH_NRO): $(DIST)/$(BIN_NAME)$(EXE) $(SWITCH_NACP)
+	$(ELF2NRO) $(DIST)/$(BIN_NAME)$(EXE) $(SWITCH_NRO) \
+	    --icon=$(SWITCH_ICON) --nacp=$(SWITCH_NACP)
+
+endif
 
 # `clean` blows away the whole $(DIST) tree (every built artefact
 # lives there now). Also removes the generated embed source +
