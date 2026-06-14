@@ -28,12 +28,15 @@ jobs:
           # i zależności z repo switch-dev oraz switch-tools
           # (elf2nro, nacptool — potrzebne do spakowania .nro).
           #
-          # pkg.devkitpro.org bywa zwraca 403 dla domyślnego klienta
-          # pacmana (anty-bot na CDN). Wymuszamy curl z User-Agentem
-          # przeglądarki jako XferCommand — to obchodzi blokadę bez
-          # zmiany czegokolwiek poza sposobem pobierania plików.
-          if ! grep -q '^XferCommand' /etc/pacman.conf; then
-            echo 'XferCommand = /usr/bin/curl -L -A "Mozilla/5.0" -C - -f -o %o %u' >> /etc/pacman.conf
+          # pkg.devkitpro.org / apt.devkitpro.org mają Cloudflare WAF,
+          # które zwraca 403 dla domyślnego User-Agenta pacmana/curl
+          # (znany problem: devkitPro/pacman#62, #63). Potwierdzone
+          # obejście: User-Agent "dkp-apt". Konfiguracja pacmana w tym
+          # obrazie żyje pod /opt/devkitpro/pacman/etc/pacman.conf, nie
+          # /etc/pacman.conf.
+          PACMAN_CONF=/opt/devkitpro/pacman/etc/pacman.conf
+          if [ -f "$PACMAN_CONF" ] && ! grep -q '^XferCommand' "$PACMAN_CONF"; then
+            echo 'XferCommand = /usr/bin/curl -L -A "dkp-apt" -C - -f -o %o %u' >> "$PACMAN_CONF"
           fi
           (yes || true) | dkp-pacman -Syyu --noconfirm
           (yes || true) | dkp-pacman -S --noconfirm \
