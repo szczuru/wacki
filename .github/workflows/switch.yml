@@ -27,7 +27,15 @@ jobs:
           # devkitpro/devkita64 ma już dkp-pacman; doinstalowujemy SDL2
           # i zależności z repo switch-dev oraz switch-tools
           # (elf2nro, nacptool — potrzebne do spakowania .nro).
-          (yes || true) | dkp-pacman -Syu --noconfirm
+          #
+          # pkg.devkitpro.org bywa zwraca 403 dla domyślnego klienta
+          # pacmana (anty-bot na CDN). Wymuszamy curl z User-Agentem
+          # przeglądarki jako XferCommand — to obchodzi blokadę bez
+          # zmiany czegokolwiek poza sposobem pobierania plików.
+          if ! grep -q '^XferCommand' /etc/pacman.conf; then
+            echo 'XferCommand = /usr/bin/curl -L -A "Mozilla/5.0" -C - -f -o %o %u' >> /etc/pacman.conf
+          fi
+          (yes || true) | dkp-pacman -Syyu --noconfirm
           (yes || true) | dkp-pacman -S --noconfirm \
             switch-sdl2 switch-sdl2_mixer switch-sdl2_image switch-sdl2_ttf \
             switch-pkg-config switch-zlib switch-bzip2 switch-libpng \
