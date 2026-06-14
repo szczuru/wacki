@@ -28,18 +28,23 @@ jobs:
           # i zależności z repo switch-dev oraz switch-tools
           # (elf2nro, nacptool — potrzebne do spakowania .nro).
           #
-          # pkg.devkitpro.org / apt.devkitpro.org mają Cloudflare WAF,
-          # które zwraca 403 dla domyślnego User-Agenta pacmana/curl
-          # (znany problem: devkitPro/pacman#62, #63). Potwierdzone
-          # obejście: User-Agent "dkp-apt". Konfiguracja pacmana w tym
-          # obrazie żyje pod /opt/devkitpro/pacman/etc/pacman.conf, nie
-          # /etc/pacman.conf.
-          PACMAN_CONF=/opt/devkitpro/pacman/etc/pacman.conf
-          if [ -f "$PACMAN_CONF" ] && ! grep -q '^XferCommand' "$PACMAN_CONF"; then
-            echo 'XferCommand = /usr/bin/curl -L -A "dkp-apt" -C - -f -o %o %u' >> "$PACMAN_CONF"
-          fi
-          (yes || true) | dkp-pacman -Syyu --noconfirm
-          (yes || true) | dkp-pacman -S --noconfirm \
+          # pkg.devkitpro.org czasem zwraca 403 (Cloudflare WAF,
+          # sporadyczne — devkitPro/pacman#62, #63). Retry z backoff
+          # zwykle przechodzi w 2-3 próbach.
+          retry_pacman() {
+            n=0
+            until [ "$n" -ge 5 ]; do
+              if (yes || true) | dkp-pacman "$@"; then
+                return 0
+              fi
+              n=$((n+1))
+              echo "dkp-pacman failed (attempt $n/5), retrying in $((n*10))s..."
+              sleep $((n*10))
+            done
+            return 1
+          }
+          retry_pacman -Syyu --noconfirm
+          retry_pacman -S --noconfirm \
             switch-sdl2 switch-sdl2_mixer switch-sdl2_image switch-sdl2_ttf \
             switch-pkg-config switch-zlib switch-bzip2 switch-libpng \
             switch-freetype switch-mesa switch-libdrm_nouveau switch-tools
