@@ -21,16 +21,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Przywróć WACKI.EXE z secreta
-        # WACKI.EXE jest zakodowane w base64 i wklejone jako repo secret
-        # (Settings -> Secrets and variables -> Actions -> WACKI_EXE_B64).
-        # Plik jest potrzebny tylko lokalnie w runnerze, nigdy nie trafia
-        # do repo / artefaktów.
-        run: |
-          mkdir -p data
-          echo "${{ secrets.WACKI_EXE_B64 }}" | base64 -d > data/WACKI.EXE
-          ls -la data/
-
       - name: Zainstaluj SDL2 portlib dla aarch64 (devkitA64)
         run: |
           # devkitpro/devkita64 ma już dkp-pacman; doinstalowujemy SDL2
