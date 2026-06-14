@@ -1,5 +1,13 @@
 # Wacki: Kosmiczna rozgrywka
 
+[![Najnowsza wersja](https://img.shields.io/github/v/release/mszula/wacki?sort=semver&style=flat-square&label=wersja&color=6f42c1)](../../releases/latest)
+[![Pobrania](https://img.shields.io/github/downloads/mszula/wacki/total?style=flat-square&label=pobrania&color=44cc11&logo=github&logoColor=white)](../../releases)
+[![Platformy](https://img.shields.io/badge/platformy-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20%C2%B7%20Miyoo%20%C2%B7%20PortMaster-1f6feb?style=flat-square)](../../releases)
+[![Język](https://img.shields.io/badge/C99-SDL2-555555?style=flat-square&logo=c&logoColor=white)](#)
+[![Licencja](https://img.shields.io/github/license/mszula/wacki?style=flat-square&label=licencja&color=blue)](LICENSE)
+[![Gwiazdki](https://img.shields.io/github/stars/mszula/wacki?style=flat-square&label=gwiazdki&logo=github&logoColor=white)](../../stargazers)
+[![Strona](https://img.shields.io/badge/strona-mszula.github.io%2Fwacki-0a66c2?style=flat-square&logo=githubpages&logoColor=white)](https://mszula.github.io/wacki/)
+
 A faithful, cross-platform port of **Wacki: Kosmiczna rozgrywka**
 (1998) — a Polish point-and-click adventure — reconstructed from the
 decompiled `WACKI.EXE`. It runs on desktop (macOS / Linux / Windows)
