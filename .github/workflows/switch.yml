@@ -9,6 +9,7 @@ on:
       - 'include/**'
       - 'Makefile'
       - 'tools/**'
+      - 'assets/**'
       - '.github/workflows/switch.yml'
 
 jobs:
@@ -21,21 +22,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Zainstaluj SDL2 portlib dla aarch64 (devkitA64)
+      - name: Zainstaluj SDL2 portlib + narzędzia (devkitA64)
         run: |
           # devkitpro/devkita64 ma już dkp-pacman; doinstalowujemy SDL2
-          # oraz zależności (SDL2_mixer/image/ttf na wypadek, gdyby
-          # build ich potrzebował) z repo switch-dev.
+          # i zależności z repo switch-dev oraz switch-tools
+          # (elf2nro, nacptool — potrzebne do spakowania .nro).
           (yes || true) | dkp-pacman -Syu --noconfirm
           (yes || true) | dkp-pacman -S --noconfirm \
             switch-sdl2 switch-sdl2_mixer switch-sdl2_image switch-sdl2_ttf \
-            switch-pkg-config switch-zlib switch-bzip2 switch-libpng switch-freetype
+            switch-pkg-config switch-zlib switch-bzip2 switch-libpng \
+            switch-freetype switch-mesa switch-libdrm_nouveau switch-tools
+
+      - name: Placeholder ikona .nro (jeśli brak w repo)
+        run: |
+          # elf2nro wymaga ikony 256x256 JPEG. Jeśli forka jeszcze nie
+          # ma assets/icons/wacki-switch.jpg, generujemy prosty
+          # placeholder, żeby build nie padał na tym etapie — podmień
+          # na właściwą grafikę w repo, jak będzie gotowa.
+          if [ ! -f assets/icons/wacki-switch.jpg ]; then
+            echo "Brak assets/icons/wacki-switch.jpg — generuję placeholder"
+            dkp-pacman -S --noconfirm imagemagick || true
+            convert -size 256x256 xc:'#1e2327' assets/icons/wacki-switch.jpg
+          fi
 
       - name: Build (TARGET=switch)
         run: |
-          source /etc/profile.d/devkit-env.sh || true
+          . /etc/profile.d/devkit-env.sh 2>/dev/null || true
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
+          export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
           make TARGET=switch -j"$(nproc)"
 
       - name: Wgraj artefakt .nro
