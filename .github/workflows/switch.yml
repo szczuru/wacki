@@ -68,9 +68,11 @@ jobs:
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
-          ls -la src/embedded_icon.c 2>&1 || echo "no embedded_icon.c"
-          ls -la dist/ 2>&1 || echo "no dist dir"
-          ls -la $DEVKITPRO/tools/bin/ 2>&1 || echo "no tools/bin"
+          echo "---- make -n (dry run) ----"
+          make TARGET=switch -n || echo "dry run exit: $?"
+          echo "---- make -p (vars, grep) ----"
+          make TARGET=switch -p -n 2>/dev/null | grep -E '^(BIN_NAME|ENGINE_SRCS|SWITCH_NRO|DIST|TARGET) ' || true
+          echo "---- real build ----"
           make TARGET=switch
           echo "make exit code: $?"
           echo "---- dist after build ----"
