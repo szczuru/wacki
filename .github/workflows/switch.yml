@@ -47,21 +47,11 @@ jobs:
       - name: Build (TARGET=switch)
         shell: bash
         run: |
-          set +e
           . /etc/profile.d/devkit-env.sh 2>/dev/null || true
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
-          echo "---- pwd + ls ----"
-          pwd
-          ls -la
-          echo "---- make --version ----"
-          make --version
-          echo "---- make -f Makefile TARGET=switch --debug=basic ----"
-          stdbuf -oL -eL make -f Makefile TARGET=switch --debug=basic 2>&1 | tee /tmp/build.log | head -60
-          echo "MAKE EXIT CODE (from PIPESTATUS): ${PIPESTATUS[0]}"
-          echo "---- total lines in build.log ----"
-          wc -l /tmp/build.log
+          make TARGET=switch
           echo "---- dist after build ----"
           ls -la dist/
 
