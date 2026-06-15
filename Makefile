@@ -146,7 +146,7 @@ ifeq ($(TARGET),switch)
                        -lnx -lm
     LDFLAGS_SWITCH := -L$(DEVKITPRO)/libnx/lib \
                        -L$(DEVKITPRO)/portlibs/switch/lib \
-                       -specs=$(DEVKITA64)/aarch64-none-elf/lib/switch.specs
+                       -specs=$(DEVKITPRO)/libnx/switch.specs
 else
     SWITCH_LIBS    :=
     LDFLAGS_SWITCH :=
