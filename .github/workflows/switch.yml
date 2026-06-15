@@ -51,6 +51,11 @@ jobs:
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
+          echo "---- szukam switch.specs ----"
+          find $DEVKITPRO -name 'switch.specs' 2>/dev/null
+          echo "---- szukam switch.ld ----"
+          find $DEVKITPRO -name 'switch.ld' 2>/dev/null
+          echo "---- make ----"
           make TARGET=switch
           echo "---- dist after build ----"
           ls -la dist/
