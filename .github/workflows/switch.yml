@@ -31,16 +31,17 @@ jobs:
           PKG_CONFIG_PATH=$DEVKITPRO/portlibs/switch/lib/pkgconfig \
             $DEVKITPRO/portlibs/switch/bin/aarch64-none-elf-pkg-config --list-all 2>&1 | grep -i sdl || echo "sdl nie znalezione w pkg-config"
 
-      - name: Placeholder ikona .nro (jeśli brak w repo)
+      - name: Sprawdź ikonę .nro
         run: |
-          # elf2nro wymaga ikony 256x256 JPEG. Jeśli forka jeszcze nie
-          # ma assets/icons/wacki-switch.jpg, generujemy prosty
-          # placeholder, żeby build nie padał na tym etapie — podmień
-          # na właściwą grafikę w repo, jak będzie gotowa.
-          if [ ! -f assets/icons/wacki-switch.jpg ]; then
-            echo "Brak assets/icons/wacki-switch.jpg — generuję placeholder"
-            dkp-pacman -S --noconfirm imagemagick || true
-            convert -size 256x256 xc:'#1e2327' assets/icons/wacki-switch.jpg
+          # elf2nro wymaga ikony 256x256 JPEG (assets/icons/wacki-switch.jpg).
+          # Nie generujemy tu placeholdera (unikamy dkp-pacman/imagemagick,
+          # które triggerują 403 z pkg.devkitpro.org). Jeśli pliku brak,
+          # krok "Build" jasno powie "failed to load icon" na elf2nro.
+          if [ -f assets/icons/wacki-switch.jpg ]; then
+            echo "OK: assets/icons/wacki-switch.jpg istnieje"
+            file assets/icons/wacki-switch.jpg || true
+          else
+            echo "UWAGA: brak assets/icons/wacki-switch.jpg — krok elf2nro w Build prawdopodobnie się wywali"
           fi
 
       - name: Build (TARGET=switch)
