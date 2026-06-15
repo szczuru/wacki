@@ -52,17 +52,18 @@ jobs:
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
-          echo "---- grep 'all:' w Makefile ----"
-          grep -n '^all:' Makefile
-          echo "---- ostatnie 40 linii Makefile ----"
-          tail -40 Makefile
-          echo "---- stdbuf make ----"
-          stdbuf -oL -eL make TARGET=switch 2>&1 | tee /tmp/build.log
+          echo "---- pwd + ls ----"
+          pwd
+          ls -la
+          echo "---- make --version ----"
+          make --version
+          echo "---- make -f Makefile TARGET=switch --debug=basic ----"
+          stdbuf -oL -eL make -f Makefile TARGET=switch --debug=basic 2>&1 | tee /tmp/build.log | head -60
           echo "MAKE EXIT CODE (from PIPESTATUS): ${PIPESTATUS[0]}"
+          echo "---- total lines in build.log ----"
+          wc -l /tmp/build.log
           echo "---- dist after build ----"
           ls -la dist/
-          echo "---- last 5 lines of build.log ----"
-          tail -5 /tmp/build.log
 
       - name: Wgraj artefakt .nro
         uses: actions/upload-artifact@v4
