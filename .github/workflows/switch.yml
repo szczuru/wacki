@@ -45,14 +45,19 @@ jobs:
           fi
 
       - name: Build (TARGET=switch)
+        shell: bash
         run: |
+          set +e
           . /etc/profile.d/devkit-env.sh 2>/dev/null || true
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
-          make TARGET=switch
+          stdbuf -oL -eL make TARGET=switch 2>&1 | tee /tmp/build.log
+          echo "MAKE EXIT CODE (from PIPESTATUS): ${PIPESTATUS[0]}"
           echo "---- dist after build ----"
           ls -la dist/
+          echo "---- last 5 lines of build.log ----"
+          tail -5 /tmp/build.log
 
       - name: Wgraj artefakt .nro
         uses: actions/upload-artifact@v4
