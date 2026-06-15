@@ -46,22 +46,13 @@ jobs:
 
       - name: Build (TARGET=switch)
         run: |
-          set -x
           . /etc/profile.d/devkit-env.sh 2>/dev/null || true
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
-          echo "---- make -n (dry run) ----"
-          make TARGET=switch -n || echo "dry run exit: $?"
-          echo "---- make -p (vars, grep) ----"
-          make TARGET=switch -p -n 2>/dev/null | grep -E '^(BIN_NAME|ENGINE_SRCS|SWITCH_NRO|DIST|TARGET) ' || true
-          echo "---- make -d for dist/wacki.nro (filtered) ----"
-          make TARGET=switch -d dist/wacki.nro 2>&1 | grep -iE 'wacki\.nro|wacki\.nacp|considering|up to date|no rule|must remake|does not exist|Pruning' | head -100
-          echo "---- real build ----"
           make TARGET=switch
-          echo "make exit code: $?"
           echo "---- dist after build ----"
-          ls -la dist/ 2>&1 || echo "still no dist dir"
+          ls -la dist/
 
       - name: Wgraj artefakt .nro
         uses: actions/upload-artifact@v4
