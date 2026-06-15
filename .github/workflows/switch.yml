@@ -22,32 +22,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Zainstaluj SDL2 portlib + narzędzia (devkitA64)
+      - name: Sprawdź dostępne portlibs (SDL2 powinno być wbudowane w obraz)
         run: |
-          # devkitpro/devkita64 ma już dkp-pacman; doinstalowujemy SDL2
-          # i zależności z repo switch-dev oraz switch-tools
-          # (elf2nro, nacptool — potrzebne do spakowania .nro).
-          #
-          # pkg.devkitpro.org czasem zwraca 403 (Cloudflare WAF,
-          # sporadyczne — devkitPro/pacman#62, #63). Retry z backoff
-          # zwykle przechodzi w 2-3 próbach.
-          retry_pacman() {
-            n=0
-            until [ "$n" -ge 5 ]; do
-              if (yes || true) | dkp-pacman "$@"; then
-                return 0
-              fi
-              n=$((n+1))
-              echo "dkp-pacman failed (attempt $n/5), retrying in $((n*10))s..."
-              sleep $((n*10))
-            done
-            return 1
-          }
-          retry_pacman -Syyu --noconfirm
-          retry_pacman -S --noconfirm \
-            switch-sdl2 switch-sdl2_mixer switch-sdl2_image switch-sdl2_ttf \
-            switch-pkg-config switch-zlib switch-bzip2 switch-libpng \
-            switch-freetype switch-mesa switch-libdrm_nouveau switch-tools
+          export DEVKITPRO=/opt/devkitpro
+          echo "---- pkgconfig dir ----"
+          ls -la $DEVKITPRO/portlibs/switch/lib/pkgconfig/ 2>&1 || echo "brak katalogu pkgconfig"
+          echo "---- pkg-config --list-all (sdl) ----"
+          PKG_CONFIG_PATH=$DEVKITPRO/portlibs/switch/lib/pkgconfig \
+            $DEVKITPRO/portlibs/switch/bin/aarch64-none-elf-pkg-config --list-all 2>&1 | grep -i sdl || echo "sdl nie znalezione w pkg-config"
 
       - name: Placeholder ikona .nro (jeśli brak w repo)
         run: |
