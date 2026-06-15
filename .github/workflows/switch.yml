@@ -52,6 +52,11 @@ jobs:
           export DEVKITPRO=/opt/devkitpro
           export DEVKITA64=$DEVKITPRO/devkitA64
           export PATH=$DEVKITA64/bin:$DEVKITPRO/tools/bin:$PATH
+          echo "---- grep 'all:' w Makefile ----"
+          grep -n '^all:' Makefile
+          echo "---- ostatnie 40 linii Makefile ----"
+          tail -40 Makefile
+          echo "---- stdbuf make ----"
           stdbuf -oL -eL make TARGET=switch 2>&1 | tee /tmp/build.log
           echo "MAKE EXIT CODE (from PIPESTATUS): ${PIPESTATUS[0]}"
           echo "---- dist after build ----"
