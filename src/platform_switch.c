@@ -10,12 +10,17 @@
  * click mapping so behaviour matches the other handheld targets:
  *
  *   left stick / d-pad   → move the software cursor
- *   A (south)            → left click   (walk / interact)
- *   B (east)             → right click  (HandleSceneInput toggles actor)
- *   Y (west)             → toggle stretch / 4:3 aspect mode (no keyboard
- *                           on Switch to reach platform_sdl.c's F10)
+ *   physical A (SDL "B") → left click   (walk / interact)
+ *   physical B (SDL "A") → right click  (HandleSceneInput toggles actor)
+ *   physical Y (SDL "X") → toggle stretch / 4:3 aspect mode (no keyboard
+ *                          on Switch to reach platform_sdl.c's F10)
+ *   MINUS (SDL "Back")   → cycle touch_mode (absolute → relative → off)
  *   PLUS (start-equiv.)  → pause menu
  *   L  / R               → quickload / quicksave
+ *
+ * See the comment above platform_pad_handle_event() for why the SDL
+ * button constants look "swapped" relative to the physical letters —
+ * it's intentional, not a bug.
  *
  * platform_sdl.c calls platform_pad_open() once at init, routes
  * SDL_CONTROLLER* events through platform_pad_handle_event(), and folds
@@ -69,20 +74,44 @@ void platform_pad_open(void)
     LOG_INFO("platform", "no game controller found at startup");
 }
 
-/* Handle one SDL_CONTROLLER* event. Returns 1 if consumed. Button
- * layout matches platform_portmaster.c / platform_miyoo.c so the same
- * muscle memory carries over from other handheld targets. */
+/* Handle one SDL_CONTROLLER* event. Returns 1 if consumed.
+ *
+ * IMPORTANT — physical vs SDL button naming on Switch: SDL2's
+ * SDL_GameController abstraction names buttons by their POSITION in
+ * the Xbox-style diamond (A=south/bottom, B=east/right, X=west/left,
+ * Y=north/top), not by the physical letter printed on the pad.
+ * Nintendo's physical layout puts different letters at those same
+ * four positions (B=south, A=east, Y=west, X=north) — the mirror
+ * image of Xbox. So to get physical-A → left click and physical-B →
+ * right click (as requested), the code below binds SDL_CONTROLLER_
+ * BUTTON_B (east / physical A) to the left click and SDL_CONTROLLER_
+ * BUTTON_A (south / physical B) to the right click — this is
+ * intentional, not a typo. Likewise physical-Y (west) is SDL's
+ * BUTTON_X, used here for the aspect-mode toggle. */
 int platform_pad_handle_event(const SDL_Event *ev)
 {
     switch (ev->type) {
     case SDL_CONTROLLERBUTTONDOWN:
         switch (ev->cbutton.button) {
-        case SDL_CONTROLLER_BUTTON_A:             g_lmb_clicked        = 1; break;
-        case SDL_CONTROLLER_BUTTON_B:             g_rmb_clicked        = 1; break;
-        case SDL_CONTROLLER_BUTTON_Y:
+        /* physical A (east position) → left click */
+        case SDL_CONTROLLER_BUTTON_B:             g_lmb_clicked        = 1; break;
+        /* physical B (south position) → right click */
+        case SDL_CONTROLLER_BUTTON_A:             g_rmb_clicked        = 1; break;
+        /* physical Y (west position) → toggle stretch / 4:3 */
+        case SDL_CONTROLLER_BUTTON_X:
             {
                 extern void PlatformToggleAspectMode(void);
                 PlatformToggleAspectMode();
+            }
+            break;
+        /* MINUS → toggle touch_mode (absolute / relative / off).
+         * Libnx/SDL map the "-" button to SDL_CONTROLLER_BUTTON_BACK
+         * (the abstract layout's "Back"/Select slot — Switch has no
+         * physical Back button, so "-" takes that slot). */
+        case SDL_CONTROLLER_BUTTON_BACK:
+            {
+                extern void PlatformCycleTouchMode(void);
+                PlatformCycleTouchMode();
             }
             break;
         case SDL_CONTROLLER_BUTTON_START:         g_pause_menu_request = 1; break;
