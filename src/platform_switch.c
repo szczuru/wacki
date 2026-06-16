@@ -12,6 +12,8 @@
  *   left stick / d-pad   → move the software cursor
  *   A (south)            → left click   (walk / interact)
  *   B (east)             → right click  (HandleSceneInput toggles actor)
+ *   Y (west)             → toggle stretch / 4:3 aspect mode (no keyboard
+ *                           on Switch to reach platform_sdl.c's F10)
  *   PLUS (start-equiv.)  → pause menu
  *   L  / R               → quickload / quicksave
  *
@@ -77,6 +79,12 @@ int platform_pad_handle_event(const SDL_Event *ev)
         switch (ev->cbutton.button) {
         case SDL_CONTROLLER_BUTTON_A:             g_lmb_clicked        = 1; break;
         case SDL_CONTROLLER_BUTTON_B:             g_rmb_clicked        = 1; break;
+        case SDL_CONTROLLER_BUTTON_Y:
+            {
+                extern void PlatformToggleAspectMode(void);
+                PlatformToggleAspectMode();
+            }
+            break;
         case SDL_CONTROLLER_BUTTON_START:         g_pause_menu_request = 1; break;
         case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  g_quickload_request  = 1; break;
         case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: g_quicksave_request  = 1; break;
