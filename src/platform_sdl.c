@@ -525,6 +525,26 @@ static void toggle_aspect_mode_runtime(void)
     ConfigSave();
 }
 
+/* Cycle g_touch_mode absolute → relative → off → absolute … and
+ * persist the choice. Wired to the MINUS button in
+ * src/platform_switch.c (no keyboard on Switch); harmless to expose
+ * on every target since the rest of the touch pipeline simply does
+ * nothing on a panel that never emits SDL_FINGER* events. */
+static void cycle_touch_mode_runtime(void)
+{
+    if (strncmp(g_touch_mode, "absolute", 8) == 0) {
+        strncpy(g_touch_mode, "relative", sizeof g_touch_mode - 1);
+    } else if (strncmp(g_touch_mode, "relative", 8) == 0) {
+        strncpy(g_touch_mode, "off", sizeof g_touch_mode - 1);
+    } else {
+        strncpy(g_touch_mode, "absolute", sizeof g_touch_mode - 1);
+    }
+    g_touch_mode[sizeof g_touch_mode - 1] = '\0';
+    LOG_INFO("platform", "touch_mode=%s", g_touch_mode);
+    extern void ConfigSave(void);
+    ConfigSave();
+}
+
 #ifdef __APPLE__
 /* C bridges for the macOS "Gra" menu (src/platform_macos.m). Each maps
  * a menu item to the exact in-engine action its keyboard shortcut
@@ -580,6 +600,9 @@ static void handle_keydown(const SDL_Event *ev)
      * there's no keyboard there (see PlatformToggleAspectMode below
      * and src/platform_switch.c). */
     if (sym == SDLK_F10) toggle_aspect_mode_runtime();
+    /* F8 cycles touch_mode — desktop parity for PlatformCycleTouchMode,
+     * which the Switch's MINUS button calls (no keyboard there). */
+    if (sym == SDLK_F8) cycle_touch_mode_runtime();
 
     /* Inline-edit (save-slot rename): queue Backspace / Enter as
      * typed-char events so the edit loop sees them alongside the
@@ -927,14 +950,21 @@ void PlatformPumpEvents(void)
 int PlatformShouldQuit(void) { return s_quit; }
 
 /* Public wrapper around toggle_aspect_mode_runtime() — called from
- * src/platform_switch.c's Y-button handler (the Switch has no
- * keyboard, so it can't reach the static F10 handler above
+ * src/platform_switch.c's physical-Y-button handler (the Switch has
+ * no keyboard, so it can't reach the static F10 handler above
  * directly). Safe to call even before a window exists (apply_aspect_
  * mode no-ops if s_ren is NULL); ConfigSave persists the choice
  * either way. */
 void PlatformToggleAspectMode(void)
 {
     toggle_aspect_mode_runtime();
+}
+
+/* Public wrapper around cycle_touch_mode_runtime() — called from
+ * src/platform_switch.c's MINUS-button handler. */
+void PlatformCycleTouchMode(void)
+{
+    cycle_touch_mode_runtime();
 }
 
 /* ---- message box ------------------------------------------------- */
