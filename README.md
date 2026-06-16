@@ -214,8 +214,9 @@ są w [`docs/architecture.md`](docs/architecture.md#11-flagi-runtime).
 Wacki działa na telefonach i tabletach z **Androidem 7.0+**. Gra renderuje
 się w wyśrodkowanym kadrze 4:3, a wolne miejsce po bokach (na szerokim
 ekranie trzymanym poziomo) wypełnia półprzezroczyste sterowanie dotykowe:
-wirtualna gałka po lewej, duży „lewy klik" i mniejszy „prawy klik" po
-prawej. Można też grać samym dotykiem ekranu albo padem Bluetooth/USB.
+wirtualna gałka po lewej, a po prawej dwa przyciski — duży (lewy klik)
+i mniejszy nad nim (prawy klik). Można też grać samym dotykiem ekranu
+albo padem Bluetooth/USB.
 
 ### Wymagania
 
