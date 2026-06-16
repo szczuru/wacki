@@ -487,6 +487,27 @@ static void toggle_fullscreen_runtime(void)
 }
 #endif
 
+/* Flip g_aspect_mode between "stretch" and "4:3" at runtime and
+ * persist the choice — same idea as toggle_fullscreen_runtime above,
+ * but for the letterbox setting. Available on every target (not just
+ * desktop): wired to the F10 key here, and to the Y button in
+ * src/platform_switch.c (Nintendo Switch has no keyboard). Calling
+ * apply_aspect_mode() immediately re-applies the logical size so the
+ * change is visible the next frame without restarting. */
+static void toggle_aspect_mode_runtime(void)
+{
+    if (g_aspect_mode[0] == '4') {
+        strncpy(g_aspect_mode, "stretch", sizeof g_aspect_mode - 1);
+    } else {
+        strncpy(g_aspect_mode, "4:3", sizeof g_aspect_mode - 1);
+    }
+    g_aspect_mode[sizeof g_aspect_mode - 1] = '\0';
+    apply_aspect_mode(s_w, s_h);
+    LOG_INFO("platform", "aspect_mode=%s", g_aspect_mode);
+    extern void ConfigSave(void);
+    ConfigSave();
+}
+
 #ifdef __APPLE__
 /* C bridges for the macOS "Gra" menu (src/platform_macos.m). Each maps
  * a menu item to the exact in-engine action its keyboard shortcut
@@ -536,6 +557,12 @@ static void handle_keydown(const SDL_Event *ev)
      * of windowed mode). */
     if (sym == SDLK_F11) toggle_fullscreen_runtime();
 #endif
+    /* F10 toggles stretch vs 4:3 letterbox at runtime — available on
+     * every target (desktop included, for testing/parity); the
+     * Switch's Y button calls the same exported function since
+     * there's no keyboard there (see PlatformToggleAspectMode below
+     * and src/platform_switch.c). */
+    if (sym == SDLK_F10) toggle_aspect_mode_runtime();
 
     /* Inline-edit (save-slot rename): queue Backspace / Enter as
      * typed-char events so the edit loop sees them alongside the
@@ -776,6 +803,17 @@ void PlatformPumpEvents(void)
 }
 
 int PlatformShouldQuit(void) { return s_quit; }
+
+/* Public wrapper around toggle_aspect_mode_runtime() — called from
+ * src/platform_switch.c's Y-button handler (the Switch has no
+ * keyboard, so it can't reach the static F10 handler above
+ * directly). Safe to call even before a window exists (apply_aspect_
+ * mode no-ops if s_ren is NULL); ConfigSave persists the choice
+ * either way. */
+void PlatformToggleAspectMode(void)
+{
+    toggle_aspect_mode_runtime();
+}
 
 /* ---- message box ------------------------------------------------- */
 
