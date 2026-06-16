@@ -20,7 +20,13 @@
  *   PlatformShouldQuit — set by SDL_QUIT / WINDOWCLOSE / ESC
  *   PlatformSetTextInput / PlatformPollTypedChar / PushTypedChar
  *   PlatformShowMessageBox
- */
+ *
+ * WACKI_SWITCH note: the Nintendo Switch port (src/platform_switch.c)
+ * exposes the exact same platform_pad_open / platform_pad_handle_event
+ * / platform_pad_read_motion API as the PortMaster (Anbernic) glue, so
+ * every call site that previously gated on WACKI_PORTMASTER now also
+ * checks WACKI_SWITCH. Also adds g_aspect_mode (4:3 letterbox vs
+ * full-stretch) for the Switch's 16:9 panel — see PlatformInit below. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -98,6 +104,20 @@ extern int         g_scale_factor;
 extern const char *g_scale_mode;
 extern int         g_fullscreen;
 
+/* T-switch-aspect — "stretch" (default, fills a 16:9 panel edge to
+ * edge, mild horizontal distortion) or "4:3" (letterbox/pillarbox,
+ * preserves the original aspect, black bars left+right on a 16:9
+ * screen). Persisted via wacki.cfg (config.c) like every other
+ * display knob; see ConfigLoad/ConfigSave. Honoured by every target
+ * that goes through SDL_RenderSetLogicalSize below — desktop builds
+ * already get correct 4:3 proportions from window resizing, so this
+ * mainly matters for fixed-panel handhelds with a non-4:3 screen
+ * (Switch's 16:9 being the motivating case; Miyoo/Anbernic panels are
+ * close enough to 4:3 already that "stretch" and "4:3" look the same
+ * there). Writable buffer (not a string literal) so ConfigLoad can
+ * overwrite it via sscanf without touching read-only memory. */
+char g_aspect_mode[16] = "stretch";
+
 /* ---- typed-char ring buffer -------------------------------------- */
 
 void PlatformPushTypedChar(uint8_t c)
@@ -123,6 +143,47 @@ void PlatformSetTextInput(int on)
     else    SDL_StopTextInput();
     /* Drop any stale chars queued before/after the toggle. */
     s_typed_head = s_typed_tail = 0;
+}
+
+/* ---- aspect-ratio helper ------------------------------------------ *
+ *
+ * Applies g_aspect_mode to the renderer's logical-size letterboxing.
+ * "stretch": logical size == framebuffer size (w×h) — SDL fills the
+ *            entire render target, distorting 4:3 content on a
+ *            non-4:3 display (the Switch's 1280×720 panel).
+ * "4:3" (or any value starting with '4'): force a 4:3 logical canvas
+ *            sized to the wider of (a) the native framebuffer or
+ *            (b) the request from g_scale_factor, so
+ *            SDL_RenderSetLogicalSize's own built-in letterboxing
+ *            (it already preserves the logical AR vs the output AR)
+ *            draws black bars instead of stretching.
+ *
+ * SDL_RenderSetLogicalSize already does letterbox/pillarbox math
+ * internally whenever the output AR differs from the logical AR — so
+ * forcing the logical size to a true 4:3 ratio is the entire fix;
+ * "stretch" is simply "logical size == framebuffer size", which is
+ * what every other target already did before this option existed. */
+static void apply_aspect_mode(int w, int h)
+{
+    if (!s_ren) return;
+    if (g_aspect_mode && g_aspect_mode[0] == '4') {
+        /* True 4:3 logical canvas. w×h is already 640×480 (4:3) for
+         * this engine, so on most targets this is a no-op — it only
+         * changes behaviour when a future build feeds a non-4:3
+         * framebuffer size. Kept generic rather than hardcoding
+         * 640×480 so it stays correct if WACKI_SCREEN_W/H ever
+         * change. */
+        int logical_w = w;
+        int logical_h = (w * 3) / 4;
+        if (logical_h > h) { logical_h = h; logical_w = (h * 4) / 3; }
+        SDL_RenderSetLogicalSize(s_ren, logical_w, logical_h);
+    } else {
+        /* "stretch" (default): logical size == framebuffer size, so
+         * SDL fills the whole output with no bars — matches the
+         * existing behaviour every target had before g_aspect_mode
+         * was introduced. */
+        SDL_RenderSetLogicalSize(s_ren, w, h);
+    }
 }
 
 /* ---- init / shutdown --------------------------------------------- */
@@ -153,8 +214,12 @@ int PlatformInit(int w, int h, const char *title)
     platform_restore_system_volume();
 #endif
 
-#ifdef WACKI_PORTMASTER
-    /* Open the handheld's game controller — see src/platform_portmaster.c. */
+#if defined(WACKI_PORTMASTER) || defined(WACKI_SWITCH)
+    /* Open the handheld's game controller — see
+     * src/platform_portmaster.c (Anbernic & friends) or
+     * src/platform_switch.c (Nintendo Switch homebrew). Both expose
+     * the identical platform_pad_* API consumed below + in
+     * PlatformPumpEvents, so a single guard covers both targets. */
     if (!g_headless) {
         extern void platform_pad_open(void);
         platform_pad_open();
@@ -242,6 +307,14 @@ int PlatformInit(int w, int h, const char *title)
      * happier left as a "window", so it keeps g_fullscreen as-is.) */
     g_fullscreen = 1;
 #endif
+#ifdef WACKI_SWITCH
+    /* Nintendo Switch: same reasoning as PortMaster above — no window
+     * manager, the .nro owns the whole 1280×720 (docked) or 1280×720
+     * (handheld, scaled) panel, so always request fullscreen-desktop.
+     * Aspect handling (stretch vs 4:3 letterbox) is g_aspect_mode's
+     * job via apply_aspect_mode(), not this flag. */
+    g_fullscreen = 1;
+#endif
 
     Uint32 win_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
     if (g_fullscreen) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
@@ -265,7 +338,7 @@ int PlatformInit(int w, int h, const char *title)
         return 0;
     }
 
-    SDL_RenderSetLogicalSize(s_ren, w, h);
+    apply_aspect_mode(w, h);
     s_tex = SDL_CreateTexture(s_ren, SDL_PIXELFORMAT_ARGB8888,
                               SDL_TEXTUREACCESS_STREAMING, w, h);
     if (!s_tex) {
@@ -316,7 +389,7 @@ int PlatformInit(int w, int h, const char *title)
     SDL_ShowCursor(SDL_DISABLE);
 
     const char *drv = SDL_GetCurrentVideoDriver();
-    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter, fullscreen=%d), renderer=%s", win_w, win_h, sf, g_scale_mode ? g_scale_mode : "nearest", g_fullscreen, drv ? drv : "?");
+    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter, fullscreen=%d, aspect=%s), renderer=%s", win_w, win_h, sf, g_scale_mode ? g_scale_mode : "nearest", g_fullscreen, g_aspect_mode ? g_aspect_mode : "stretch", drv ? drv : "?");
 
     /* Black initial frame so the window is never garbage. */
     memset(s_pixels32, 0, (size_t)w * h * ARGB_BYTES_PER_PIXEL);
@@ -575,9 +648,10 @@ static void poll_virtual_cursor(void)
 
     /* Analog-stick contribution (px/tick), 0 unless a pad pushes past
      * the deadzone. The d-pad folds into the discrete dx/dy. Filled by
-     * src/platform_portmaster.c on Anbernic; a no-op extern elsewhere. */
+     * src/platform_portmaster.c on Anbernic, src/platform_switch.c on
+     * Nintendo Switch; a no-op extern elsewhere. */
     float ax = 0.0f, ay = 0.0f;
-#ifdef WACKI_PORTMASTER
+#if defined(WACKI_PORTMASTER) || defined(WACKI_SWITCH)
     {
         extern void platform_pad_read_motion(int *, int *, float *, float *);
         platform_pad_read_motion(&dx, &dy, &ax, &ay);
@@ -682,7 +756,7 @@ void PlatformPumpEvents(void)
         case SDL_MOUSEBUTTONDOWN:
             handle_mouse_button_down(&ev);
             break;
-#ifdef WACKI_PORTMASTER
+#if defined(WACKI_PORTMASTER) || defined(WACKI_SWITCH)
         case SDL_CONTROLLERBUTTONDOWN:
         case SDL_CONTROLLERDEVICEADDED:
         case SDL_CONTROLLERDEVICEREMOVED:
