@@ -26,7 +26,9 @@
  * / platform_pad_read_motion API as the PortMaster (Anbernic) glue, so
  * every call site that previously gated on WACKI_PORTMASTER now also
  * checks WACKI_SWITCH. Also adds g_aspect_mode (4:3 letterbox vs
- * full-stretch) for the Switch's 16:9 panel — see PlatformInit below. */
+ * full-stretch) and g_touch_mode (absolute / relative / off touchscreen
+ * → cursor mapping) for the Switch's panel — see PlatformInit /
+ * handle_touch below. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -117,6 +119,21 @@ extern int         g_fullscreen;
  * there). Writable buffer (not a string literal) so ConfigLoad can
  * overwrite it via sscanf without touching read-only memory. */
 char g_aspect_mode[16] = "stretch";
+
+/* T-switch-touch — touchscreen → cursor mode for targets with a touch
+ * panel (Nintendo Switch is the motivating case; harmless no-op on
+ * desktop/Miyoo/PortMaster, which never get SDL_FINGER* events).
+ *   "absolute" — touching the screen jumps the cursor straight to
+ *                that point (scaled into 640×480 space). No click is
+ *                fired by the touch itself; A/B on the pad (or LMB/
+ *                RMB on desktop) remain the only way to click.
+ *   "relative" — touchpad-style: the DELTA between consecutive
+ *                FINGERMOTION samples moves the cursor by the same
+ *                amount, regardless of where on the panel the finger
+ *                is. Good for precision aiming without "warping".
+ *   "off"      — ignore touch events entirely (pad/keyboard only).
+ * Persisted via wacki.cfg as touch_mode=absolute|relative|off. */
+char g_touch_mode[16] = "absolute";
 
 /* ---- typed-char ring buffer -------------------------------------- */
 
@@ -615,6 +632,106 @@ static void handle_mouse_motion(const SDL_Event *ev)
     s_mouse_y = (int16_t)ev->motion.y;
 }
 
+/* ---- touchscreen → cursor (Nintendo Switch panel) ---------------- *
+ *
+ * SDL reports finger coordinates normalized to [0.0, 1.0] across the
+ * WHOLE touch surface — independent of the logical/letterboxed render
+ * size, so absolute mode multiplies by s_w/s_h directly rather than
+ * going through SDL_RenderWindowToLogical (the touch surface and the
+ * window surface share the same normalized space by SDL's contract,
+ * unlike raw pixel mouse coordinates which DO need that conversion).
+ *
+ * Relative mode tracks the last finger position per touch ID (just
+ * one fingerId in practice — the engine has no multitouch concept,
+ * "last finger that moved" wins) and feeds the delta through the same
+ * px-per-frame budget the d-pad/analog-stick path uses, so flicking
+ * fast across the glass doesn't teleport past PaintCursor's hit-test
+ * boundaries in one frame. */
+static int      s_touch_active = 0;
+static SDL_FingerID s_touch_id = 0;
+static float     s_touch_last_x = 0.0f, s_touch_last_y = 0.0f;
+
+static void handle_touch(const SDL_Event *ev)
+{
+    extern int16_t s_mouse_x, s_mouse_y;
+    extern char    g_touch_mode[16];
+
+    if (g_touch_mode[0] == 'o' /* "off" */) return;
+
+    float nx, ny; /* normalized [0,1] */
+    SDL_FingerID fid;
+    int is_down  = 0;
+    int is_up    = 0;
+
+    switch (ev->type) {
+    case SDL_FINGERDOWN:
+        nx = ev->tfinger.x; ny = ev->tfinger.y; fid = ev->tfinger.fingerId;
+        is_down = 1;
+        break;
+    case SDL_FINGERMOTION:
+        nx = ev->tfinger.x; ny = ev->tfinger.y; fid = ev->tfinger.fingerId;
+        break;
+    case SDL_FINGERUP:
+        nx = ev->tfinger.x; ny = ev->tfinger.y; fid = ev->tfinger.fingerId;
+        is_up = 1;
+        break;
+    default:
+        return;
+    }
+
+    if (g_touch_mode[0] == 'a' /* "absolute" */) {
+        /* Tap-to-point: jump the cursor straight to the touched
+         * location. No click is fired here — A/B (pad) or LMB/RMB
+         * (desktop) remain the only way to click, by design. */
+        int px = (int)(nx * s_w);
+        int py = (int)(ny * s_h);
+        if (px < 0) px = 0; if (px >= s_w) px = s_w - 1;
+        if (py < 0) py = 0; if (py >= s_h) py = s_h - 1;
+        s_mouse_x = (int16_t)px;
+        s_mouse_y = (int16_t)py;
+        /* Keep the virtual-cursor state in sync so a subsequent d-pad
+         * nudge continues from here instead of snapping back. */
+        s_vcur_x = px; s_vcur_y = py; s_vcur_initialized = 1;
+        return;
+    }
+
+    /* "relative" (touchpad-style): only the delta between consecutive
+     * samples for the SAME finger moves the cursor; where on the
+     * panel the finger lands is irrelevant. */
+    if (is_down || !s_touch_active || fid != s_touch_id) {
+        s_touch_active  = 1;
+        s_touch_id      = fid;
+        s_touch_last_x  = nx;
+        s_touch_last_y  = ny;
+        if (is_up) s_touch_active = 0;
+        return;
+    }
+    if (is_up) {
+        s_touch_active = 0;
+        return;
+    }
+
+    /* Scale the normalized delta by the touch surface's effective
+     * pixel size (== s_w/s_h, since SDL's finger coords already span
+     * the whole panel 0..1) so a full-width swipe ≈ a full-width
+     * cursor traverse — feels proportional regardless of how the
+     * Switch's panel is letterboxed. */
+    float dxn = nx - s_touch_last_x;
+    float dyn = ny - s_touch_last_y;
+    s_touch_last_x = nx;
+    s_touch_last_y = ny;
+
+    s_vcur_rem_x += dxn * s_w;
+    s_vcur_rem_y += dyn * s_h;
+    int mvx = (int)s_vcur_rem_x; s_vcur_rem_x -= (float)mvx; s_vcur_x += mvx;
+    int mvy = (int)s_vcur_rem_y; s_vcur_rem_y -= (float)mvy; s_vcur_y += mvy;
+    if (s_vcur_x < 0) s_vcur_x = 0; if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
+    if (s_vcur_y < 0) s_vcur_y = 0; if (s_vcur_y >= s_h) s_vcur_y = s_h - 1;
+    s_vcur_initialized = 1;
+    s_mouse_x = (int16_t)s_vcur_x;
+    s_mouse_y = (int16_t)s_vcur_y;
+}
+
 /* Env-gated diagnostic — WACKI_INPUT_DEBUG=1 dumps every keydown and
  * mouse-button event so handheld port bugs ("button A fires both LMB
  * and RMB") can be traced. Lazy-init the flag so we don't strcmp on
@@ -782,6 +899,11 @@ void PlatformPumpEvents(void)
             break;
         case SDL_MOUSEBUTTONDOWN:
             handle_mouse_button_down(&ev);
+            break;
+        case SDL_FINGERDOWN:
+        case SDL_FINGERMOTION:
+        case SDL_FINGERUP:
+            handle_touch(&ev);
             break;
 #if defined(WACKI_PORTMASTER) || defined(WACKI_SWITCH)
         case SDL_CONTROLLERBUTTONDOWN:
