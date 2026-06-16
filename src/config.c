@@ -23,6 +23,14 @@
  *                      panel being the motivating case; ignored in
  *                      effect (but harmless) on displays that are
  *                      already ~4:3.
+ *   touch_mode=absolute|relative|off
+ *                    — touchscreen → cursor mapping on targets with a
+ *                      touch panel (Nintendo Switch). "absolute"
+ *                      (default) jumps the cursor to the touched
+ *                      point; "relative" treats the whole panel as a
+ *                      touchpad (drag-to-move, no warp); "off" ignores
+ *                      touch entirely. No-op on targets without a
+ *                      touch panel.
  *
  * Precedence is handled by call order in main.c: ConfigLoad runs
  * FIRST (baseline from saved prefs), then the CLI parser and env
@@ -47,6 +55,7 @@
 extern int  g_scale_factor;        /* main.c */
 extern int  g_fullscreen;          /* main.c */
 extern char g_aspect_mode[CFG_ASPECT_BUF_SZ]; /* platform_sdl.c */
+extern char g_touch_mode[CFG_ASPECT_BUF_SZ];  /* platform_sdl.c */
 
 int g_config_first_run = 0;
 
@@ -68,6 +77,22 @@ static void normalize_aspect_mode(const char *raw)
     g_aspect_mode[CFG_ASPECT_BUF_SZ - 1] = '\0';
 }
 
+/* Same idea for touch_mode: accept "absolute"/"relative"/"off",
+ * anything else leaves the compiled-in default ("absolute")
+ * untouched. */
+static void normalize_touch_mode(const char *raw)
+{
+    if (!raw) return;
+    if (strncmp(raw, "absolute", 8) == 0) {
+        strncpy(g_touch_mode, "absolute", CFG_ASPECT_BUF_SZ - 1);
+    } else if (strncmp(raw, "relative", 8) == 0) {
+        strncpy(g_touch_mode, "relative", CFG_ASPECT_BUF_SZ - 1);
+    } else if (strncmp(raw, "off", 3) == 0) {
+        strncpy(g_touch_mode, "off", CFG_ASPECT_BUF_SZ - 1);
+    }
+    g_touch_mode[CFG_ASPECT_BUF_SZ - 1] = '\0';
+}
+
 void ConfigLoad(void)
 {
     FILE *fp = fopen(WACKI_CFG_PATH, "r");
@@ -87,11 +112,13 @@ void ConfigLoad(void)
             if (v >= 1 && v <= CFG_SCALE_MAX) g_scale_factor = v;
         } else if (sscanf(line, "aspect_mode=%15s", sv) == 1) {
             normalize_aspect_mode(sv);
+        } else if (sscanf(line, "touch_mode=%15s", sv) == 1) {
+            normalize_touch_mode(sv);
         }
     }
     fclose(fp);
-    LOG_INFO("config", "loaded wacki.cfg: fullscreen=%d scale=%d aspect_mode=%s",
-             g_fullscreen, g_scale_factor, g_aspect_mode);
+    LOG_INFO("config", "loaded wacki.cfg: fullscreen=%d scale=%d aspect_mode=%s touch_mode=%s",
+             g_fullscreen, g_scale_factor, g_aspect_mode, g_touch_mode);
 }
 
 void ConfigSave(void)
@@ -110,7 +137,12 @@ void ConfigSave(void)
     fprintf(fp, "# (czarne pasy, oryginalne proporcje — przydatne np. na\n");
     fprintf(fp, "# Nintendo Switch, którego ekran jest 16:9).\n");
     fprintf(fp, "aspect_mode=%s\n", g_aspect_mode[0] ? g_aspect_mode : "stretch");
+    fprintf(fp, "# touch_mode (tylko ekrany dotykowe, np. Switch):\n");
+    fprintf(fp, "#   absolute — dotyk ustawia kursor w tym miejscu\n");
+    fprintf(fp, "#   relative — cały ekran działa jak touchpad\n");
+    fprintf(fp, "#   off      — ignoruj dotyk\n");
+    fprintf(fp, "touch_mode=%s\n", g_touch_mode[0] ? g_touch_mode : "absolute");
     fclose(fp);
-    LOG_INFO("config", "saved wacki.cfg: fullscreen=%d scale=%d aspect_mode=%s",
-             g_fullscreen, g_scale_factor ? g_scale_factor : 1, g_aspect_mode);
+    LOG_INFO("config", "saved wacki.cfg: fullscreen=%d scale=%d aspect_mode=%s touch_mode=%s",
+             g_fullscreen, g_scale_factor ? g_scale_factor : 1, g_aspect_mode, g_touch_mode);
 }
