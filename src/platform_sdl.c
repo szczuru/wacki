@@ -164,43 +164,74 @@ void PlatformSetTextInput(int on)
 
 /* ---- aspect-ratio helper ------------------------------------------ *
  *
- * Applies g_aspect_mode to the renderer's logical-size letterboxing.
- * "stretch": logical size == framebuffer size (w×h) — SDL fills the
- *            entire render target, distorting 4:3 content on a
- *            non-4:3 display (the Switch's 1280×720 panel).
- * "4:3" (or any value starting with '4'): force a 4:3 logical canvas
- *            sized to the wider of (a) the native framebuffer or
- *            (b) the request from g_scale_factor, so
- *            SDL_RenderSetLogicalSize's own built-in letterboxing
- *            (it already preserves the logical AR vs the output AR)
- *            draws black bars instead of stretching.
+ * CRITICAL CONSTRAINT: SDL_RenderSetLogicalSize doesn't just affect
+ * drawing — it also rescales every mouse/touch event's coordinates
+ * into that logical space before the engine ever sees them (SDL_
+ * MouseMotionEvent.x/y arrive pre-scaled; this is documented SDL
+ * behaviour, distinct from SDL_GetMouseState which does NOT rescale).
+ * The engine's hit-tests (scene click targets, HUD buttons, the save/
+ * load slot picker) all assume mouse coordinates live in 0..640 ×
+ * 0..480 — the original framebuffer space. So the logical size must
+ * ALWAYS stay at the framebuffer's own w×h regardless of aspect mode,
+ * or every click handler silently breaks (this is exactly what went
+ * wrong in an earlier draft of this function, which set the logical
+ * size to the window's size for "stretch" — that made click
+ * coordinates arrive scaled to e.g. 0..1280, which the engine's hit-
+ * tests don't expect, and inputs would land on the wrong thing or
+ * nothing at all).
  *
- * SDL_RenderSetLogicalSize already does letterbox/pillarbox math
- * internally whenever the output AR differs from the logical AR — so
- * forcing the logical size to a true 4:3 ratio is the entire fix;
- * "stretch" is simply "logical size == framebuffer size", which is
- * what every other target already did before this option existed. */
+ * Given that constraint, "stretch" can't be implemented via
+ * SDL_RenderSetLogicalSize at all (SDL's docs confirm it always
+ * preserves AR — "if the actual output resolution doesn't have the
+ * same aspect ratio the output rendering will be centered", i.e.
+ * letterboxed, never disproportionately stretched). So:
+ *
+ * "4:3"     : SDL_RenderSetLogicalSize(s_ren, w, h) — logical size ==
+ *             framebuffer size. SDL's automatic AR-preserving centre/
+ *             letterbox kicks in for any output whose AR differs
+ *             (e.g. the Switch's 1280×720 panel), giving black bars.
+ *             Mouse/touch coordinates stay correctly mapped to 0..640
+ *             × 0..480 by SDL's own filtering — this is the side of
+ *             the trade-off that "just works".
+ * "stretch" : SDL_RenderSetLogicalSize is explicitly RESET to off
+ *             (pass 0,0 — SDL's documented way to disable logical-
+ *             size scaling) so SDL stops touching mouse/touch
+ *             coordinates entirely; PlatformPresent then manually
+ *             stretches the 640×480 texture to fill the FULL window
+ *             via an explicit destination rect, achieving the
+ *             distorted edge-to-edge fill without SDL's coordinate
+ *             rescaling ever entering the picture. Mouse/touch
+ *             coordinates need a manual window→framebuffer scale in
+ *             that case — see scale_event_coords_for_stretch() below,
+ *             called from handle_mouse_motion / handle_touch instead
+ *             of relying on SDL's (now-disabled) auto-scaling. */
+static int g_stretch_active = 0; /* mirrors g_aspect_mode for the hot path */
+
 static void apply_aspect_mode(int w, int h)
 {
     if (!s_ren) return;
     if (g_aspect_mode && g_aspect_mode[0] == '4') {
-        /* True 4:3 logical canvas. w×h is already 640×480 (4:3) for
-         * this engine, so on most targets this is a no-op — it only
-         * changes behaviour when a future build feeds a non-4:3
-         * framebuffer size. Kept generic rather than hardcoding
-         * 640×480 so it stays correct if WACKI_SCREEN_W/H ever
-         * change. */
-        int logical_w = w;
-        int logical_h = (w * 3) / 4;
-        if (logical_h > h) { logical_h = h; logical_w = (h * 4) / 3; }
-        SDL_RenderSetLogicalSize(s_ren, logical_w, logical_h);
-    } else {
-        /* "stretch" (default): logical size == framebuffer size, so
-         * SDL fills the whole output with no bars — matches the
-         * existing behaviour every target had before g_aspect_mode
-         * was introduced. */
+        g_stretch_active = 0;
         SDL_RenderSetLogicalSize(s_ren, w, h);
+    } else {
+        g_stretch_active = 1;
+        SDL_RenderSetLogicalSize(s_ren, 0, 0); /* disable — SDL docs: 0,0 = off */
     }
+}
+
+/* Manual window→framebuffer coordinate scale, used ONLY while
+ * g_stretch_active (logical-size scaling is off, so SDL no longer
+ * rescales event coordinates for us). No-op (returns the input
+ * unchanged) whenever logical-size scaling is active, since SDL
+ * already did the rescale in that case. */
+static void scale_event_coords_for_stretch(float *x, float *y)
+{
+    if (!g_stretch_active || !s_win || s_w <= 0 || s_h <= 0) return;
+    int win_w = s_w, win_h = s_h;
+    SDL_GetWindowSize(s_win, &win_w, &win_h);
+    if (win_w <= 0 || win_h <= 0) return;
+    *x = *x * (float)s_w / (float)win_w;
+    *y = *y * (float)s_h / (float)win_h;
 }
 
 /* ---- init / shutdown --------------------------------------------- */
@@ -476,7 +507,19 @@ void PlatformPresent(const uint8_t *shadow,
         SDL_UpdateTexture(s_tex, NULL, s_pixels32, w * ARGB_BYTES_PER_PIXEL);
     }
     SDL_RenderClear(s_ren);
-    SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
+    if (g_stretch_active && s_win) {
+        /* Logical-size scaling is off (see apply_aspect_mode), so a
+         * NULL dest rect would only fill a 640×480 patch in the
+         * corner of the real window — explicitly stretch to the full
+         * window instead, which is the entire point of "stretch"
+         * mode. */
+        int win_w = w, win_h = h;
+        SDL_GetWindowSize(s_win, &win_w, &win_h);
+        SDL_Rect dest = { 0, 0, win_w, win_h };
+        SDL_RenderCopy(s_ren, s_tex, NULL, &dest);
+    } else {
+        SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
+    }
     SDL_RenderPresent(s_ren);
 }
 
@@ -651,8 +694,10 @@ static void handle_textinput(const SDL_Event *ev)
 static void handle_mouse_motion(const SDL_Event *ev)
 {
     extern int16_t s_mouse_x, s_mouse_y;
-    s_mouse_x = (int16_t)ev->motion.x;
-    s_mouse_y = (int16_t)ev->motion.y;
+    float x = (float)ev->motion.x, y = (float)ev->motion.y;
+    scale_event_coords_for_stretch(&x, &y);
+    s_mouse_x = (int16_t)x;
+    s_mouse_y = (int16_t)y;
 }
 
 /* ---- touchscreen → cursor (Nintendo Switch panel) ---------------- *
