@@ -59,6 +59,11 @@ extern char g_touch_mode[CFG_ASPECT_BUF_SZ];  /* platform_sdl.c */
 
 int g_config_first_run = 0;
 
+/* Forward declaration — ConfigSave is defined further down this file
+ * but ConfigLoad (just below) needs to call it on first-run to
+ * materialize wacki.cfg with the compiled-in defaults. */
+void ConfigSave(void);
+
 /* Accept a few spellings so a hand-edited wacki.cfg or an .ini-style
  * "4:3" / "4x3" / "43" all land on the same internal value. Anything
  * unrecognised falls back to "stretch" (the long-standing default
@@ -98,8 +103,22 @@ void ConfigLoad(void)
     FILE *fp = fopen(WACKI_CFG_PATH, "r");
     if (!fp) {
         /* No config yet → first launch. PlatformInit shows the
-         * display-mode picker (unless a CLI/env flag pre-empts it). */
+         * display-mode picker on desktop (unless a CLI/env flag
+         * pre-empts it); handheld targets (WACKI_HANDHELD, including
+         * WACKI_SWITCH) skip that dialog entirely, so without this
+         * explicit ConfigSave() here, wacki.cfg would never be
+         * created until the player happened to press a runtime
+         * toggle (F10/F8, or the Switch's Y/MINUS buttons) — meaning
+         * the file (and its documented aspect_mode / touch_mode keys)
+         * wouldn't exist for someone wanting to hand-edit it before
+         * ever touching those controls. Write it now with whatever
+         * compiled-in defaults are already in g_fullscreen /
+         * g_scale_factor / g_aspect_mode / g_touch_mode at this point
+         * in startup (main.c's CLI/env parsing runs AFTER ConfigLoad,
+         * so this really is the "factory defaults" snapshot — exactly
+         * what a fresh wacki.cfg should contain). */
         g_config_first_run = 1;
+        ConfigSave();
         return;
     }
     char line[128];
