@@ -244,7 +244,7 @@ Windows MoveFileEx vs POSIX rename obie ścieżki sprawdzone w CI.
 
 ## Compatibility z oryginalną binarką
 
-Format `Wacki.sav` jest **byte-identyczny** z oryginałem 1997. Save
+Format `Wacki.sav` jest **byte-identyczny** z oryginałem z 1998 r. Save
 zrobiony w porcie można załadować w oryginalnym `WACKI.EXE` (i vice
 versa), z zastrzeżeniem:
 

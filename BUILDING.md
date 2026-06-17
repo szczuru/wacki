@@ -87,7 +87,10 @@ Pojedynczą architekturę zbudujesz przez `./tools/build-portmaster.sh
 aarch64` lub `armhf`.
 
 Wynik: `dist/Wacki.zip` — gotowa paczka PortMaster (skrypt startowy,
-`port.json`, obie binarki, miejsce na dane). SDL2 jest linkowane
+`port.json`, obie binarki, miejsce na dane). Nazwa `Wacki.zip` jest tym, czego
+oczekuje „Install from zip" PortMastera; w wydaniach na GitHubie ten sam plik
+jest publikowany jako **`wacki-portmaster.zip`** (CI woła
+`./tools/pack-portmaster.sh dist/wacki-portmaster.zip`). SDL2 jest linkowane
 dynamicznie: binarka korzysta z biblioteki dostarczanej przez
 PortMaster w czasie uruchomienia (właściwy sterownik wyświetlania
 per-urządzenie).

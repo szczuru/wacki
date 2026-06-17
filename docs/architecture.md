@@ -272,6 +272,9 @@ Pełen opis: [entity-system.md](entity-system.md). Skrót:
 
 ## 9. Save / load (save.c)
 
+Pełen opis (atomic write, slot lifecycle, kompatybilność z oryginałem):
+[save-file.md](save-file.md). Skrót:
+
 ```
 WackiSaveFile (na dysku = w pamięci):
 ├── magic         "SAVE"

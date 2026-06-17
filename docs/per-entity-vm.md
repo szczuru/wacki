@@ -98,7 +98,7 @@ restoruje się z `delay_reset` (chyba że ten = 0).
 
 Efekt: skrypt może powiedzieć "co 5 ticków = co 50 ms wykonaj
 animation step", a engine sam się dostosuje do faktycznego FPS.
-Te same skrypty działają na 30 FPS PC z 1997 i na 25 FPS Cortex-A7.
+Te same skrypty działają na 30 FPS PC z 1998 i na 25 FPS Cortex-A7.
 
 ### Walker fixed-point
 
@@ -147,7 +147,7 @@ po `SUBSCRIPT_CALL`.
 
 Per-entity VM nie ma swojego `SDL_Delay`. To główna pętla woła
 `EnginePaceFrame(33)` raz na klatkę gry (`src/scene/play_loop.c`,
-opisane w [architecture.md § 3](architecture.md#3-per-frame-tick-in-game)).
+opisane w [architecture.md § 3](architecture.md#3-per-frame-tick-w-trakcie-gry)).
 W tej samej klatce **wszystkie** active entity są tickane raz w
 pętli `EntityWalkerTick` → `PerActorWaypointAdvanceTick` →
 `UpdateActorMovement` → render.

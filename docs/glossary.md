@@ -76,7 +76,7 @@ Pełna spec: [asset-format.md](asset-format.md).
 
 | Termin | Co znaczy |
 |---|---|
-| `głównya VM` / `main VM` | `RunScriptInterpreter` w `src/vm/main.c` — 78 opcode'ów dla scenariusza |
+| `główna VM` / `main VM` | `RunScriptInterpreter` w `src/vm/main.c` — 78 opcode'ów dla scenariusza |
 | `per-entity VM` | `RunVM` w `src/actor/vm.c` — 33 opcode'y dla per-actor animacji |
 | `opcode` | Pojedyncza instrukcja bytecode'u — `[op:u8][len:u8][operands]` |
 | `dispatcher` | Główna pętla switch w VM |

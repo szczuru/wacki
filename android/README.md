@@ -72,7 +72,7 @@ Zapisy i `wacki.cfg` lądują w pamięci wewnętrznej aplikacji.
 | Gest / klawisz      | Akcja                                            |
 |---------------------|--------------------------------------------------|
 | Dotknięcie          | klik / chodzenie / interakcja (LPM)              |
-| Dotknięcie 2 palcami| przełączenie aktywnej postaci (Ebek ↔ Fjej, PPM) |
+| Dotknięcie 2 palcami| przełączenie aktywnej postaci (Franc ↔ Edek, PPM) |
 | Przycisk Wstecz     | menu pauzy (zapis / wczytanie / wyjście)         |
 | **Tab** (klawiatura)| przełączenie postaci — wygodne na emulatorze     |
 
@@ -147,7 +147,7 @@ sekretów (forki/PR) CI robi fallback na debug APK — nic się nie wywala.
 > rozprowadzania (GitHub Releases / strona). Sklep Play wymaga **AAB**
 > (`bundleRelease`), konta deweloperskiego (jednorazowa opłata), oceny treści
 > i tzw. Play App Signing (Google trzyma wtedy klucz dystrybucyjny). Pamiętaj
-> też, że to port komercyjnej gry z 1997 (wszyte sekcje `WACKI.EXE`) — Play
+> też, że to port komercyjnej gry z 1998 (wszyte sekcje `WACKI.EXE`) — Play
 > egzekwuje prawa autorskie ostrzej niż GitHub; ta decyzja jest po Twojej stronie.
 
 ## Jak to się składa

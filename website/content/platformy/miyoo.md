@@ -52,7 +52,7 @@ Potrzebny jest firmware **OnionOS 4.2** lub nowszy — stock firmware nie jest
 wspierany (różni się układ katalogów i mechanizm uruchamiania portów).
 Najlepsze wsparcie ma **Miyoo Mini Plus** (platforma referencyjna); **Miyoo
 Mini** jest pin-kompatybilny i działa bez zmian. Dla Anbernica i innych
-urządzeń z PortMasterem jest [osobna paczka](../portmaster.html).
+urządzeń z PortMasterem jest [osobna paczka](portmaster.html).
 
 ## Coś nie działa?
 

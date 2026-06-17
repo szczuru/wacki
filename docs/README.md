@@ -3,7 +3,7 @@
 Skarbnica wiedzy o tym jak Wacki działa pod maską. Port jest
 zrekonstruowany ze zdekompilowanej oryginalnej binarki, więc każdy
 dokument tu odzwierciedla zarówno **jak engine był zaprojektowany w
-1997** jak i **jak nasz port to odtwarza**.
+1998** jak i **jak nasz port to odtwarza**.
 
 ## Mapa dokumentów
 

@@ -18,6 +18,10 @@ reason the rest of this README is in Polish too.
 
 ![Wacki: Kosmiczna rozgrywka](docs/img/wacki.png)
 
+> **Najszybszy start:** wejdź na **[mszula.github.io/wacki](https://mszula.github.io/wacki/)**
+> — wybierz swój sprzęt i przejdź ilustrowaną instrukcję krok po kroku.
+> Ten README to skrócona wersja tego samego.
+
 ## 👽 O grze
 
 **Wacki: Kosmiczna rozgrywka** to polska gra przygodowa typu
@@ -55,72 +59,74 @@ itd. — znajdują się w katalogu [`docs/`](docs/). To dokumentacja
 
 ---
 
-## 🖥️ Wersja PC (macOS / Linux / Windows)
+## ▶️ Wybierz platformę
+
+Gotowe paczki są w zakładce [**Releases**](../../releases). Pełne,
+ilustrowane przewodniki (pobieranie → dane → sterowanie →
+rozwiązywanie problemów) żyją na stronie — linki w tabeli. Skrócone
+instrukcje masz tu niżej, rozwijane per platforma.
+
+Do gry zawsze potrzebne są jeszcze pliki `Dane_*.dta` z **oryginalnej
+płyty** — port ich nie zawiera.
+
+| Platforma | Paczka z Releases | Przewodnik krok po kroku |
+|---|---|---|
+| 🪟 **Windows** 10/11 (64-bit) | `wacki-windows-x86_64.zip` | [strona — Windows](https://mszula.github.io/wacki/platformy/windows.html) |
+| 🍎 **macOS** (Apple Silicon) | `wacki-macos-arm64.tar.gz` | [strona — macOS](https://mszula.github.io/wacki/platformy/macos.html) |
+| 🐧 **Linux** x86_64 | `wacki-linux-x86_64.tar.gz` | [strona — Linux](https://mszula.github.io/wacki/platformy/linux.html) |
+| 🤖 **Android** 7.0+ | `wacki-android.apk` | [strona — Android](https://mszula.github.io/wacki/platformy/android.html) |
+| 🕹️ **Miyoo** (OnionOS) | `wacki-miyoo.zip` | [strona — Miyoo](https://mszula.github.io/wacki/platformy/miyoo.html) |
+| 🎮 **Anbernic / PortMaster** | `wacki-portmaster.zip` | [strona — PortMaster](https://mszula.github.io/wacki/platformy/portmaster.html) |
+| 📀 **PlayStation 2** | `wacki-ps2.zip` | [strona — PS2](https://mszula.github.io/wacki/platformy/ps2.html) |
+
+<details>
+<summary><b>🖥️ PC — macOS / Linux / Windows</b></summary>
 
 ### Wymagania
 
-- gotowa binarka portu z zakładki [Releases](../../releases) — dla
-  docelowej platformy:
-  - macOS (Apple Silicon)
-  - Linux x86_64
-  - Windows 10/11 x86_64
+- gotowa binarka portu z zakładki [Releases](../../releases) dla
+  Twojego systemu: macOS (Apple Silicon), Linux x86_64 lub
+  Windows 10/11 x86_64
 - pliki danych z oryginalnej płyty: `Dane_*.dta`
 
 ### Uruchomienie
 
-1. Pobierz archiwum dla swojego systemu z zakładki
-   [Releases](../../releases) i rozpakuj w dowolnym katalogu.
-2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty w jedno z miejsc
+1. Pobierz archiwum dla swojego systemu z [Releases](../../releases)
+   i rozpakuj w dowolnym katalogu.
+2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty w jedno z miejsc,
    które gra przeszukuje (patrz niżej). Najprościej:
-
-   - **macOS**: folder `data/` **obok** `Wacki.app` (po prostu wrzuć
-     tam pliki), albo prawy klik na `Wacki.app` → **Show Package
-     Contents** → `Contents/Resources/data/`
+   - **macOS**: folder `data/` **obok** `Wacki.app`, albo prawy klik
+     na `Wacki.app` → **Show Package Contents** →
+     `Contents/Resources/data/`
    - **Linux / Windows**: podkatalog `data/` obok binarki
-
 3. Uruchom grę:
-
-   - **macOS**: dwukrotne kliknięcie `Wacki.app` (przy pierwszym
-     uruchomieniu zobacz „Pierwsze uruchomienie na macOS" niżej)
+   - **macOS**: dwuklik `Wacki.app` (przy pierwszym razie zobacz
+     „Pierwsze uruchomienie na macOS" niżej)
    - **Linux**: `./wacki`
-   - **Windows**: dwukrotne kliknięcie `wacki.exe`
+   - **Windows**: dwuklik `wacki.exe`
 
-Gra przeszukuje (pierwszy trafiony wygrywa): `WACKI_PATH` →
-katalog uruchomienia → `./data/` → katalog binarki (lub folder
-obok `Wacki.app`) → napędy CD / podłączone dyski. Jeśli nic nie
-znajdzie, pokaże okno wyboru folderu. Wielkość liter w nazwach
-plików nie ma znaczenia.
+Gra przeszukuje (pierwszy trafiony wygrywa): `WACKI_PATH` → katalog
+uruchomienia → `./data/` → katalog binarki (lub folder obok
+`Wacki.app`) → napędy CD / podłączone dyski. Jeśli nic nie znajdzie,
+pokaże okno wyboru folderu. Wielkość liter w nazwach nie ma znaczenia.
 
 #### Pierwsze uruchomienie na macOS
 
 Binarki nie są podpisane certyfikatem Apple (port jest darmowy, a
-Apple Developer Program kosztuje 99 $/rok), więc Gatekeeper przy
-pierwszym uruchomieniu zablokuje `Wacki.app` komunikatem typu
-*„Apple nie może sprawdzić, czy nie zawiera złośliwego
-oprogramowania"*. To jednorazowe — wybierz **jeden** sposób:
+Apple Developer Program kosztuje 99 $/rok), więc Gatekeeper zablokuje
+`Wacki.app` przy pierwszym uruchomieniu komunikatem typu *„Apple nie
+może sprawdzić…"*. To jednorazowe — najprościej:
 
-- **Przez Ustawienia systemowe** *(zalecane — sam GUI, bez Terminala)*:
-  1. Spróbuj uruchomić `Wacki.app` dwuklikiem — pojawi się blokada,
-     kliknij **Done / Gotowe**.
-  2. Otwórz **System Settings → Privacy & Security** (Ustawienia →
-     Prywatność i bezpieczeństwo), przewiń na sam dół do sekcji
-     *Security*.
-  3. Będzie tam wpis *„Wacki.app was blocked…"* z przyciskiem
-     **Open Anyway** (*Otwórz mimo to*) — kliknij i potwierdź.
-  4. `Wacki.app` rusza i od teraz odpala się normalnie dwuklikiem.
-- **Z Terminala** *(jedna komenda, każda wersja macOS)*: w katalogu
-  z grą wpisz
+- **Ustawienia systemowe → Prywatność i bezpieczeństwo** → przewiń na
+  dół do sekcji *Security* → przy wpisie *„Wacki.app was blocked…"*
+  kliknij **Open Anyway** i potwierdź.
+- albo z Terminala (każda wersja macOS), w katalogu z grą:
   ```bash
   xattr -dr com.apple.quarantine Wacki.app
   ```
-  i już — dwuklik działa.
-- **Prawy klik** *(tylko macOS ≤ 14 Sonoma)*: prawy klik / Ctrl-klik
-  na `Wacki.app` → **Open** → w dialogu jeszcze raz **Open**. Na
-  macOS 15 Sequoia Apple usunęło tę ścieżkę — użyj Ustawień powyżej.
 
-Blokada dotyczy też innych niepodpisanych plików (dlatego nie
-dołączamy skryptu „odblokuj" — sam też zostałby zablokowany).
-Najpewniejsza jest droga przez Ustawienia.
+Pełny przewodnik (3 sposoby, w tym uwaga o macOS 15 Sequoia):
+[strona — macOS](https://mszula.github.io/wacki/platformy/macos.html).
 
 ### Sterowanie
 
@@ -138,22 +144,200 @@ Najpewniejsza jest droga przez Ustawienia.
 
 ### Tryb wyświetlania
 
-Przy **pierwszym uruchomieniu** gra zapyta jak chcesz grać —
-*Pełny ekran*, *Okno 2×* albo *Okno 1×*. Wybór jest zapamiętany
-(plik `wacki.cfg` obok gry), więc pytanie pojawia się tylko raz.
-
-W dowolnej chwili możesz zmienić:
+Przy **pierwszym uruchomieniu** gra zapyta jak chcesz grać — *Pełny
+ekran*, *Okno 2×* albo *Okno 1×*. Wybór jest zapamiętany (plik
+`wacki.cfg` obok gry), więc pytanie pojawia się tylko raz.
 
 - **F11** — przełącza pełny ekran ↔ okno
 - **rozciągnij okno za róg** — płynnie zmienia powiększenie; gra
   renderuje wewnętrznie 640×480 i skaluje z zachowaniem proporcji
-  (czarne pasy przy nietypowych proporcjach okna)
 
 Żeby znów zobaczyć pytanie o tryb — skasuj `wacki.cfg`. Zaawansowani
-mogą wymusić tryb z linii poleceń (sekcja niżej) — flagi mają
-pierwszeństwo nad zapamiętanym wyborem.
+mogą wymusić tryb z linii poleceń (sekcja „⚙️ Opcje uruchomienia"
+niżej) — flagi mają pierwszeństwo nad zapamiętanym wyborem.
 
-### Opcje uruchomienia
+</details>
+
+<details>
+<summary><b>📱 Android (telefony i tablety, 7.0+)</b></summary>
+
+Gra renderuje się w wyśrodkowanym kadrze 4:3; wolne miejsce po bokach
+(na szerokim ekranie trzymanym poziomo) wypełnia półprzezroczyste
+sterowanie dotykowe: wirtualna gałka po lewej, a po prawej dwa
+przyciski — duży (lewy klik) i mniejszy nad nim (prawy klik). Można
+też grać samym dotykiem ekranu albo padem Bluetooth/USB.
+
+### Wymagania
+
+- telefon lub tablet z **Androidem 7.0** (API 24) lub nowszym
+- plik **`wacki-android.apk`** z [Releases](../../releases) (podpisany
+  kluczem release — instaluje się bezpośrednio)
+- pliki danych z oryginalnej płyty: `Dane_*.dta`
+
+### Instalacja
+
+1. Pobierz `wacki-android.apk` z [Releases](../../releases) i
+   zainstaluj. To sideload, więc Android poprosi o zgodę na instalację
+   z tego źródła.
+2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty gdziekolwiek na
+   telefon (np. osobny folder w „Pliki" / Downloads). **Nie pakuj ich
+   do APK.**
+3. Uruchom Wacki → ekran powitalny → **„Wskaż folder z plikami gry"** →
+   wskaż ten folder. Gra **czyta pliki wprost z tego miejsca** (przez
+   Storage Access Framework) — nic nie jest kopiowane, więc start jest
+   natychmiastowy. Dostęp jest utrwalony; folder z danymi musi
+   pozostać na miejscu.
+
+Gra zawsze startuje w orientacji poziomej. Zapisy i `wacki.cfg` lądują
+w pamięci wewnętrznej aplikacji.
+
+### Sterowanie
+
+| Czynność                          | Wejście                                          |
+|-----------------------------------|--------------------------------------------------|
+| Ruch kursora                      | dotyk ekranu · gałka (lewy panel)                |
+| Kliknięcie lewe                   | dotyk w grze · duży przycisk (prawy panel)       |
+| Kliknięcie prawe / przełącz postać| mały przycisk (prawy panel) · dotyk 2 palcami · **Tab** |
+| Menu pauzy                        | przycisk **Wstecz**                              |
+
+Szczegóły portu (SAF, nakładka dotykowa, ograniczenia emulatorów) i
+budowanie: [`android/README.md`](android/README.md).
+
+</details>
+
+<details>
+<summary><b>🎮 Handheld — Miyoo Mini Plus i pokrewne (OnionOS)</b></summary>
+
+### Wymagania
+
+- urządzenie z firmware'em **OnionOS 4.2** lub nowszym; stock firmware
+  nie jest wspierane (różni się układ katalogów i mechanizm
+  uruchamiania portów)
+- archiwum `wacki-miyoo.zip` z [Releases](../../releases)
+- pliki danych z oryginalnej płyty: `Dane_*.dta`
+
+Wspierane: **Miyoo Mini Plus** (platforma referencyjna), **Miyoo
+Mini** (pin-kompatybilny, działa bez zmian) oraz inne handheldy z
+firmware'em zgodnym z OnionOS Ports. Dla Anbernica i pokrewnych jest
+osobna paczka PortMaster (niżej).
+
+### Instalacja
+
+Archiwum jest zgodne ze standardem OnionOS Ports.
+
+1. Rozpakuj zawartość archiwum bezpośrednio w katalogu głównym karty
+   pamięci. Folder `Roms/` z archiwum scali się z istniejącym `Roms/`.
+2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty do katalogu:
+   ```
+   Roms/PORTS/Games/Wacki/data/
+   ```
+3. Włóż kartę, włącz urządzenie. W menu wybierz **Ports → Adventure
+   → Wacki**.
+
+### Sterowanie
+
+| Czynność              | Przycisk             |
+|-----------------------|----------------------|
+| Ruch kursora          | krzyżak              |
+| Kliknięcie lewe       | **A**                |
+| Kliknięcie prawe      | **B**                |
+| Menu pauzy            | **START**            |
+| Quick-load            | **L1** / **L2**      |
+| Quick-save            | **R1** / **R2**      |
+| Wyjście z gry         | **MENU**             |
+
+Krzyżak przyspiesza w miarę przytrzymania — krótkie naciśnięcia służą
+do precyzyjnego pozycjonowania kursora, dłuższe trzymanie do szybkiego
+przemieszczania go po ekranie.
+
+</details>
+
+<details>
+<summary><b>🕹️ Handheld — Anbernic i PortMaster</b></summary>
+
+Osobna paczka **PortMaster** działa na większości nowoczesnych
+handheldów Anbernic — a przy okazji na całym ekosystemie PortMastera
+(Powkiddy, TrimUI, RGB30, Miyoo Flip i dziesiątki innych).
+
+### Wymagania
+
+- firmware z **PortMasterem**: muOS, ROCKNIX, Knulli, ArkOS, JELOS lub
+  Batocera (stock firmware Anbernica zwykle go nie ma)
+- archiwum `wacki-portmaster.zip` z [Releases](../../releases)
+- pliki danych z oryginalnej płyty: `Dane_*.dta`
+
+Jedna paczka, dwie binarki: **aarch64** (Allwinner H700, Rockchip
+RK3566/RK3399) i **armhf** (seria RG351 / RK3326 oraz oryginalny RG35XX
+przez Koriki/Batocera). Pełna lista urządzeń:
+[strona — PortMaster](https://mszula.github.io/wacki/platformy/portmaster.html).
+
+### Instalacja
+
+1. Wgraj `wacki-portmaster.zip` przez PortMaster („Install from zip"),
+   albo wrzuć archiwum do folderu `autoinstall` PortMastera.
+2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty do katalogu portu:
+   ```
+   /roms/ports/Wacki/data/
+   ```
+3. Uruchom z menu **Ports → Wacki**.
+
+### Sterowanie
+
+| Czynność              | Przycisk             |
+|-----------------------|----------------------|
+| Ruch kursora          | gałka / krzyżak      |
+| Kliknięcie lewe       | **A** (dolny)        |
+| Kliknięcie prawe      | **B** (prawy)        |
+| Menu pauzy            | **START**            |
+| Quick-load            | **L1**               |
+| Quick-save            | **R1**               |
+| Wyjście z gry         | **START + SELECT**   |
+
+Przyciski w pozycjach SDL: **A** = dolny, **B** = prawy. Na padach w
+układzie Nintendo (większość Anbernica) są one fizycznie oznaczone
+jako **B** i **A** — kieruj się pozycją, nie napisem.
+
+</details>
+
+<details>
+<summary><b>📀 Konsola — PlayStation 2</b></summary>
+
+Renderowanie sprzętowe gsKit, dźwięk przez audsrv, sterowanie
+DualShockiem (lewa gałka = kursor) lub myszą USB. Paczka
+`wacki-ps2.zip` zawiera bootowalny plik ELF.
+
+### Wymagania
+
+- PS2 z homebrew — **FreeMcBoot** / **FreeDVDBoot** + `uLaunchELF` —
+  albo emulator **PCSX2**
+- pendrive (FAT32) na pliki gry (na sprzęcie) lub HostFS (w PCSX2)
+- oryginalne pliki `Dane_*.dta` (port ich nie zawiera)
+
+### Instalacja
+
+1. Rozpakuj `wacki-ps2.zip` — w środku folder `wacki/` z plikiem
+   `wacki-ps2.elf` i podkatalogiem `data/`.
+2. Skopiuj do `wacki/data/` pliki `Dane_*.dta` z oryginalnej płyty.
+3. Wrzuć cały folder `wacki/` na pendrive, tak by powstało
+   `mass:/wacki/wacki-ps2.elf` oraz `mass:/wacki/data/Dane_*.dta`.
+4. Uruchom `mass:/wacki/wacki-ps2.elf` przez `uLaunchELF`.
+
+W PCSX2: **System → Boot ELF** i wskaż `wacki-ps2.elf` (dane przez
+HostFS), albo zbuduj bootowalny obraz ISO — `./tools/build-ps2-iso.sh`.
+
+### Sterowanie
+
+| Czynność              | Przycisk              |
+|-----------------------|-----------------------|
+| Ruch kursora          | lewa gałka / mysz USB |
+| Kliknięcie lewe       | **✕**                 |
+| Kliknięcie prawe      | **○** (kółko)         |
+| Menu pauzy            | **START**             |
+
+</details>
+
+<details>
+<summary><b>⚙️ Opcje uruchomienia (zaawansowane, PC)</b></summary>
 
 Wybrane opcje można podać z linii poleceń lub przez zmienne
 środowiskowe. CLI ma pierwszeństwo nad ENV.
@@ -185,227 +369,19 @@ Wybrane opcje można podać z linii poleceń lub przez zmienne
 | `-q` / `--quiet`       | —                        | tylko ostrzeżenia i błędy (default to INFO)      |
 | `-v` / `--verbose`     | —                        | maksimum logów (wymaga buildu z `-DWACKI_VERBOSE`) |
 
-Przykład: uruchomienie w oknie 1280×960 ze skalowaniem liniowym —
+Przykłady:
 
 ```bash
-./wacki --scale 2 --scaler linear
-```
-
-Pełny ekran (zachowuje rozdzielczość pulpitu, letterbox 640×480) —
-
-```bash
-./wacki --fullscreen
-```
-
-Skok prosto do etapu 3 (kiosk) —
-
-```bash
-./wacki --start-stage 3
+./wacki --scale 2 --scaler linear   # okno 1280×960, skalowanie liniowe
+./wacki --fullscreen                # pełny ekran, letterbox 640×480
+./wacki --start-stage 3             # skok prosto do etapu 3 (kiosk)
 ```
 
 Pozostałe niżej-poziomowe / dev opcje (`--headless`, `--play-avi`,
 `--test-cutscenes`, `--no-pacing`, `WACKI_INPUT_DEBUG`) udokumentowane
 są w [`docs/architecture.md`](docs/architecture.md#11-flagi-runtime).
 
----
-
-## 📱 Wersja na Androida
-
-Wacki działa na telefonach i tabletach z **Androidem 7.0+**. Gra renderuje
-się w wyśrodkowanym kadrze 4:3, a wolne miejsce po bokach (na szerokim
-ekranie trzymanym poziomo) wypełnia półprzezroczyste sterowanie dotykowe:
-wirtualna gałka po lewej, a po prawej dwa przyciski — duży (lewy klik)
-i mniejszy nad nim (prawy klik). Można też grać samym dotykiem ekranu
-albo padem Bluetooth/USB.
-
-### Wymagania
-
-- telefon lub tablet z **Androidem 7.0** (API 24) lub nowszym
-- plik **`wacki-android.apk`** z zakładki [Releases](../../releases)
-  (podpisany kluczem release — instaluje się bezpośrednio)
-- pliki danych z oryginalnej płyty: `Dane_*.dta`
-
-### Instalacja
-
-1. Pobierz `wacki-android.apk` z [Releases](../../releases) i zainstaluj.
-   To sideload, więc Android poprosi o zgodę na instalację z tego źródła.
-2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty gdziekolwiek na telefon
-   (np. osobny folder w „Pliki" / Downloads). **Nie pakuj ich do APK.**
-3. Uruchom Wacki → ekran powitalny → **„Wskaż folder z plikami gry"** →
-   wskaż ten folder. Gra **czyta pliki wprost z tego miejsca** (przez
-   Storage Access Framework) — nic nie jest kopiowane, więc start jest
-   natychmiastowy. Dostęp jest utrwalony: kolejne uruchomienia wchodzą od
-   razu w grę. Folder z danymi musi pozostać na miejscu.
-
-Gra zawsze startuje w orientacji poziomej. Zapisy i `wacki.cfg` lądują
-w pamięci wewnętrznej aplikacji.
-
-### Sterowanie
-
-| Czynność                          | Wejście                                          |
-|-----------------------------------|--------------------------------------------------|
-| Ruch kursora                      | dotyk ekranu · gałka (lewy panel)                |
-| Kliknięcie lewe                   | dotyk w grze · duży przycisk (prawy panel)       |
-| Kliknięcie prawe / przełącz postać| mały przycisk (prawy panel) · dotyk 2 palcami · **Tab** |
-| Menu pauzy                        | przycisk **Wstecz**                              |
-
-Na szerokim ekranie gra zajmuje środek, a w bocznych panelach jest
-dotykowe sterowanie: **gałka** (lewo) rusza kursorem proporcjonalnie
-(delikatny wychył = precyzyjne celowanie), **duży przycisk** po prawej to
-lewy klik, **mniejszy nad nim** — prawy. Kontrolki są półprzezroczyste,
-żeby nie zasłaniać gry. Pad Bluetooth/USB działa tak jak na handheldach.
-
----
-
-## 🎮 Wersja na handheld (Miyoo Mini Plus i pokrewne)
-
-### Wymagania
-
-- urządzenie z firmware'em **OnionOS 4.2** lub nowszym; stock
-  firmware nie jest wspierane (różni się układ katalogów
-  i mechanizm uruchamiania portów)
-- gotowe archiwum `wacki-miyoo.zip` z zakładki [Releases](../../releases)
-- pliki danych z oryginalnej płyty: `Dane_*.dta`
-
-Wspierane modele:
-
-- **Miyoo Mini Plus** — referencyjna platforma, najlepsze wsparcie
-- **Miyoo Mini** — pin-kompatybilny, prawdopodobnie działa bez zmian
-- inne handheldy z firmware'em zgodnym z OnionOS Ports — wymagana
-  ręczna integracja z launcher'em danego firmware'u
-
-Dla Anbernica i innych urządzeń z **PortMasterem** jest osobna paczka —
-patrz sekcja niżej.
-
-### Instalacja
-
-Archiwum `wacki-miyoo.zip` jest zgodne ze standardem OnionOS Ports.
-
-1. Rozpakuj zawartość archiwum bezpośrednio w katalogu głównym karty
-   pamięci urządzenia. Folder `Roms/` z archiwum scali się
-   z istniejącym `Roms/` na karcie.
-2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty do katalogu:
-
-   ```
-   Roms/PORTS/Games/Wacki/data/
-   ```
-
-3. Włóż kartę, włącz urządzenie. W menu wybierz **Ports → Adventure
-   → Wacki**.
-
-### Sterowanie
-
-| Czynność              | Przycisk             |
-|-----------------------|----------------------|
-| Ruch kursora          | krzyżak              |
-| Kliknięcie lewe       | **A**                |
-| Kliknięcie prawe      | **B**                |
-| Menu pauzy            | **START**            |
-| Quick-load            | **L1** / **L2**      |
-| Quick-save            | **R1** / **R2**      |
-| Wyjście z gry         | **MENU**             |
-
-Krzyżak przyspiesza w miarę przytrzymania — krótkie naciśnięcia
-służą do precyzyjnego pozycjonowania kursora, dłuższe trzymanie
-do szybkiego przemieszczania go po ekranie.
-
----
-
-## 🕹️ Wersja na handheld (Anbernic i PortMaster)
-
-Osobna paczka **PortMaster** działa na większości nowoczesnych
-handheldów Anbernic — a przy okazji na całym ekosystemie PortMastera
-(Powkiddy, TrimUI, RGB30, Miyoo Flip i dziesiątki innych urządzeń).
-
-### Wymagania
-
-- firmware z **PortMasterem**: muOS, ROCKNIX, Knulli, ArkOS, JELOS lub
-  Batocera (stock firmware Anbernica zwykle nie ma PortMastera)
-- gotowe archiwum `wacki-portmaster.zip` z zakładki [Releases](../../releases)
-- pliki danych z oryginalnej płyty: `Dane_*.dta`
-
-Architektury (jedna paczka, dwie binarki):
-
-- **aarch64** — Allwinner H700 (RG35XX Plus / H / SP / 2024, RG34XX,
-  RG40XX, RG28XX, RG CubeXX), Rockchip RK3566 (RG353x, RG503) i RK3399
-  (RG552)
-- **armhf** — seria Anbernic RG351 (RK3326) oraz oryginalny RG35XX
-  (Actions, Cortex-A9) przez Koriki/Batocera
-
-### Instalacja
-
-1. Wgraj `wacki-portmaster.zip` przez PortMaster („Install from zip"),
-   albo wrzuć archiwum do folderu `autoinstall` PortMastera.
-2. Skopiuj pliki `Dane_*.dta` z oryginalnej płyty do katalogu portu:
-
-   ```
-   /roms/ports/Wacki/data/
-   ```
-
-3. Uruchom z menu **Ports → Wacki**.
-
-### Sterowanie
-
-| Czynność              | Przycisk             |
-|-----------------------|----------------------|
-| Ruch kursora          | gałka / krzyżak      |
-| Kliknięcie lewe       | **A** (dolny)        |
-| Kliknięcie prawe      | **B** (prawy)        |
-| Menu pauzy            | **START**            |
-| Quick-load            | **L1**               |
-| Quick-save            | **R1**               |
-| Wyjście z gry         | **START + SELECT**   |
-
-Przyciski w pozycjach SDL: **A** = dolny, **B** = prawy. Na padach
-w układzie Nintendo (większość Anbernica) są one fizycznie oznaczone
-jako **B** i **A**. Gałka steruje kursorem proporcjonalnie (delikatny
-wychył = precyzyjne celowanie), krzyżak — z przyspieszeniem.
-
----
-
-## 📀 Wersja na konsolę — PlayStation 2
-
-Wacki działa też na **PlayStation 2** — renderowanie sprzętowe gsKit,
-dźwięk przez audsrv, sterowanie DualShockiem (lewa gałka = kursor) lub
-myszą USB. Paczka `wacki-ps2.zip` zawiera bootowalny plik ELF.
-
-### Wymagania
-
-- PS2 z możliwością uruchamiania homebrew — **FreeMcBoot** /
-  **FreeDVDBoot** + `uLaunchELF` — albo emulator **PCSX2**.
-- Pendrive (FAT32) na pliki gry (na sprzęcie) lub HostFS (w PCSX2).
-- Oryginalne pliki `Dane_*.dta` (port ich nie zawiera).
-
-### Instalacja
-
-1. Rozpakuj `wacki-ps2.zip` — w środku jest folder `wacki/` z plikiem
-   `wacki-ps2.elf` i podkatalogiem `data/`.
-2. Skopiuj do `wacki/data/` pliki `Dane_*.dta` z oryginalnej płyty.
-3. Wrzuć cały folder `wacki/` na pendrive, tak by powstało
-   `mass:/wacki/wacki-ps2.elf` oraz `mass:/wacki/data/Dane_*.dta`.
-4. Uruchom `mass:/wacki/wacki-ps2.elf` przez `uLaunchELF`.
-
-W PCSX2: **System → Boot ELF** i wskaż `wacki-ps2.elf` (dane przez
-HostFS), albo zbuduj bootowalny obraz ISO — `./tools/build-ps2-iso.sh`.
-
-### Sterowanie
-
-| Czynność              | Przycisk              |
-|-----------------------|-----------------------|
-| Ruch kursora          | lewa gałka / mysz USB |
-| Kliknięcie lewe       | **✕**                 |
-| Kliknięcie prawe      | **○** (kółko)         |
-| Menu pauzy            | **START**             |
-
----
-
-## 🔨 Budowanie ze źródeł
-
-Wszystkie instrukcje — wymagania, instalacja SDL2, polecenia `make`
-i buildy w kontenerach Docker dla wszystkich platform (PC, Miyoo,
-Anbernic / PortMaster, PlayStation 2) — są w osobnym pliku:
-
-➡️ [**BUILDING.md**](BUILDING.md)
+</details>
 
 ---
 
@@ -420,17 +396,37 @@ Gra obsługuje:
   slotu 0 z poziomu gry (na PC: `F5` zapis, `F9` odczyt; na
   handheldzie: `R1` zapis, `L1` odczyt)
 
-🔁 **Format `Wacki.sav` jest byte-identyczny z oryginałem z 1998 r.**
+🔁 **Format zapisu jest byte-identyczny z oryginałem z 1998 r.**
 Save zrobiony w porcie da się załadować w oryginalnej binarce
 `WACKI.EXE` (i odwrotnie) — można dograć w porcie etap zaczęty
 w oryginalnej grze pod Windows i kontynuować na handheldzie albo
 wręcz przeciwnie.
 
-Wszystkie sloty trzymane są w jednym pliku `Wacki.sav` w katalogu
-roboczym gry — obok binarki na PC, w `Roms/PORTS/Games/Wacki/` na
-handheldzie. Zapis jest atomowy (tymczasowy plik + rename), więc
-zanik zasilania lub crash w trakcie save'a nie psuje istniejących
-slotów.
+Stan zapisu to jeden blok danych (format `Wacki.sav`), trzymany tam,
+gdzie danej platformie najbliżej:
+
+- **PC** — plik `Wacki.sav` obok binarki
+- **Miyoo** — `Roms/PORTS/Games/Wacki/`; **PortMaster** — `ports/Wacki/`
+- **Android** — pamięć wewnętrzna aplikacji
+- **PS2** — karta pamięci (z własną ikoną i nazwą zapisu)
+
+Na platformach plikowych zapis jest atomowy (tymczasowy plik +
+rename), więc zanik zasilania lub crash w trakcie save'a nie psuje
+istniejących slotów.
+
+---
+
+## 🔨 Budowanie ze źródeł
+
+Wszystkie instrukcje — wymagania, instalacja SDL2, polecenia `make`
+i buildy w kontenerach Docker dla wszystkich platform (PC, Miyoo,
+Anbernic / PortMaster, PlayStation 2, Android) — są w osobnym pliku:
+
+➡️ [**BUILDING.md**](BUILDING.md)
+
+Dokumentacja wnętrza silnika (VM skryptów, format danych, dekoder
+FLIC, pipeline audio itd.) jest w [`docs/`](docs/) — zacznij od
+[`docs/README.md`](docs/README.md).
 
 ---
 
@@ -443,7 +439,7 @@ Coś się sypie? Otwórz issue:
 W zgłoszeniu pomogą:
 
 - **wersja portu** — pierwsza linia logu uruchomieniowego (`[info/wacki] Wacki port vX.Y.Z…`)
-- **platforma** — macOS / Linux / Windows / Android / Miyoo / Anbernic (PortMaster)
+- **platforma** — macOS / Linux / Windows / Android / Miyoo / Anbernic (PortMaster) / PS2
   + wersja systemu/firmware'u
 - **kroki reprodukcji** — co robiłeś bezpośrednio przed crashem
 - **`wacki.log`** — silnik loguje na stderr; gdzie szukać:
@@ -456,6 +452,7 @@ W zgłoszeniu pomogą:
   - **Anbernic / PortMaster**: `ports/Wacki/log.txt`
     (zapisywany przez `Wacki.sh`)
   - **Android**: `adb logcat -s wacki` (silnik loguje do systemowego logcata)
+  - **PS2**: konsola IOP (na sprzęcie) lub logi PCSX2 przy uruchomieniu z HostFS
 - **screenshot** — jeśli problem jest wizualny (popsuta paleta,
   brakujący sprite, glitch animacji)
 
