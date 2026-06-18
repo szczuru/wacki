@@ -40,6 +40,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef WACKI_SWITCH
+#include <unistd.h>   /* chdir */
+#include <sys/stat.h> /* mkdir */
+#endif
 
 /* ---- constants ---------------------------------------------------- */
 
@@ -442,6 +446,36 @@ int WackiMain(int argc, char **argv)
     extern int PlatformMacUseAppSupportDir(void);
     if (PlatformMacUseAppSupportDir())
         LOG_INFO("platform", "user dir: ~/Library/Application Support/Wacki");
+#endif
+#ifdef WACKI_SWITCH
+    /* hbmenu/nx-hbloader does NOT guarantee a consistent current
+     * working directory across launches the way a desktop shell or a
+     * handheld's launcher script does (Miyoo/PortMaster cd into the
+     * game's ROM folder before exec'ing the binary — see README:
+     * "Wacki.sav w katalogu roboczym gry — obok binarki na PC, w
+     * Roms/PORTS/Games/Wacki/ na handheldzie"). On Switch there's no
+     * such launcher step, so save.c's plain fopen("Wacki.sav", ...)
+     * and config.c's fopen("wacki.cfg", ...) can land in a different
+     * (or unwritable) place every launch — symptom: saving appears to
+     * work but the save is "gone" / every slot looks empty after a
+     * restart, because the read on next launch doesn't find the file
+     * the previous launch wrote.
+     *
+     * Fix: chdir into one fixed, known-writable, known-readable
+     * absolute directory before ANYTHING does a relative fopen — this
+     * must run before ConfigLoad() below. mkdir first in case this is
+     * truly the first launch and the folder doesn't exist yet (e.g.
+     * the player only copied WACKI.EXE/Dane_*.dta one level deeper,
+     * into .../wacki/data/) — mkdir failing because the directory
+     * already exists is expected and harmless, no need to check its
+     * return value. chdir's return IS checked: if it somehow fails
+     * (read-only SD card, directory genuinely inaccessible), every
+     * subsequent relative fopen will simply fail too and the game
+     * continues with defaults rather than crashing — exactly the
+     * existing fallback behaviour for a fresh install. */
+    mkdir("sdmc:/switch/wacki", 0777);
+    if (chdir("sdmc:/switch/wacki") != 0)
+        LOG_INFO("platform", "chdir(sdmc:/switch/wacki) failed — Wacki.sav/wacki.cfg location not pinned");
 #endif
     /* SIGINT first so it covers init failures too. */
     signal(SIGINT, sigint_handler);
