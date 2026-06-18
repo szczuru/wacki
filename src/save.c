@@ -27,6 +27,44 @@ static int atomic_replace(const char *from, const char *to)
 {
     return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
 }
+#elif defined(WACKI_SWITCH)
+/* libnx: rename() is supported but unreliable for overwriting an
+ * existing file on FAT/exFAT (the Nintendo FS layer sometimes leaves
+ * both the source and destination intact, or fails silently, depending
+ * on the firmware version). Use a manual copy-and-truncate approach
+ * that is safe on FAT and doesn't rely on rename semantics.
+ *
+ * CRITICAL — fsdevCommitDevice: without this call, writes to sdmc
+ * stay in the kernel FS buffer and are discarded when the process
+ * exits. The file appears correct within the session (fread works)
+ * but is empty or truncated after the next power cycle / relaunch.
+ * This is a libnx-specific requirement; fclose + fflush are not
+ * sufficient because they operate at the libc level, not the libnx
+ * FS API level. */
+#include <unistd.h>
+static int atomic_replace(const char *from, const char *to)
+{
+    FILE *src = fopen(from, "rb");
+    if (!src) return -1;
+    FILE *dst = fopen(to, "wb");
+    if (!dst) { fclose(src); return -1; }
+    char buf[4096];
+    size_t n;
+    int ok = 1;
+    while ((n = fread(buf, 1, sizeof buf, src)) > 0) {
+        if (fwrite(buf, 1, n, dst) != n) { ok = 0; break; }
+    }
+    fclose(src);
+    fflush(dst);
+    fclose(dst);
+    if (!ok) return -1;
+    remove(from); /* clean up the .tmp file */
+
+    extern int fsdevCommitDevice(const char *name);
+    if (fsdevCommitDevice("sdmc") != 0)
+        LOG_INFO("save", "fsdevCommitDevice(sdmc) failed — save may not persist after power-off");
+    return 0;
+}
 #else
 static int atomic_replace(const char *from, const char *to)
 {
@@ -121,12 +159,17 @@ int LoadSaveSlot(uint16_t idx)
  * Originally embedded in RunGameStageLoop; extracted here. */
 void WriteSaveFile(void)
 {
-    /* T131 — atomic write via tmp + rename. The original Win32 build
+    /* T131 — atomic write via tmp + replace. The original Win32 build
      * (and the earlier port) did naive `fopen("Wacki.sav", "wb")`,
      * which TRUNCATES immediately; a crash between open and fwrite
      * leaves a zero-byte Wacki.sav and the next launch silently
-     * resets to defaults. We write to `Wacki.sav.tmp` first, fflush,
-     * then rename over the real file. */
+     * resets to defaults. We write to `Wacki.sav.tmp` first, flush,
+     * then replace over the real file via atomic_replace().
+     *
+     * On Nintendo Switch, atomic_replace() additionally calls
+     * fsdevCommitDevice("sdmc") — without it, the libnx FS buffer
+     * is not flushed to the physical SD card on process exit, and
+     * the save is silently lost. */
     g_save.magic = WACKI_SAVE_MAGIC;
     const char *tmp_path = WACKI_SAVE_FILE ".tmp";
     FILE *fp = fopen(tmp_path, "wb");
@@ -142,7 +185,7 @@ void WriteSaveFile(void)
     fflush(fp);
     fclose(fp);
     if (atomic_replace(tmp_path, WACKI_SAVE_FILE) != 0) {
-        LOG_INFO("save", "rename(%s → %s) failed — keeping tmp", tmp_path, WACKI_SAVE_FILE);
+        LOG_INFO("save", "replace(%s → %s) failed — keeping tmp", tmp_path, WACKI_SAVE_FILE);
     }
 }
 
