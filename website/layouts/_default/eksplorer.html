@@ -1,0 +1,140 @@
+{{ define "head" }}
+<meta
+  name="description"
+  content="Wacki Assets Explorer — darmowe, otwarte narzędzie do zaglądania w pliki gry Wacki: Kosmiczna rozgrywka. Podgląd sprite'ów, palet, dźwięków, cutscenek i skryptów. Działa na Linuksie, Windowsie i macOS."
+/>
+<link rel="canonical" href="{{ .Permalink }}" />
+
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="pl_PL" />
+<meta property="og:title" content="Wacki Assets Explorer — przeglądarka zasobów gry" />
+<meta
+  property="og:description"
+  content="Otwarte narzędzie do przeglądania zasobów gry Wacki — sprite'y, palety, dźwięki i cutscenki. Linux, Windows, macOS."
+/>
+<meta property="og:url" content="{{ .Permalink }}" />
+<meta property="og:image" content="{{ "assets/explorer.png" | absURL }}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta property="twitter:image" content="{{ "assets/explorer.png" | absURL }}" />
+{{ end }}
+
+{{ define "main" }}
+{{- $repo := site.Params.repo -}}
+<main>
+  <section class="section">
+    <div class="wrap">
+      <nav class="crumbs" aria-label="Ścieżka nawigacji">
+        <a href="{{ site.Home.RelPermalink }}">Strona główna</a>
+        <span aria-hidden="true">›</span>
+        <span aria-current="page">Assets Explorer</span>
+      </nav>
+
+      <h1 class="h2">Wacki Assets Explorer</h1>
+      <p class="lead-center">
+        Darmowe, otwarte narzędzie, które otwiera archiwa
+        <code>Dane_*.dta</code> i pokazuje każdy zasób gry
+        <strong>Wacki: Kosmiczna rozgrywka</strong> — sprite'y, animacje,
+        palety, dźwięki, cutscenki i skrypty — dokładnie tak, jak dekoduje je
+        silnik portu.
+      </p>
+      <p class="lead-center">
+        To idealny temat dla <strong>dociekliwych, „grzebaczy" i największych
+        fanów gry</strong>. Pozwala przejrzeć dosłownie wszystko, co kryje
+        <em>Wacki</em> — obejrzeć każdy obrazek, puścić każdą animację, otworzyć
+        każdy dźwięk i zajrzeć do każdego skryptu. Cała zawartość gry jak na
+        dłoni, bez uruchamiania samej gry.
+      </p>
+
+      <figure class="shot">
+        <img
+          src="assets/explorer.png"
+          alt="Wacki Assets Explorer — po lewej lista zasobów archiwum, w centrum podgląd animowanego sprite'a postaci na szachownicy przezroczystości, nad nim selektor palety, pod spodem kontrolki klatek i panel ze szczegółami zasobu"
+          width="2360"
+          height="1440"
+          loading="lazy"
+        />
+        <figcaption>
+          Podgląd sprite'a prosto z archiwum gry — lista zasobów, selektor
+          palety, kontrolki animacji i panel ze szczegółami.
+        </figcaption>
+      </figure>
+    </div>
+
+    <div class="wrap wrap--narrow">
+      <h2 class="h2">Pobierz</h2>
+      <p class="lead-center">
+        Gotowa paczka dla Twojego systemu — rozpakuj i odpal (potrzebujesz tylko
+        własnych plików <code>Dane_*.dta</code>):
+      </p>
+      <p class="lead-center dl-row">
+        <a
+          class="btn btn--dl"
+          href="https://github.com/{{ $repo }}/releases/download/assets-explorer-v1.0.0/wacki-assets-explorer-linux-x86_64.tar.gz"
+          data-umami-event="explorer-dl"
+          data-umami-event-platform="linux"
+          >🐧 Linux x86_64</a
+        >
+        <a
+          class="btn btn--dl"
+          href="https://github.com/{{ $repo }}/releases/download/assets-explorer-v1.0.0/wacki-assets-explorer-windows-x86_64.zip"
+          data-umami-event="explorer-dl"
+          data-umami-event-platform="windows"
+          >🪟 Windows x86_64</a
+        >
+        <a
+          class="btn btn--dl"
+          href="https://github.com/{{ $repo }}/releases/download/assets-explorer-v1.0.0/wacki-assets-explorer-macos-arm64.zip"
+          data-umami-event="explorer-dl"
+          data-umami-event-platform="macos"
+          >🍎 macOS (Apple Silicon)</a
+        >
+      </p>
+      <p class="lead-center">
+        <a href="https://github.com/{{ $repo }}/releases" target="_blank" rel="noopener"
+          >Wszystkie wydania →</a
+        >
+      </p>
+
+      <h2 class="h2">Co pokazuje</h2>
+      <ul class="chips">
+        <li>Animacje i obrazy (ANIM / PIC)</li>
+        <li>Palety + test każdej palety</li>
+        <li>Dźwięki (WAV) z falą i odtwarzaniem</li>
+        <li>Cutscenki FLIC / AVI z dźwiękiem</li>
+        <li>Mapy chodzenia i maski (FILD / MASK)</li>
+        <li>Skrypty (.SCR)</li>
+        <li>Podgląd bajtów (hex)</li>
+        <li>Eksport do PNG / GIF / WAV</li>
+      </ul>
+
+      <h2 class="h2">Zbuduj ze źródeł</h2>
+      <div class="prose">
+        <p>
+          Wolisz zbudować samodzielnie? Narzędzie jest
+          <strong>otwartoźródłowe</strong> (Nuklear + SDL2). Kod i instrukcja
+          budowania są w repozytorium, w katalogu <code>assets-explorer/</code> —
+          to samo <code>make</code> buduje je na Linuksie, Windowsie i macOS.
+        </p>
+        <p>
+          Potrzebujesz własnych plików <code>Dane_*.dta</code> z gry — tak samo
+          jak do samego portu (zobacz
+          <a href="{{ (site.GetPage "/platformy").RelPermalink }}">Platformy</a>).
+          Eksplorer tylko je odczytuje — niczego nie zawiera ani nie
+          rozprowadza.
+        </p>
+      </div>
+
+      <p class="lead-center">
+        <a
+          class="btn btn--primary"
+          href="https://github.com/{{ $repo }}/tree/master/assets-explorer"
+          target="_blank"
+          rel="noopener"
+          data-umami-event="explorer-github"
+          >Kod i instrukcja na GitHubie →</a
+        >
+      </p>
+    </div>
+  </section>
+</main>
+{{ end }}
