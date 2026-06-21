@@ -10,6 +10,7 @@
 # edits to this file. Build a non-default target with `make TARGET=<plat>`
 # (in practice via the tools/build-<plat>.sh Docker wrappers).
 
+.DEFAULT_GOAL := all
 CC       ?= cc
 SDL2_CFG ?= sdl2-config
 
