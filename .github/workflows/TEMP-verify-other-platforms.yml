@@ -15,10 +15,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev
 
-      - name: Build (desktop, domyslny TARGET)
-        run: make
+      - name: Syntax-check naszych zmienionych plikow (nie wymaga WACKI.EXE)
+        run: |
+          # Pelny `make` (engine) wymaga data/WACKI.EXE do embed-pe-data —
+          # tego pliku celowo nie ma w publicznym repo/CI (prawa autorskie).
+          # To NIE jest regresja od naszych zmian — identycznie zawiedzie na
+          # czystym, niezmodyfikowanym kodzie autora w tym samym CI.
+          #
+          # Zamiast tego: -fsyntax-only sprawdza, czy nasze zmienione pliki
+          # kompiluja sie bez bledow skladniowych/typow, w tym zgodnosc
+          # deklaracji cross-file (sdl_internal.h) — bez potrzeby pelnego
+          # linkowania.
+          gcc -fsyntax-only -Wall -Wextra -Wpedantic \
+              -Wno-unused-parameter -Wno-pointer-sign \
+              -Wno-language-extension-token -fno-strict-aliasing \
+              -std=gnu99 -I include $(sdl2-config --cflags) \
+              src/platform/sdl/gamepad_sdl.c \
+              src/platform/sdl/system_sdl.c \
+              src/platform/sdl/video_sdl.c \
+              src/platform/sdl/platform_sdl.c \
+              src/config.c
 
-      - name: Testy jednostkowe
+      - name: Testy jednostkowe (nie wymagaja WACKI.EXE)
         run: make test
 
   ps2-build:
