@@ -21,14 +21,23 @@
  *   PlatformShouldQuit — set by SDL_QUIT / WINDOWCLOSE / ESC
  *   PlatformSetTextInput / PlatformPollTypedChar / PushTypedChar
  *   PlatformShowMessageBox
- */
+ *
+ * g_touch_mode ("absolute" | "relative" | "off") — added for touch-capable
+ * SDL targets beyond Android's dedicated overlay (Nintendo Switch today;
+ * intended to carry over to future touch-capable ports like PS Vita / Wii
+ * U). "absolute" is SDL's existing built-in tap-to-click behaviour
+ * (unchanged from before this option existed); "relative" turns the whole
+ * panel into a laptop-style touchpad (drag-to-move, never clicks — see
+ * handle_finger_relative below); "off" ignores touch entirely. Persisted
+ * via wacki.cfg like every other display/input knob. */
 
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/video.h"
 #include "wacki/platform/input.h"
 #include "wacki/platform/system.h"
-#include "sdl_internal.h"            /* platform_pad_* (gamepad_sdl.c) */
+#include "sdl_internal.h"            /* platform_pad_* (gamepad_sdl.c),
+                                      * platform_video_* (video_sdl.c) */
 #ifdef __ANDROID__
 #include "wacki/platform/android_touch.h"   /* on-screen touch overlay owns touch */
 #endif
@@ -84,6 +93,11 @@ static int           s_vcur_initialized = 0;
 static int           s_vcur_hold_ticks = 0;     /* d-pad-held duration */
 static float         s_vcur_rem_x = 0, s_vcur_rem_y = 0;  /* analog sub-px */
 
+/* "absolute" (default), "relative", or "off" — see the file header comment.
+ * Writable buffer (not a string literal) so ConfigLoad can overwrite it via
+ * sscanf. */
+char g_touch_mode[16] = "absolute";
+
 
 /* ---- typed-char ring buffer -------------------------------------- */
 
@@ -132,6 +146,15 @@ int PlatformInit(int w, int h, const char *title)
      * window-letterbox synth drifts). Turn synth off so touches don't also
      * generate a (mis-mapped) mouse event. Must precede SDL_Init. */
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+#else
+    /* Seed the touch→mouse synthesis hint from g_touch_mode's starting value
+     * (ConfigLoad has already run by this point — see main.c's call order —
+     * so a saved "relative"/"off" preference takes effect from the very
+     * first touch, not just after the player cycles it once at runtime).
+     * "absolute" wants SDL's synthesis ON (the existing default tap-to-click
+     * behaviour); "relative"/"off" want it OFF (handle_finger_relative drives
+     * the cursor instead, or touch is ignored outright — see below). */
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, g_touch_mode[0] == 'a' ? "1" : "0");
 #endif
 
     /* The SDL subsystems each platform needs come from the video HAL:
@@ -248,6 +271,14 @@ static void handle_keydown(const SDL_Event *ev)
      * windowed mode), so this needs no platform guard. */
     if (sym == SDLK_F11) plat_video_toggle_fullscreen();
 
+    /* F10 / F8 — desktop parity for the aspect-mode toggle and touch-mode
+     * cycle that a pad's X / BACK buttons drive on handhelds without a
+     * keyboard (gamepad_sdl.c). Mainly useful for testing these features on
+     * desktop; both are no-ops in effect wherever they don't apply (F10 on
+     * an already-4:3 display, F8 on a target with no touch panel). */
+    if (sym == SDLK_F10) platform_video_toggle_aspect_mode();
+    if (sym == SDLK_F8)  platform_touch_cycle_mode();
+
     /* Tab switches the active actor (Ebek ↔ Fjej) — the same action as RMB and
      * the two-finger tap. A keyboard alternative for desktop and especially
      * Android emulators (BlueStacks et al.), where a hardware right-click isn't
@@ -301,9 +332,26 @@ static void handle_mouse_motion(const SDL_Event *ev)
      * (it would drag the cursor to the bar edge); the overlay drives the cursor
      * itself there. Real game-area touches fall through. */
     if (ev->motion.which == SDL_TOUCH_MOUSEID && wacki_overlay_owns_touch()) return;
-#endif
     g_mouse_x = (int16_t)ev->motion.x;
     g_mouse_y = (int16_t)ev->motion.y;
+#else
+    /* In "stretch" aspect mode, video_sdl.c disables SDL's logical-size
+     * scaling entirely (see its apply_aspect_mode) — which means SDL no
+     * longer auto-rescales these coordinates into framebuffer space the way
+     * it does in "4:3" mode. Do that scaling manually using the real window
+     * size video_sdl.c reports. No-op (passthrough) in "4:3" mode, where SDL
+     * already did the rescale, so win_w/win_h come back equal to fb_w/fb_h
+     * and the multiply is an identity operation. */
+    int stretch = 0, win_w = s_w, win_h = s_h, fb_w = s_w, fb_h = s_h;
+    platform_video_get_present_state(&stretch, &win_w, &win_h, &fb_w, &fb_h);
+    if (stretch && win_w > 0 && win_h > 0) {
+        g_mouse_x = (int16_t)(ev->motion.x * fb_w / win_w);
+        g_mouse_y = (int16_t)(ev->motion.y * fb_h / win_h);
+    } else {
+        g_mouse_x = (int16_t)ev->motion.x;
+        g_mouse_y = (int16_t)ev->motion.y;
+    }
+#endif
 }
 
 /* Env-gated diagnostic — WACKI_INPUT_DEBUG=1 dumps every keydown and
@@ -322,22 +370,23 @@ static int input_debug_enabled(void)
 
 /* ---- touchscreen gestures (Android / any SDL touch device) ------ *
  *
- * Single-finger touch needs no code here: SDL's built-in touch→mouse
- * synthesis (SDL_HINT_TOUCH_MOUSE_EVENTS, on by default) turns a tap into a
- * left click at the touched point — already corrected for the renderer's
- * letterbox by SDL_RenderSetLogicalSize — so walking, the HUD panel,
- * inventory and menus all work through the normal mouse path.
+ * Single-finger touch in "absolute" mode (g_touch_mode, default) needs no
+ * code here: SDL's built-in touch→mouse synthesis (SDL_HINT_TOUCH_MOUSE_
+ * EVENTS, on for this mode) turns a tap into a left click at the touched
+ * point — already corrected for the renderer's letterbox/stretch by
+ * handle_mouse_motion above — so walking, the HUD panel, inventory and
+ * menus all work through the normal mouse path.
  *
  * What synthesis can't express is the game's one non-LMB action: RMB =
- * toggle the active actor (Ebek ↔ Fjej). We map it to a TWO-FINGER tap,
- * detected from the raw SDL_FINGER* stream. The left click the first finger's
- * synthesis latched is cancelled the moment a second finger lands, so the
- * toggle doesn't also fire a stray walk-to. Inert on every non-touch target
- * (no SDL_FINGER* events are ever generated). On Android the on-screen overlay
- * (android_touch.h) owns all touch, so this desktop-touchscreen path is
- * compiled out there. */
+ * toggle the active actor (Ebek ↔ Fjej). We map it to a TWO-FINGER tap in
+ * "absolute" mode, detected from the raw SDL_FINGER* stream. The left click
+ * the first finger's synthesis latched is cancelled the moment a second
+ * finger lands, so the toggle doesn't also fire a stray walk-to. Inert on
+ * every non-touch target (no SDL_FINGER* events are ever generated). On
+ * Android the on-screen overlay (android_touch.h) owns all touch, so this
+ * desktop-touchscreen path is compiled out there. */
 #ifndef __ANDROID__
-static int s_touch_fingers = 0;   /* fingers currently down */
+static int s_touch_fingers = 0;   /* fingers currently down (absolute mode) */
 static int s_touch_peak    = 0;   /* peak simultaneous fingers this gesture */
 
 static void handle_finger_down(void)
@@ -359,6 +408,63 @@ static void handle_finger_up(void)
         g_lmb_clicked = 0;                           /* belt-and-suspenders */
     }
     s_touch_peak = 0;
+}
+
+/* ---- touch_mode "relative" (touchpad) ----------------------------- *
+ *
+ * Only reached when g_touch_mode == "relative" — SDL's touch→mouse synth is
+ * OFF in this mode (see PlatformInit / platform_touch_cycle_mode), so the
+ * whole panel behaves like a laptop touchpad: only the DELTA between
+ * consecutive samples from the SAME finger moves the cursor; where on the
+ * panel the finger lands is irrelevant. No click is ever fired from touch
+ * here, by design — clicking stays on the pad's A/B in this mode, matching
+ * exactly what was requested when this feature was designed: positioning
+ * only, never a synthesized click, when the panel is acting as a touchpad. */
+static int          s_touch_rel_active = 0;
+static SDL_FingerID s_touch_rel_id     = 0;
+static float        s_touch_rel_last_x = 0.0f, s_touch_rel_last_y = 0.0f;
+
+static void handle_finger_relative(const SDL_Event *ev)
+{
+    float nx = ev->tfinger.x, ny = ev->tfinger.y;
+    SDL_FingerID fid = ev->tfinger.fingerId;
+
+    if (ev->type == SDL_FINGERDOWN || !s_touch_rel_active || fid != s_touch_rel_id) {
+        s_touch_rel_active = (ev->type != SDL_FINGERUP);
+        s_touch_rel_id     = fid;
+        s_touch_rel_last_x = nx;
+        s_touch_rel_last_y = ny;
+        return;
+    }
+    if (ev->type == SDL_FINGERUP) {
+        s_touch_rel_active = 0;
+        return;
+    }
+
+    /* SDL_FINGERMOTION: feed the delta into the same virtual-cursor state
+     * the analog-stick path (gamepad_sdl.c → poll_virtual_cursor) already
+     * uses, so accel/clamp behaviour stays consistent across input sources.
+     * SDL's finger coordinates are normalized [0,1] across the WHOLE touch
+     * surface, independent of window/letterbox size, so scaling the delta
+     * by the framebuffer's own w×h gives a proportional, stretch-mode-
+     * agnostic feel — a full-width swipe ≈ a full-width cursor traverse,
+     * regardless of how the panel happens to be letterboxed. */
+    float dxn = nx - s_touch_rel_last_x;
+    float dyn = ny - s_touch_rel_last_y;
+    s_touch_rel_last_x = nx;
+    s_touch_rel_last_y = ny;
+
+    s_vcur_rem_x += dxn * s_w;
+    s_vcur_rem_y += dyn * s_h;
+    int mvx = (int)s_vcur_rem_x; s_vcur_rem_x -= (float)mvx; s_vcur_x += mvx;
+    int mvy = (int)s_vcur_rem_y; s_vcur_rem_y -= (float)mvy; s_vcur_y += mvy;
+    if (s_vcur_x < 0)    s_vcur_x = 0;
+    if (s_vcur_y < 0)    s_vcur_y = 0;
+    if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
+    if (s_vcur_y >= s_h) s_vcur_y = s_h - 1;
+    s_vcur_initialized = 1;
+    g_mouse_x = (int16_t)s_vcur_x;
+    g_mouse_y = (int16_t)s_vcur_y;
 }
 #endif /* !__ANDROID__ */
 
@@ -520,19 +626,23 @@ void PlatformPumpEvents(void)
 #ifdef __ANDROID__
             wacki_overlay_finger_down(ev.tfinger.fingerId, ev.tfinger.x, ev.tfinger.y);
 #else
-            handle_finger_down();
+            if (g_touch_mode[0] == 'a') handle_finger_down();
+            else if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
 #endif
             break;
         case SDL_FINGERMOTION:
 #ifdef __ANDROID__
             wacki_overlay_finger_motion(ev.tfinger.fingerId, ev.tfinger.x, ev.tfinger.y);
+#else
+            if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
 #endif
             break;
         case SDL_FINGERUP:
 #ifdef __ANDROID__
             wacki_overlay_finger_up(ev.tfinger.fingerId, ev.tfinger.x, ev.tfinger.y);
 #else
-            handle_finger_up();
+            if (g_touch_mode[0] == 'a') handle_finger_up();
+            else if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
 #endif
             break;
         case SDL_CONTROLLERBUTTONDOWN:
@@ -559,6 +669,32 @@ int PlatformShouldQuit(void) { return s_quit; }
 
 /* plat_input_has_keyboard() is provided by the per-target hooks file
  * (hooks_desktop.c = 1; the handhelds + PS2 = 0). */
+
+/* sdl_internal.h — cycle g_touch_mode absolute → relative → off →
+ * absolute … and persist the choice. Wired to BACK/MINUS (gamepad_sdl.c)
+ * and F8 (desktop, for parity/testing). Toggling SDL_HINT_TOUCH_MOUSE_EVENTS
+ * at runtime switches whether SDL synthesizes mouse events from touch:
+ * "absolute" wants that on (tap = click, the unmodified original
+ * behaviour); "relative"/"off" want it off (handle_finger_relative drives
+ * the cursor instead, or touch is ignored outright — see the dispatch in
+ * PlatformPumpEvents above). */
+void platform_touch_cycle_mode(void)
+{
+    if (strncmp(g_touch_mode, "absolute", 8) == 0) {
+        strncpy(g_touch_mode, "relative", sizeof g_touch_mode - 1);
+    } else if (strncmp(g_touch_mode, "relative", 8) == 0) {
+        strncpy(g_touch_mode, "off", sizeof g_touch_mode - 1);
+    } else {
+        strncpy(g_touch_mode, "absolute", sizeof g_touch_mode - 1);
+    }
+    g_touch_mode[sizeof g_touch_mode - 1] = '\0';
+#ifndef __ANDROID__
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, g_touch_mode[0] == 'a' ? "1" : "0");
+#endif
+    LOG_INFO("platform", "touch_mode=%s", g_touch_mode);
+    extern void ConfigSave(void);
+    ConfigSave();
+}
 
 /* ---- message box ------------------------------------------------- */
 

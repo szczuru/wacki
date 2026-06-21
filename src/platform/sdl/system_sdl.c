@@ -6,9 +6,12 @@
  * Implements plat_system_early_init / plat_system_exit (wacki/platform/
  * system.h) for the SDL family. The only edge-of-process work here is on
  * Windows (redirect the GUI build's lost stderr to a log file), macOS
- * (escape the read-only Finder cwd) and Android (escape the read-only "/"
- * cwd + trap the Back button); Linux + handheld need nothing. The PS2
- * lifecycle (IOP bring-up + the EE park) lives in src/platform/ps2/system_ps2.c. */
+ * (escape the read-only Finder cwd), Android (escape the read-only "/"
+ * cwd + trap the Back button), and Nintendo Switch (pin a fixed, known-
+ * writable cwd — hbmenu/nx-hbloader give no guarantee here, unlike a
+ * desktop shell or a handheld launcher script); Linux + the other
+ * handhelds need nothing. The PS2 lifecycle (IOP bring-up + the EE park)
+ * lives in src/platform/ps2/system_ps2.c. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -19,6 +22,10 @@
 #ifdef __ANDROID__
 #include <SDL.h>        /* SDL_AndroidGetInternalStoragePath, SDL_SetHint */
 #include <unistd.h>     /* chdir */
+#endif
+#ifdef __SWITCH__
+#include <unistd.h>     /* chdir */
+#include <sys/stat.h>   /* mkdir */
 #endif
 
 #ifdef _WIN32
@@ -74,6 +81,29 @@ void plat_system_early_init(void)
      * requested orientation when the 640×480 window is created) to landscape
      * only, so a device held in portrait never flashes/rotates the game. */
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+#endif
+#ifdef __SWITCH__
+    /* hbmenu/nx-hbloader do NOT guarantee a consistent cwd across launches
+     * the way a desktop shell or a handheld launcher script does (Miyoo/
+     * PortMaster cd into the game's ROM folder before exec'ing the binary).
+     * Pin a fixed, known-writable, known-readable absolute directory before
+     * ANY relative fopen — must precede ConfigLoad and the cwd-relative
+     * FindDataRoot probes (data_root_switch.c uses absolute sdmc:/ paths
+     * regardless, but Wacki.sav / wacki.cfg are still opened with bare
+     * relative names by save_host-style code, so the cwd has to be right).
+     *
+     * mkdir first in case this is genuinely the first launch and the folder
+     * doesn't exist yet; mkdir failing because the directory already exists
+     * is expected and harmless, so its return value isn't checked. chdir's
+     * return IS checked: if it somehow fails (read-only SD card, directory
+     * genuinely inaccessible), every subsequent relative fopen will simply
+     * fail too and the game continues with defaults rather than crashing —
+     * the same fallback a fresh install already has on every other target. */
+    mkdir("sdmc:/switch/wacki", 0777);
+    if (chdir("sdmc:/switch/wacki") == 0)
+        LOG_INFO("platform", "user dir: sdmc:/switch/wacki");
+    else
+        LOG_INFO("platform", "chdir(sdmc:/switch/wacki) failed — Wacki.sav/wacki.cfg location not pinned");
 #endif
 }
 

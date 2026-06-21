@@ -10,11 +10,24 @@
  * present) lives in src/platform/ps2/video_ps2.c.
  *
  * The cross-platform input/event pump + the public Platform* entry points
- * stay in src/platform/sdl/platform_sdl.c, which calls into this HAL. */
+ * stay in src/platform/sdl/platform_sdl.c, which calls into this HAL.
+ *
+ * g_aspect_mode ("stretch" | "4:3") — added for fixed-panel handhelds whose
+ * screen isn't 4:3 (Nintendo Switch's 16:9 panel being the motivating case;
+ * harmless/no visual difference on a display that's already ~4:3, like most
+ * other handhelds here). See apply_aspect_mode() below for why "stretch"
+ * needs to disable SDL_RenderSetLogicalSize entirely rather than just
+ * passing it a different size — SDL's own docs guarantee that function
+ * always preserves the logical aspect ratio (letterboxing on a mismatch),
+ * never disproportionately stretches, so genuine edge-to-edge fill has to
+ * bypass it and blit with an explicit full-window destination rect instead. */
 
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/video.h"
+#include "sdl_internal.h"           /* platform_video_toggle_aspect_mode + the
+                                     * present-state getter platform_sdl.c's
+                                     * mouse/touch handlers need */
 #ifdef __APPLE__
 #include "wacki/platform/macos.h"   /* PlatformSetupMacMenu */
 #endif
@@ -43,7 +56,56 @@ static SDL_Window   *s_win = NULL;
 static SDL_Renderer *s_ren = NULL;
 static SDL_Texture  *s_tex = NULL;
 static uint32_t      s_pixels32[640 * 480];
+static int            s_fb_w = 0, s_fb_h = 0;   /* the engine's framebuffer size */
 
+/* "stretch" (default) or "4:3" — persisted via wacki.cfg (config.c) like
+ * every other display knob. Writable buffer (not a string literal) so
+ * ConfigLoad can overwrite it via sscanf. */
+char g_aspect_mode[16] = "stretch";
+
+/* Mirrors g_aspect_mode for the present()/event-scaling hot path, set by
+ * apply_aspect_mode() whenever g_aspect_mode changes. */
+static int g_stretch_active = 0;
+
+/* See the file header comment for why "stretch" can't just be a different
+ * SDL_RenderSetLogicalSize argument. No-op on Android, which manages its
+ * own non-4:3-fitting overlay layout and never reads g_aspect_mode. */
+static void apply_aspect_mode(int w, int h)
+{
+    if (!s_ren) return;
+#ifdef __ANDROID__
+    (void)w; (void)h;
+    return;
+#else
+    if (g_aspect_mode[0] == '4') {
+        g_stretch_active = 0;
+        SDL_RenderSetLogicalSize(s_ren, w, h);
+    } else {
+        g_stretch_active = 1;
+        SDL_RenderSetLogicalSize(s_ren, 0, 0); /* 0,0 = disable, per SDL docs */
+    }
+#endif
+}
+
+/* sdl_internal.h: lets platform_sdl.c's mouse/touch handlers know whether
+ * logical-size scaling is currently active. SDL only auto-rescales
+ * SDL_MOUSEMOTION / SDL_FINGER* coordinates into framebuffer space when
+ * logical-size scaling is ON ("4:3" mode here); in "stretch" mode it's
+ * disabled (see apply_aspect_mode above), so the event pump has to do that
+ * scaling itself using the window size this returns. */
+void platform_video_get_present_state(int *stretch_active, int *win_w, int *win_h,
+                                      int *fb_w, int *fb_h)
+{
+    *stretch_active = g_stretch_active;
+    *fb_w = s_fb_w;
+    *fb_h = s_fb_h;
+    if (s_win) {
+        SDL_GetWindowSize(s_win, win_w, win_h);
+    } else {
+        *win_w = s_fb_w;
+        *win_h = s_fb_h;
+    }
+}
 
 unsigned plat_video_sdl_init_flags(void)
 {
@@ -54,9 +116,12 @@ int plat_video_init(int w, int h, const char *title)
 {
     /* Platform display prefs, before any sizing (it sets g_fullscreen /
      * g_scale_factor that the sizing below reads): on the desktop this shows
-     * the first-run mode picker (fullscreen / window / scale); PortMaster
-     * forces fullscreen for its WM-less KMSDRM panel; Miyoo / PS2 no-op. */
+     * the first-run mode picker (fullscreen / window / scale); PortMaster /
+     * Switch force fullscreen for their WM-less panels; Miyoo / PS2 no-op. */
     plat_apply_video_prefs();
+
+    s_fb_w = w;
+    s_fb_h = h;
 
     /* T54 — HiDPI scaling. The framebuffer stays w×h; the SDL window can be
      * enlarged Nx and SDL_RenderSetLogicalSize handles the upscale via
@@ -95,7 +160,7 @@ int plat_video_init(int w, int h, const char *title)
      * so the panels are touchable — SDL's letterbox maps emulator touch to the
      * 4:3 canvas and saturates the bars, making them unreachable. */
 #ifndef __ANDROID__
-    SDL_RenderSetLogicalSize(s_ren, w, h);
+    apply_aspect_mode(w, h);
 #endif
     s_tex = SDL_CreateTexture(s_ren, SDL_PIXELFORMAT_ARGB8888,
                               SDL_TEXTUREACCESS_STREAMING, w, h);
@@ -134,9 +199,9 @@ int plat_video_init(int w, int h, const char *title)
     SDL_ShowCursor(SDL_DISABLE);
 
     const char *drv = SDL_GetCurrentVideoDriver();
-    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter, fullscreen=%d), renderer=%s",
+    LOG_INFO("platform", "SDL ready: %dx%d window (%dx scale, %s filter, fullscreen=%d, aspect=%s), renderer=%s",
              win_w, win_h, sf, g_scale_mode ? g_scale_mode : "nearest",
-             g_fullscreen, drv ? drv : "?");
+             g_fullscreen, g_aspect_mode, drv ? drv : "?");
 
     /* Black initial frame so the window is never garbage. */
     memset(s_pixels32, 0, (size_t)w * h * ARGB_BYTES_PER_PIXEL);
@@ -203,7 +268,19 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *palette_rgb,
         SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
     wacki_overlay_draw(s_ren);
 #else
-    SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
+    if (g_stretch_active && s_win) {
+        /* Logical-size scaling is off (see apply_aspect_mode) — a NULL dest
+         * rect would only fill a w×h patch in the corner of the real window,
+         * so stretch to the full window explicitly. This is the entire
+         * point of "stretch" mode: edge-to-edge fill, disproportionate on a
+         * non-4:3 display. */
+        int win_w = w, win_h = h;
+        SDL_GetWindowSize(s_win, &win_w, &win_h);
+        SDL_Rect dest = { 0, 0, win_w, win_h };
+        SDL_RenderCopy(s_ren, s_tex, NULL, &dest);
+    } else {
+        SDL_RenderCopy(s_ren, s_tex, NULL, NULL);
+    }
 #endif
     SDL_RenderPresent(s_ren);
 }
@@ -225,6 +302,23 @@ void plat_video_toggle_fullscreen(void)
     SDL_SetWindowFullscreen(s_win,
         g_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
     LOG_INFO("platform", "fullscreen=%d", g_fullscreen);
+    extern void ConfigSave(void);
+    ConfigSave();
+}
+
+/* sdl_internal.h — flip g_aspect_mode "stretch" ↔ "4:3" at runtime and
+ * persist the choice. Wired to the X button (gamepad_sdl.c) and a desktop
+ * key (platform_sdl.c). No-op on Android (see apply_aspect_mode). */
+void platform_video_toggle_aspect_mode(void)
+{
+    if (g_aspect_mode[0] == '4') {
+        strncpy(g_aspect_mode, "stretch", sizeof g_aspect_mode - 1);
+    } else {
+        strncpy(g_aspect_mode, "4:3", sizeof g_aspect_mode - 1);
+    }
+    g_aspect_mode[sizeof g_aspect_mode - 1] = '\0';
+    apply_aspect_mode(s_fb_w, s_fb_h);
+    LOG_INFO("platform", "aspect_mode=%s", g_aspect_mode);
     extern void ConfigSave(void);
     ConfigSave();
 }

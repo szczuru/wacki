@@ -157,7 +157,16 @@ DEBUG_LDFLAGS = -fsanitize=address -fsanitize=undefined
 # .rdata + .data raw bytes as a const slice table + blob. The PE-loader resolves
 # original VAs against it at runtime — no PE parsing, no file I/O after build.
 # Build-time dep: data/WACKI.EXE must exist; the generated file is gitignored.
-EMBEDDED_PE_SRC = src/embedded_wacki_pe.c
+# A target whose CI/build can't legally embed WACKI.EXE (no copyrighted data
+# in the public repo or its CI artifacts — currently TARGET=switch) may
+# pre-set EMBEDDED_PE_SRC in its mk/<target>.mk to point at its own small
+# "empty slice table" stub instead (see src/pe_loader.c's PeLoaderRead, which
+# checks a dynamically loaded image FIRST and only falls back to the
+# embedded table). `?=` here leaves that override alone. The codegen rule
+# below is guarded to only apply to the DEFAULT path, so an opted-out target
+# never triggers a "data/WACKI.EXE missing" build failure for a stub file it
+# doesn't need.
+EMBEDDED_PE_SRC ?= src/embedded_wacki_pe.c
 EMBEDDED_PE_BIN = data/WACKI.EXE
 EMBED_PE_TOOL   = $(DIST)/embed-pe-data$(EXE)
 
@@ -167,8 +176,10 @@ EMBED_PE_TOOL   = $(DIST)/embed-pe-data$(EXE)
 $(EMBED_PE_TOOL): tools/embed-pe-data.c | $(DIST)
 	$(HOSTCC) -O2 -Wall -I include -o $@ $<
 
+ifeq ($(EMBEDDED_PE_SRC),src/embedded_wacki_pe.c)
 $(EMBEDDED_PE_SRC): $(EMBEDDED_PE_BIN) $(EMBED_PE_TOOL)
 	$(EMBED_PE_TOOL) $(EMBEDDED_PE_BIN) $(EMBEDDED_PE_SRC)
+endif
 
 # Window icon: embed the 64×64 BMP from assets/icons/ as a C byte array so
 # SDL_SetWindowIcon can hand it to the window system (Dock / taskbar / titlebar).
@@ -252,7 +263,7 @@ TEST_CFLAGS = -O2 -Wall -Wextra -Wpedantic \
               -std=gnu11 -I tests/sdl_stub -I include -I tests
 
 # ---- targets ----------------------------------------------------------------
-.PHONY: all engine tools viewer clean run debug test miyoo ps2 ps2-iso
+.PHONY: all engine tools viewer clean run debug test miyoo ps2 ps2-iso switch
 all: engine tools
 
 engine: $(DIST)/$(BIN_NAME)$(EXE)
@@ -273,6 +284,9 @@ miyoo:
 
 ps2:
 	./tools/build-ps2.sh
+
+switch:
+	./tools/build-switch.sh
 
 # Bootable PS2 ISO (SYSTEM.CNF + ELF + game data) so PCSX2 runs it via "Boot
 # ISO" with no HostFS config. Builds the ELF first if needed.
@@ -318,5 +332,7 @@ $(DIST)/run-tests$(EXE): $(TEST_SRCS) $(TEST_ENGINE_SRCS) | $(DIST)
 # the generated embed source, and stray .o files from ad-hoc compiles.
 clean:
 	rm -rf $(DIST)
+ifeq ($(EMBEDDED_PE_SRC),src/embedded_wacki_pe.c)
 	rm -f $(EMBEDDED_PE_SRC)
+endif
 	rm -f *.o src/*.o tools/*.o tests/*.o

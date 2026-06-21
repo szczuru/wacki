@@ -4,16 +4,36 @@
  * src/platform/sdl/gamepad_sdl.c — SDL_GameController → cursor glue.
  *
  * Shared by every pad-driven target — PortMaster (Anbernic & friends), the
- * PS2's DualShock, the Vita — wherever standard SDL2 exposes the controls as
- * a real SDL_GameController. This module owns the controller handle and maps
- * it onto the engine's existing software-cursor + click model (the keysym-
- * button counterpart for the Miyoo lives in miyoo/miyoo.c).
+ * PS2's DualShock, the Vita, the Nintendo Switch — wherever standard SDL2
+ * exposes the controls as a real SDL_GameController. This module owns the
+ * controller handle and maps it onto the engine's existing software-cursor +
+ * click model (the keysym-button counterpart for the Miyoo lives in
+ * miyoo/miyoo.c).
  *
  *   left stick / d-pad   → move the software cursor
- *   A (south)            → left click   (walk / interact)
- *   B (east)             → right click  (HandleSceneInput toggles actor)
+ *   A (south position)   → left click   (walk / interact)
+ *   B (east position)    → right click  (HandleSceneInput toggles actor)
+ *   X (west position)    → toggle stretch / true-aspect video mode
+ *   BACK / MINUS         → cycle touch-input mode (absolute / relative / off)
  *   START                → pause menu
  *   L1 / R1              → quickload / quicksave
+ *
+ * Nintendo button layout: SDL names buttons by DIAMOND POSITION using the
+ * Xbox convention (A=south, B=east, X=west, Y=north), not the letter printed
+ * on the pad. Nintendo's physical silkscreen is the mirror image at those
+ * same four positions (B=south, A=east, Y=west, X=north — Nintendo's own
+ * controller guidelines put "A confirms" on the east/right face button,
+ * Xbox's put it on the south/bottom one). So on a Joy-Con pair, Pro
+ * Controller, or any other pad SDL reports as a Nintendo type, the A/B and
+ * X/Y constant pairs are swapped below BEFORE dispatch — this keeps
+ * "physical A = left click" consistent with what every other handheld
+ * target here already does, regardless of which vendor's diamond layout the
+ * pad uses. Detected via SDL_GameControllerGetType() so it applies to any
+ * Nintendo pad on any SDL target (a Pro Controller paired to a PortMaster
+ * device over Bluetooth gets the same correct mapping); __SWITCH__ always
+ * forces it on top, since the console's own built-in/attached controllers
+ * are unconditionally Nintendo-labelled regardless of what the type query
+ * reports.
  *
  * platform_sdl.c calls platform_pad_open() once at init, routes
  * SDL_CONTROLLER* events through platform_pad_handle_event(), and folds
@@ -40,6 +60,26 @@
 /* First opened controller. NULL until a pad shows up. */
 static SDL_GameController *s_pad = NULL;
 
+/* See the header comment above for why this swap exists. __SWITCH__ always
+ * returns true (the console's own controllers are unconditionally Nintendo-
+ * labelled); every other SDL target asks SDL_GameControllerGetType(), which
+ * also catches a Joy-Con/Pro Controller plugged into a PC or paired to a
+ * PortMaster handheld. */
+static int is_nintendo_layout(SDL_GameController *pad)
+{
+#ifdef __SWITCH__
+    (void)pad;
+    return 1;
+#else
+    if (!pad) return 0;
+    SDL_GameControllerType t = SDL_GameControllerGetType(pad);
+    return t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO ||
+           t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT ||
+           t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT ||
+           t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR;
+#endif
+}
+
 /* Init the controller subsystem (separately, so a backend without it
  * stays non-fatal) and adopt the first available pad. */
 void platform_pad_open(void)
@@ -52,28 +92,40 @@ void platform_pad_open(void)
     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
         if (SDL_IsGameController(i) &&
             (s_pad = SDL_GameControllerOpen(i)) != NULL) {
-            LOG_INFO("platform", "game controller: %s",
-                     SDL_GameControllerName(s_pad));
+            LOG_INFO("platform", "game controller: %s%s",
+                     SDL_GameControllerName(s_pad),
+                     is_nintendo_layout(s_pad) ? " (Nintendo layout)" : "");
             return;
         }
     }
 }
 
 /* Handle one SDL_CONTROLLER* event. Returns 1 if consumed. Button layout
- * matches the Miyoo mapping so muscle memory carries across handhelds. */
+ * matches the Miyoo mapping so muscle memory carries across handhelds — see
+ * the header comment above for the Nintendo-layout A/B/X/Y swap. */
 int platform_pad_handle_event(const SDL_Event *ev)
 {
     switch (ev->type) {
-    case SDL_CONTROLLERBUTTONDOWN:
-        switch (ev->cbutton.button) {
+    case SDL_CONTROLLERBUTTONDOWN: {
+        SDL_GameControllerButton btn = ev->cbutton.button;
+        if (is_nintendo_layout(s_pad)) {
+            if      (btn == SDL_CONTROLLER_BUTTON_A) btn = SDL_CONTROLLER_BUTTON_B;
+            else if (btn == SDL_CONTROLLER_BUTTON_B) btn = SDL_CONTROLLER_BUTTON_A;
+            else if (btn == SDL_CONTROLLER_BUTTON_X) btn = SDL_CONTROLLER_BUTTON_Y;
+            else if (btn == SDL_CONTROLLER_BUTTON_Y) btn = SDL_CONTROLLER_BUTTON_X;
+        }
+        switch (btn) {
         case SDL_CONTROLLER_BUTTON_A:             g_lmb_clicked        = 1; break;
         case SDL_CONTROLLER_BUTTON_B:             g_rmb_clicked        = 1; break;
+        case SDL_CONTROLLER_BUTTON_X:             platform_video_toggle_aspect_mode(); break;
+        case SDL_CONTROLLER_BUTTON_BACK:          platform_touch_cycle_mode();         break;
         case SDL_CONTROLLER_BUTTON_START:         g_pause_menu_request = 1; break;
         case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  g_quickload_request  = 1; break;
         case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: g_quicksave_request  = 1; break;
         default: return 0;
         }
         return 1;
+    }
 
     case SDL_CONTROLLERDEVICEADDED:
         /* Hot-plug: adopt a pad if we don't have one yet. */
