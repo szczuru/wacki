@@ -6,8 +6,8 @@
 # line, a bare `make` would treat `dist` itself as the goal (just
 # `mkdir -p dist`, nothing else) instead of `all`. Explicit is better
 # than implicit here.
-.DEFAULT_GOAL := all
 
+.DEFAULT_GOAL := all
 CC       ?= cc
 SDL2_CFG ?= sdl2-config
 
