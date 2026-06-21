@@ -1,0 +1,45 @@
+name: TEMP - verify other platforms still build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  desktop-build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Zainstaluj SDL2 dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev
+
+      - name: Build (desktop, domyslny TARGET)
+        run: make
+
+      - name: Testy jednostkowe
+        run: make test
+
+  ps2-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build (tools/build-ps2.sh)
+        run: bash tools/build-ps2.sh
+
+  portmaster-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build (tools/build-portmaster.sh, jesli istnieje)
+        run: |
+          if [ -f tools/build-portmaster.sh ]; then
+            bash tools/build-portmaster.sh
+          else
+            echo "Brak tools/build-portmaster.sh - pomijam"
+          fi
