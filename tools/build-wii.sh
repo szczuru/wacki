@@ -14,7 +14,7 @@ docker run --rm -v "$PWD:/wacki" -w /wacki devkitpro/devkitppc:latest sh -c '
 
     # Zainstaluj wii-dev i portlibs jezeli nie ma (obraz devkitppc
     # moze nie miec ich preinstalowanych w przeciwienstwie do devkita64)
-    dkp-pacman -S --needed --noconfirm wii-dev wii-sdl2 wii-sdl2_mixer 2>/dev/null || true
+    dkp-pacman -S --needed --noconfirm wii-dev wii-sdl2 wii-sdl2_mixer wii-tools 2>/dev/null || true
 
     make TARGET=wii
 '
