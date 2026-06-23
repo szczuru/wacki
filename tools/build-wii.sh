@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# tools/build-wii.sh — cross-compile TARGET=wii via the devkitpro/devkitwii
+# tools/build-wii.sh — cross-compile TARGET=wii via the devkitpro/devkitppc
 # Docker image (devkitPPC + libogc + SDL2 portlib preinstalled).
 # Mirrors tools/build-switch.sh / tools/build-ps2.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-docker run --rm -v "$PWD:/wacki" -w /wacki devkitpro/devkitwii:latest sh -c '
+docker run --rm -v "$PWD:/wacki" -w /wacki devkitpro/devkitppc:latest sh -c '
     set -e
     . /etc/profile.d/devkit-env.sh 2>/dev/null || true
     export DEVKITPRO=/opt/devkitpro
