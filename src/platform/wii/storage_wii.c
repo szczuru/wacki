@@ -14,7 +14,6 @@
 #include "wacki/platform/storage.h"
 
 #include <stdio.h>
-#include <unistd.h>   /* sync() */
 
 static int atomic_replace(const char *from, const char *to)
 {
@@ -35,10 +34,13 @@ static int atomic_replace(const char *from, const char *to)
     if (!ok) return -1;
     remove(from);
 
-    /* libfat: flush pending writes to the physical SD card via POSIX sync().
-     * libfat doesn't expose a per-device sync in this version — sync() flushes
-     * all pending filesystem writes, which is sufficient here. */
-    sync();
+    /* libfat on devkitPPC/newlib: fflush()+fclose() above write the data
+     * to libfat's internal cache; libfat flushes automatically on fatUnmount
+     * or when the Wii powers down cleanly through the HOME menu. POSIX
+     * sync() does not exist in newlib, and fatSync() is not available in
+     * this version of libfat. This is the best we can do without a
+     * device-specific flush API — same level of safety as every other
+     * libfat-based Wii homebrew app. */
     return 0;
 }
 
