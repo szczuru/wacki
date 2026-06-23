@@ -40,9 +40,21 @@ Sterujesz **DualShockiem** (lewa gałka = kursor) lub **myszą USB**.
 
 ## W emulatorze PCSX2
 
-**System → Boot ELF** i wskaż `wacki-ps2.elf` (dane przez HostFS), albo zbuduj
-bootowalny obraz ISO ze źródeł (`./tools/build-ps2-iso.sh`) i odpal go przez
-**Boot ISO**.
+Masz dwie drogi.
+
+**HostFS — dane w folderze, bez budowania ISO.** Najpierw **włącz HostFS** —
+bez tego `host:` się nie podnosi, gra nie znajdzie danych i zobaczysz **czarny
+ekran**:
+
+> **Ustawienia → Emulacja → „Włącz system plików hosta"**
+> („Enable host filesystem").
+
+Potem **System → Boot ELF** i wskaż `wacki-ps2.elf`. Pliki `Dane_*.dta` muszą
+leżeć w podkatalogu `data/` **obok** ELF-a (`host:` rootuje się w katalogu
+odpalanego pliku).
+
+**ISO.** Albo zbuduj bootowalny obraz ze źródeł (`./tools/build-ps2-iso.sh`) i
+odpal go przez **Boot ISO** — to omija HostFS w całości.
 
 ## Co siedzi pod maską
 
@@ -53,6 +65,12 @@ plik ELF.
 
 ## Coś nie działa?
 
-Na sprzęcie diagnostyka idzie przez konsolę IOP; w PCSX2 logi widać przy
-uruchomieniu z HostFS. Dołącz wersję portu i sposób uruchomienia (sprzęt vs
-PCSX2, USB vs ISO) do zgłoszenia błędu.
+**Czarny ekran w PCSX2 zaraz po starcie?** Prawie zawsze znaczy, że HostFS jest
+wyłączony albo `data/` nie leży obok ELF-a — gra nie znajduje `Dane_*.dta`.
+Włącz **Ustawienia → Emulacja → „Włącz system plików hosta"** i sprawdź, że
+`Dane_*.dta` są w `data/` przy `wacki-ps2.elf`. Najpewniejsza alternatywa to
+droga przez ISO (omija HostFS).
+
+Na sprzęcie diagnostyka idzie przez konsolę IOP; w PCSX2 logi widać w **konsoli
+PCSX2** (a nie w pliku `wacki.log`). Dołącz wersję portu i sposób uruchomienia
+(sprzęt vs PCSX2, USB vs ISO) do zgłoszenia błędu.

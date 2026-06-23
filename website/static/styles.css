@@ -765,6 +765,25 @@ code {
   color: var(--ink-soft);
 }
 
+/* itch.io embed widget — framed like a comic card (cf. .ctrl / .shot). The
+   iframe's own colours are set via embed params to the page palette
+   (bg=paper, fg=ink, link=red), so this frame is the only visible border. */
+.itch-embed {
+  max-width: 558px;
+  margin: 30px auto 0;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: 6px 6px 0 var(--shadow);
+  overflow: hidden;
+}
+.itch-embed iframe {
+  display: block;
+  width: 100%;
+  height: 167px;
+  border: 0;
+}
+
 .ctrl {
   background: var(--paper);
   border: 3px solid var(--ink);
