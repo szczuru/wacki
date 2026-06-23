@@ -46,7 +46,8 @@ SDL_LIB := $(shell $(WII_PKGCONF_PATH) $(WII_PKGCONF) --libs sdl2 SDL2_mixer 2>/
 
 LDFLAGS_STATIC := -L$(DEVKITPRO)/libogc/lib/wii \
                    -L$(DEVKITPRO)/portlibs/wii/lib \
-                   -specs=$(DEVKITPRO)/libogc/lib/wii/rules
+                   -L$(DEVKITPRO)/portlibs/ppc/lib \
+                   -mrvl -mcpu=750 -meabi -mhard-float
 
 # Same empty-stub pattern as TARGET=switch.
 EMBEDDED_PE_SRC := src/platform/wii/embedded_wacki_pe_stub.c
@@ -68,23 +69,15 @@ ENGINE_SRCS += src/platform/wii/wii.c \
                src/platform/sdl/video_sdl.c \
                src/platform/sdl/system_sdl.c
 
+# On Wii we want the linker output to be an .elf (then converted to .dol).
+# Override EXE so the top Makefile's engine rule produces dist/wacki.elf.
+EXE      := .elf
+
 # ---- .dol packaging --------------------------------------------------------
-# elf2dol (devkitPPC) converts the ELF to a .dol the Homebrew Channel can
-# launch. The player places the .dol in sd:/apps/wacki/boot.dol alongside
-# their Dane_*.dta and WACKI.EXE.
-DIST_ELF := $(DIST)/$(BIN_NAME).elf
 DIST_DOL := $(DIST)/$(BIN_NAME).dol
 ELF2DOL  := $(DEVKITPPC)/bin/elf2dol
 
 all: $(DIST_DOL)
 
-# Override the default engine rule to produce .elf (devkitPPC links to ELF,
-# elf2dol converts it). The top Makefile's engine rule targets
-# $(DIST)/$(BIN_NAME)$(EXE); on Wii EXE is empty and we want an .elf, then
-# convert. Redirect the link output to .elf and add the dol step.
-$(DIST_ELF): $(ENGINE_SRCS) | $(DIST)
-	$(CC) $(CFLAGS) $(CFLAGS_SIZE) $(SDL_CFG) -o $@ $(ENGINE_SRCS) \
-	    $(SDL_LIB) $(LDFLAGS_STATIC) $(LDFLAGS_SIZE)
-
-$(DIST_DOL): $(DIST_ELF)
+$(DIST_DOL): $(DIST)/$(BIN_NAME)$(EXE)
 	$(ELF2DOL) $< $@
