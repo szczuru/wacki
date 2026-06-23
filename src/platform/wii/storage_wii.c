@@ -13,8 +13,8 @@
 #include "wacki/log.h"
 #include "wacki/platform/storage.h"
 
-#include <fat.h>
 #include <stdio.h>
+#include <unistd.h>   /* sync() */
 
 static int atomic_replace(const char *from, const char *to)
 {
@@ -35,11 +35,10 @@ static int atomic_replace(const char *from, const char *to)
     if (!ok) return -1;
     remove(from);
 
-    /* libfat: flush pending writes to the physical SD card. Without this,
-     * data may be lost on power-off — same issue as Switch's
-     * fsdevCommitDevice. "sd" is the default libfat mount name. */
-    if (!fatSync("sd"))
-        LOG_INFO("save", "fatSync(sd) failed — save may not persist after power-off");
+    /* libfat: flush pending writes to the physical SD card via POSIX sync().
+     * libfat doesn't expose a per-device sync in this version — sync() flushes
+     * all pending filesystem writes, which is sufficient here. */
+    sync();
     return 0;
 }
 
