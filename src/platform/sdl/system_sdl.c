@@ -27,7 +27,6 @@
 #include <unistd.h>     /* chdir */
 #include <sys/stat.h>   /* mkdir */
 #endif
-#ifdef __wii__
 #include <fat.h>        /* fatInitDefault */
 #include <unistd.h>     /* chdir */
 #include <sys/stat.h>   /* mkdir */
