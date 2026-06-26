@@ -235,14 +235,62 @@ code {
   background: var(--orange);
   color: var(--ink);
 }
-.nav__gh {
-  background: var(--orange);
-  color: #fff !important;
-  border: 2px solid var(--ink);
+/* Inline brand icons (itch.io, GitHub) in the nav — monochrome, inheriting the
+   link's text colour via currentColor (so they flip to ink on hover too). */
+.nav__ic {
+  width: 1.05em;
+  height: 1.05em;
+  fill: currentColor;
+  vertical-align: -0.15em;
+  margin-right: 0.38em;
 }
-.nav__gh:hover {
-  background: var(--red) !important;
-  border-color: var(--ink);
+
+/* Custom hover/focus tooltips for nav links (data-tip) — an on-brand ink chip
+   with a little arrow, instead of the unstyled native title= bubble. */
+.nav__links a[data-tip] {
+  position: relative;
+}
+.nav__links a[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  transform: translate(-50%, -4px);
+  white-space: nowrap;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.2px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  box-shadow: 3px 3px 0 rgba(29, 22, 8, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 60;
+}
+.nav__links a[data-tip]::before {
+  content: "";
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-bottom-color: var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 60;
+}
+.nav__links a[data-tip]:hover::after,
+.nav__links a[data-tip]:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.nav__links a[data-tip]:hover::before,
+.nav__links a[data-tip]:focus-visible::before {
+  opacity: 1;
 }
 
 .nav__burger {
@@ -763,25 +811,6 @@ code {
   font-family: var(--font-hand);
   font-size: 1.18rem;
   color: var(--ink-soft);
-}
-
-/* itch.io embed widget — framed like a comic card (cf. .ctrl / .shot). The
-   iframe's own colours are set via embed params to the page palette
-   (bg=paper, fg=ink, link=red), so this frame is the only visible border. */
-.itch-embed {
-  max-width: 558px;
-  margin: 30px auto 0;
-  background: var(--paper);
-  border: 3px solid var(--ink);
-  border-radius: var(--radius);
-  box-shadow: 6px 6px 0 var(--shadow);
-  overflow: hidden;
-}
-.itch-embed iframe {
-  display: block;
-  width: 100%;
-  height: 167px;
-  border: 0;
 }
 
 .ctrl {
@@ -1545,7 +1574,6 @@ kbd {
     background: var(--orange);
     color: var(--ink);
   }
-  .nav__gh,
   .nav__support {
     text-align: center;
   }
