@@ -21,19 +21,12 @@
  * Nintendo button layout: SDL names buttons by DIAMOND POSITION using the
  * Xbox convention (A=south, B=east, X=west, Y=north), not the letter printed
  * on the pad. Nintendo's physical silkscreen is the mirror image at those
- * same four positions (B=south, A=east, Y=west, X=north — Nintendo's own
- * controller guidelines put "A confirms" on the east/right face button,
- * Xbox's put it on the south/bottom one). So on a Joy-Con pair, Pro
- * Controller, or any other pad SDL reports as a Nintendo type, the A/B and
- * X/Y constant pairs are swapped below BEFORE dispatch — this keeps
- * "physical A = left click" consistent with what every other handheld
- * target here already does, regardless of which vendor's diamond layout the
- * pad uses. Detected via SDL_GameControllerGetType() so it applies to any
- * Nintendo pad on any SDL target (a Pro Controller paired to a PortMaster
- * device over Bluetooth gets the same correct mapping); __SWITCH__ always
- * forces it on top, since the console's own built-in/attached controllers
- * are unconditionally Nintendo-labelled regardless of what the type query
- * reports.
+ * same four positions (B=south, A=east, Y=west, X=north). Detection of
+ * whether a connected pad uses Nintendo's layout is delegated to the
+ * platform-HAL hook plat_pad_is_nintendo_layout() (input.h), implemented in:
+ *   src/platform/nintendo/nintendo_gamepad.c — always 1 on Nintendo HW
+ *   src/platform/sdl/pad_layout.c            — SDL type query on other hosts
+ * This keeps the detection logic out of this shared file.
  *
  * platform_sdl.c calls platform_pad_open() once at init, routes
  * SDL_CONTROLLER* events through platform_pad_handle_event(), and folds
@@ -42,46 +35,17 @@
 
 #include "wacki.h"
 #include "wacki/log.h"
-#include "wacki/platform/input.h"   /* plat_pad_read_extra */
-#include "sdl_internal.h"           /* platform_pad_* declarations */
+#include "wacki/platform/input.h"
+#include "sdl_internal.h"
 
 #include <SDL.h>
-
 #include <stdint.h>
 
-
-/* Analog-stick cursor: past the deadzone, full deflection moves
- * PAD_ANALOG_MAX_PX per tick, scaled linearly by how far the stick is
- * pushed. The caller carries the sub-pixel remainder so gentle pushes
- * still creep the cursor (fine aiming on a point-and-click). */
 #define PAD_ANALOG_MAX_PX     9
-#define PAD_ANALOG_DEADZONE   8000   /* of 32767 */
+#define PAD_ANALOG_DEADZONE   8000
 
-/* First opened controller. NULL until a pad shows up. */
 static SDL_GameController *s_pad = NULL;
 
-/* See the header comment above for why this swap exists. __SWITCH__ always
- * returns true (the console's own controllers are unconditionally Nintendo-
- * labelled); every other SDL target asks SDL_GameControllerGetType(), which
- * also catches a Joy-Con/Pro Controller plugged into a PC or paired to a
- * PortMaster handheld. */
-static int is_nintendo_layout(SDL_GameController *pad)
-{
-#ifdef __SWITCH__
-    (void)pad;
-    return 1;
-#else
-    if (!pad) return 0;
-    SDL_GameControllerType t = SDL_GameControllerGetType(pad);
-    return t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO ||
-           t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT ||
-           t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT ||
-           t == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR;
-#endif
-}
-
-/* Init the controller subsystem (separately, so a backend without it
- * stays non-fatal) and adopt the first available pad. */
 void platform_pad_open(void)
 {
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
@@ -94,21 +58,21 @@ void platform_pad_open(void)
             (s_pad = SDL_GameControllerOpen(i)) != NULL) {
             LOG_INFO("platform", "game controller: %s%s",
                      SDL_GameControllerName(s_pad),
-                     is_nintendo_layout(s_pad) ? " (Nintendo layout)" : "");
+                     plat_pad_is_nintendo_layout(s_pad) ? " (Nintendo layout)" : "");
             return;
         }
     }
 }
 
-/* Handle one SDL_CONTROLLER* event. Returns 1 if consumed. Button layout
- * matches the Miyoo mapping so muscle memory carries across handhelds — see
- * the header comment above for the Nintendo-layout A/B/X/Y swap. */
 int platform_pad_handle_event(const SDL_Event *ev)
 {
     switch (ev->type) {
     case SDL_CONTROLLERBUTTONDOWN: {
         SDL_GameControllerButton btn = ev->cbutton.button;
-        if (is_nintendo_layout(s_pad)) {
+        /* Remap physical A/B/X/Y to match the correct diamond position when
+         * the pad uses Nintendo's layout instead of Xbox's. Delegated to the
+         * HAL hook so no Nintendo-specific code lives in this shared file. */
+        if (plat_pad_is_nintendo_layout(s_pad)) {
             if      (btn == SDL_CONTROLLER_BUTTON_A) btn = SDL_CONTROLLER_BUTTON_B;
             else if (btn == SDL_CONTROLLER_BUTTON_B) btn = SDL_CONTROLLER_BUTTON_A;
             else if (btn == SDL_CONTROLLER_BUTTON_X) btn = SDL_CONTROLLER_BUTTON_Y;
@@ -128,7 +92,6 @@ int platform_pad_handle_event(const SDL_Event *ev)
     }
 
     case SDL_CONTROLLERDEVICEADDED:
-        /* Hot-plug: adopt a pad if we don't have one yet. */
         if (!s_pad && SDL_IsGameController(ev->cdevice.which))
             s_pad = SDL_GameControllerOpen(ev->cdevice.which);
         return 1;
@@ -146,10 +109,6 @@ int platform_pad_handle_event(const SDL_Event *ev)
     }
 }
 
-/* Fold the pad into the caller's per-frame cursor poll: the d-pad adds to
- * the discrete dx/dy (sharing the keyboard's accel ramp) and the left
- * stick sets the proportional ax/ay (px/tick). On PS2 a USB mouse adds its
- * relative motion + clicks on top, so it works with or without a pad. */
 void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
 {
     if (s_pad) {
@@ -165,23 +124,15 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
         if (sy > PAD_ANALOG_DEADZONE || sy < -PAD_ANALOG_DEADZONE)
             *ay = (float)sy / 32767.0f * PAD_ANALOG_MAX_PX;
     }
-
-    /* Platform extras folded on top of the SDL pad read — on PS2 the DualShock
-     * is kicked into analog mode and the USB HID mouse delta + clicks are
-     * added; a no-op elsewhere. */
     plat_pad_read_extra(ax, ay);
 }
 
-/* Edge-triggered menu navigation — see wacki/platform/input.h. Drives the PS2
- * boot-time video-mode picker, which runs before the main event loop, so it
- * refreshes the controller state itself (SDL_GameControllerUpdate) instead of
- * relying on the per-frame event pump. */
 int plat_pad_menu_nav(int *up, int *down, int *confirm)
 {
     *up = *down = *confirm = 0;
-    if (!s_pad) return 0;                      /* no pad — caller uses a default */
+    if (!s_pad) return 0;
 
-    SDL_GameControllerUpdate();                /* poll fresh state, no event loop */
+    SDL_GameControllerUpdate();
 
     int sy = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTY);
     int u = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_UP)
@@ -190,7 +141,6 @@ int plat_pad_menu_nav(int *up, int *down, int *confirm)
             || sy >  PAD_ANALOG_DEADZONE;
     int c = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_A);
 
-    /* Fire on the press edge so a held direction/button advances once. */
     static int p_u = 0, p_d = 0, p_c = 0;
     if (u && !p_u) *up = 1;
     if (d && !p_d) *down = 1;
@@ -199,11 +149,6 @@ int plat_pad_menu_nav(int *up, int *down, int *confirm)
     return 1;
 }
 
-/* Discard input queued during a pre-game modal — see wacki/platform/input.h.
- * The picker polls the pad with SDL_GameControllerUpdate, which also POSTS the
- * button events to the queue; the confirming X would otherwise reach the game's
- * first pump as a click and skip the intro. Drop the whole queue + clear the
- * click latches. */
 void plat_input_flush(void)
 {
     SDL_PumpEvents();
