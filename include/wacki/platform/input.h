@@ -15,6 +15,8 @@
 #ifndef WACKI_PLATFORM_INPUT_H
 #define WACKI_PLATFORM_INPUT_H
 
+#include <SDL.h>
+
 /* Whether the platform has a real, reliable keyboard. Desktop = yes. On the
  * handhelds (Miyoo / PortMaster) every hardware button is mapped by firmware
  * to some keyboard scancode — unpredictably: a volume key aliased onto the
@@ -50,5 +52,21 @@ int plat_pad_menu_nav(int *up, int *down, int *confirm);
  * — which skips the (click-skippable) intro cutscene straight to the menu.
  * Implemented in gamepad_sdl.c. */
 void plat_input_flush(void);
+
+/* Returns 1 if the currently open controller uses Nintendo's button diamond
+ * layout (south=B, east=A, west=Y, north=X) instead of the Xbox convention
+ * SDL_GameController's A/B/X/Y constants assume. Used by gamepad_sdl.c to
+ * swap button constants before dispatch so "physical A = confirm/left-click"
+ * works consistently regardless of which vendor made the pad.
+ *
+ * Implementations:
+ *   src/platform/nintendo/nintendo_gamepad.c — always 1 on Nintendo HW
+ *     (Switch, Wii, 3DS, …): no runtime type query needed, unconditionally
+ *     Nintendo's layout on Nintendo-branded hardware.
+ *   src/platform/sdl/pad_layout.c — SDL_GameControllerGetType() query for
+ *     non-Nintendo hosts (desktop, PortMaster, PS2): detects a Nintendo pad
+ *     connected via Bluetooth or USB, with SDL_VERSION_ATLEAST guards for
+ *     JoyCon-specific types added in SDL 2.24.0. */
+int plat_pad_is_nintendo_layout(SDL_GameController *pad);
 
 #endif /* WACKI_PLATFORM_INPUT_H */
