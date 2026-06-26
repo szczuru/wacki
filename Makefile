@@ -126,7 +126,8 @@ ENGINE_SRCS = \
 SDL_PLATFORM_SRCS = src/platform/sdl/save_host.c \
                     src/platform/sdl/file_host.c src/platform/sdl/audio_sdl.c \
                     src/platform/sdl/flic_host.c src/platform/sdl/video_sdl.c \
-                    src/platform/sdl/system_sdl.c src/platform/sdl/gamepad_sdl.c
+                    src/platform/sdl/system_sdl.c src/platform/sdl/gamepad_sdl.c \
+                    src/platform/sdl/pad_layout.c
 SDL_DATAROOT_DESKTOP  = src/platform/sdl/data_root_desktop.c
 SDL_DATAROOT_HANDHELD = src/platform/sdl/data_root_handheld.c
 
