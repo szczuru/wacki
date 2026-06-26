@@ -19,4 +19,5 @@ CFLAGS += -DWACKI_HANDHELD -DWACKI_PS2
 # (it brings its own storage / audio / video via libmc / audsrv / gsKit).
 ENGINE_SRCS += src/platform/sdl/gamepad_sdl.c \
                src/platform/ps2/system_ps2.c src/platform/ps2/storage_ps2.c \
-               src/platform/ps2/audio_ps2.c  src/platform/ps2/video_ps2.c
+               src/platform/ps2/audio_ps2.c  src/platform/ps2/video_ps2.c \
+               src/platform/sdl/pad_layout.c
