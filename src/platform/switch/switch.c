@@ -4,26 +4,31 @@
  * src/platform/switch/switch.c — Nintendo Switch homebrew platform hooks.
  *
  * Switch reuses the shared SDL family unchanged for file I/O, audio, FLIC
- * streaming, video presentation, and gamepad input (src/platform/sdl/) —
- * including gamepad_sdl.c's Nintendo-button-layout auto-detection, which
- * also benefits any other SDL target a Joy-Con/Pro Controller gets plugged
- * into. The save image goes through this target's own storage_switch.c
- * instead of sdl/save_host.c (needs an fsdevCommitDevice() call save_host.c
- * doesn't make — see that file's header comment). The one shared-file
- * deviation is a single #ifdef __SWITCH__ branch added to
- * src/platform/sdl/system_sdl.c (cwd pin), mirroring its existing
- * __ANDROID__ branch — see that file's comment for why.
+ * streaming, video presentation, and gamepad input (src/platform/sdl/).
+ * Nintendo button-layout remapping is handled generically by the new
+ * plat_pad_is_nintendo_layout() hook — implemented here by delegating to
+ * src/platform/nintendo/nintendo_gamepad.c, which is linked for all Nintendo
+ * homebrew targets and always returns 1 without a runtime type query.
  *
- * This file is Switch's one hooks provider (see docs/platform-hal.md):
- *   - plat_apply_video_prefs(): always-fullscreen (no window manager on
- *     Switch homebrew), PLUS the dynamic WACKI.EXE load below. This hook
- *     runs after FindDataRoot() (so g_data_root is set) and before the SDL
- *     window is created — exactly the right window for both jobs.
- *   - everything else is a no-op, matching portmaster.c's pattern (no
- *     firmware-volume API to restore, no extra HID device to poll, no
- *     hardware-button-as-keysym mapping beyond what gamepad_sdl.c already
- *     covers via real SDL_CONTROLLER* events).
- */
+ * WACKI.EXE — two build paths, both fully supported:
+ *
+ *   1. Embedded (preferred, identical to PS2/PortMaster): CI restores
+ *      WACKI.EXE from a repository secret → tools/embed-pe-data extracts
+ *      .rdata/.data → src/embedded_wacki_pe.c is generated and linked.
+ *      No runtime file I/O needed; works offline, fastest startup.
+ *
+ *   2. Dynamic fallback: if the embedded slice table is empty (g_wacki_pe_
+ *      slice_count == 0 — happens when no secret is configured, e.g. a fresh
+ *      fork or a local build without data/WACKI.EXE), plat_apply_video_prefs
+ *      calls PeLoaderInit() to load the player's own WACKI.EXE from the SD
+ *      card. PeLoaderRead already checks a dynamically-loaded image BEFORE
+ *      the embedded table, so path 1 is unaffected by this code being present.
+ *
+ * mk/switch.mk decides which path is active:
+ *   - data/WACKI.EXE present at build time → normal embed-pe-data flow
+ *   - data/WACKI.EXE absent                → EMBEDDED_PE_SRC points at the
+ *     empty stub (src/platform/switch/embedded_wacki_pe_stub.c), dynamic
+ *     fallback below activates at runtime. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -32,19 +37,18 @@
 #include "wacki/platform/video.h"
 
 #include <SDL.h>
-#include <stdio.h>
 #include <stddef.h>
 
 extern int  g_fullscreen;
 extern char g_data_root[260];
 
-/* ---- dynamic WACKI.EXE loading ------------------------------------ *
- *
- * Tried in the same spirit as data_root_handheld.c's candidate-path list:
- * first beside the located data root (the common case — the player drops
- * WACKI.EXE in the same folder as Dane_*.dta), then the canonical
- * sdmc:/switch/wacki/ locations as a fallback, in case WACKI.EXE lives one
- * level up/down from wherever the data root resolved to. */
+/* Defined in the linked embedded_wacki_pe_stub.c OR the generated
+ * src/embedded_wacki_pe.c — used below to decide whether the dynamic
+ * fallback is needed. */
+extern const int g_wacki_pe_slice_count;
+
+/* ---- dynamic WACKI.EXE loading (fallback when not embedded) ----------- */
+
 static int load_wacki_exe_dynamic(void)
 {
     extern int PeLoaderInit(const char *exe_path);
@@ -69,66 +73,42 @@ static int load_wacki_exe_dynamic(void)
     return 0;
 }
 
-/* video.h: "Apply platform display preferences before the window is
- * created." Called once from plat_video_init(), after FindDataRoot()
- * succeeded — see src/main.c's WackiMain → PlatformInit → plat_video_init
- * call chain. */
+/* ---- hooks ------------------------------------------------------------ */
+
 void plat_apply_video_prefs(void)
 {
-    g_fullscreen = 1; /* no window manager — always cover the display */
+    g_fullscreen = 1;
 
-    if (load_wacki_exe_dynamic()) {
-        LOG_INFO("wacki", "WACKI.EXE loaded dynamically (PeLoaderInit)");
+    /* Path 1 — embedded PE (CI with secret / local build with data/WACKI.EXE):
+     * slice count > 0 means embed-pe-data ran at build time; PeLoaderRead
+     * resolves VAs against the embedded table automatically, nothing to do. */
+    if (g_wacki_pe_slice_count > 0) {
+        LOG_INFO("wacki", "WACKI.EXE data embedded at build time (%d slices)",
+                 g_wacki_pe_slice_count);
         return;
     }
 
-    /* Fatal: without WACKI.EXE's data sections the engine has nothing to
-     * resolve script/entity tables against and will crash deep inside the
-     * VM later — a confusing failure mode for an end user. This hook has
-     * no return value to bail PlatformInit cleanly (unlike main.c's own
-     * FindDataRoot failure path, which can just `return 1` from WackiMain),
-     * so show the same kind of native message box FindDataRoot's failure
-     * path uses, then exit directly. No SDL window exists yet at this
-     * point — SDL_ShowSimpleMessageBox accepts a NULL window fine. */
+    /* Path 2 — dynamic fallback (stub linked, no WACKI.EXE at build time). */
+    if (load_wacki_exe_dynamic()) {
+        LOG_INFO("wacki", "WACKI.EXE loaded dynamically from SD card");
+        return;
+    }
+
     const char *msg =
-        "Nie znalazłem pliku WACKI.EXE.\n\n"
-        "Skopiuj WACKI.EXE z oryginalnej płyty do tego samego "
-        "folderu co pliki Dane_*.dta (np. sdmc:/switch/wacki/data/) "
-        "i uruchom grę ponownie.";
+        "Nie znalazlem pliku WACKI.EXE.\n\n"
+        "Skopiuj WACKI.EXE z oryginalnej plyty do tego samego\n"
+        "folderu co pliki Dane_*.dta na karcie SD\n"
+        "(np. sdmc:/switch/wacki/data/) i uruchom gre ponownie.";
     LOG_INFO("wacki", "%s", msg);
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
-                             "Wacki — brak WACKI.EXE", msg, NULL);
+                             "Wacki \xe2\x80\x94 brak WACKI.EXE", msg, NULL);
     exit(1);
 }
 
-void plat_restore_system_volume(void)
-{
-    /* No firmware volume API to restore on Switch (unlike Miyoo's MI_AO) —
-     * the console's own volume/mute is entirely out of the app's hands. */
-}
+void plat_restore_system_volume(void) {}
 
-int plat_handle_platform_key(int sym)
-{
-    /* No hardware buttons arrive as keysyms here (unlike Miyoo) — every
-     * Switch input is a real SDL_CONTROLLER* event, handled generically by
-     * gamepad_sdl.c. */
-    (void)sym;
-    return 0;
-}
+int plat_handle_platform_key(int sym) { (void)sym; return 0; }
 
-void plat_pad_read_extra(float *ax, float *ay)
-{
-    /* No extra HID device to poll (PS2's USB-mouse equivalent) — the
-     * Joy-Con/Pro Controller analog stick is already covered by
-     * gamepad_sdl.c's standard SDL_CONTROLLER axis reads. */
-    (void)ax;
-    (void)ay;
-}
+void plat_pad_read_extra(float *ax, float *ay) { (void)ax; (void)ay; }
 
-int plat_input_has_keyboard(void)
-{
-    /* No physical or on-screen keyboard concept the engine should assume —
-     * pad + touch only. (The save-slot rename field falls back to its
-     * pad/touch-driven on-screen-keyboard path, same as PortMaster/Miyoo.) */
-    return 0;
-}
+int plat_input_has_keyboard(void) { return 0; }
