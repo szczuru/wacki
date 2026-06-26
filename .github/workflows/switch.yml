@@ -21,6 +21,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Przywroc WACKI.EXE z sekretu (opcjonalne)
+        if: ${{ secrets.WACKI_EXE_B64 != '' }}
+        run: |
+          # Jesli sekret WACKI_EXE_B64 jest skonfigurowany, przywroc
+          # WACKI.EXE do data/ tak aby embed-pe-data wbudowal dane do binarki
+          # (identycznie jak PS2/PortMaster). Bez sekretu mk/switch.mk uzyje
+          # pustego stuba i gra zaladuje WACKI.EXE z karty SD gracza w runtime.
+          mkdir -p data
+          echo "${{ secrets.WACKI_EXE_B64 }}" | base64 -d > data/WACKI.EXE
+          echo "WACKI.EXE przywrocony z sekretu ($(wc -c < data/WACKI.EXE) bajtow)"
+
       - name: Build (tools/build-switch.sh)
         run: bash tools/build-switch.sh
 
