@@ -135,7 +135,7 @@ SDL_DATAROOT_HANDHELD = src/platform/sdl/data_root_handheld.c
 # a confusing "missing symbol" link error later.
 TGT := $(or $(strip $(TARGET)),desktop)
 ifeq ($(wildcard mk/$(TGT).mk),)
-$(error Unknown TARGET '$(TARGET)' — no mk/$(TGT).mk (valid: desktop, miyoo, portmaster, ps2))
+$(error Unknown TARGET '$(TARGET)' — no mk/$(TGT).mk (valid: desktop, miyoo, portmaster, ps2, switch, 3ds))
 endif
 include mk/$(TGT).mk
 
