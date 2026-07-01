@@ -259,4 +259,24 @@ static inline void SDL_FreeWAV(uint8_t *audio_buf) {
     if (audio_buf) SDL_free(audio_buf);
 }
 
+/* SDL_CreateRGBSurfaceWithFormatFrom - create surface from existing pixel data */
+static inline SDL_Surface* SDL_CreateRGBSurfaceWithFormatFrom(void *pixels, int width, int height,
+                                                               int depth, int pitch, uint32_t format) {
+    (void)pixels; (void)width; (void)height; (void)depth; (void)pitch; (void)format;
+    return NULL;  /* Not supported on 3DS */
+}
+
+/* SDL_SetPaletteColors - set palette colors */
+static inline int SDL_SetPaletteColors(SDL_Palette *palette, const SDL_Color *colors, 
+                                       int firstcolor, int ncolors) {
+    (void)palette; (void)colors; (void)firstcolor; (void)ncolors;
+    return -1;  /* Not supported */
+}
+
+/* SDL_SaveBMP - save surface to BMP file */
+static inline int SDL_SaveBMP(SDL_Surface *surface, const char *file) {
+    (void)surface; (void)file;
+    return -1;  /* Screenshots not supported on 3DS */
+}
+
 #endif /* WACKI_3DS_SDL_H */

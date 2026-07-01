@@ -216,7 +216,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     
     /* For now, just draw the full texture to top screen */
     /* TODO: Handle source/dest rectangles for proper scaling */
-    C2D_DrawImageAt(texture->c2d_img, 0.0f, 0.0f, 0.5f);
+    C2D_DrawImageAt(texture->c2d_img, 0.0f, 0.0f, 0.5f, NULL, 1.0f, 1.0f);
     
     /* Render zoom view to bottom screen */
     C2D_SceneBegin(s_bottom_screen);
@@ -320,15 +320,25 @@ SDL_Texture* SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format,
     
     /* Create C2D image */
     tex->c2d_img.tex = &tex->c3d_tex;
-    tex->c2d_img.subtex = (Tex3DS_SubTexture *)malloc(sizeof(Tex3DS_SubTexture));
-    if (tex->c2d_img.subtex) {
-        tex->c2d_img.subtex->width = w;
-        tex->c2d_img.subtex->height = h;
-        tex->c2d_img.subtex->left = 0.0f;
-        tex->c2d_img.subtex->right = (float)w / (float)tex_w;
-        tex->c2d_img.subtex->bottom = (float)h / (float)tex_h;
-        tex->c2d_img.subtex->top = 0.0f;
+    
+    /* Allocate mutable subtex structure */
+    Tex3DS_SubTexture *subtex = (Tex3DS_SubTexture *)malloc(sizeof(Tex3DS_SubTexture));
+    if (!subtex) {
+        C3D_TexDelete(&tex->c3d_tex);
+        free(tex);
+        set_error("Failed to allocate subtex");
+        return NULL;
     }
+    
+    /* Initialize subtex fields (cast away const if needed) */
+    *(u16*)&subtex->width = w;
+    *(u16*)&subtex->height = h;
+    *(float*)&subtex->left = 0.0f;
+    *(float*)&subtex->top = 0.0f;
+    *(float*)&subtex->right = (float)w / (float)tex_w;
+    *(float*)&subtex->bottom = (float)h / (float)tex_h;
+    
+    tex->c2d_img.subtex = subtex;
     
     /* Allocate shadow buffer for UpdateTexture */
     tex->pitch = w * bytes_per_pixel;
