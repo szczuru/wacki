@@ -9,7 +9,6 @@
 #include "wacki/platform/input.h"
 #include "wacki/platform/video.h"
 #include <3ds.h>
-#include <stdlib.h>
 #include <stddef.h>
 
 extern int  g_fullscreen;
