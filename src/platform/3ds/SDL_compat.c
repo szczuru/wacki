@@ -6,34 +6,34 @@
  * Maps minimal SDL API surface to native 3DS APIs (citro3d/citro2d for graphics,
  * ndsp for audio, hidScanInput for events). Allows wacki engine core to compile
  * without modifications while rendering on dual 3DS screens. */
-
+ 
 #include "SDL_compat.h"
 #include <citro2d.h>
 #include <citro3d.h>
 #include <tex3ds.h>
 #include <string.h>
 #include <malloc.h>
-
+ 
 /* Global 3DS graphics state */
 static C3D_RenderTarget *s_top_screen = NULL;
 static C3D_RenderTarget *s_bottom_screen = NULL;
 static int s_screen_width = 400;   /* Top screen width */
 static int s_screen_height = 240;  /* Screen height */
 static int s_initialized = 0;
-
+ 
 /* Renderer and Window (dummy structures - we only need one) */
 struct SDL_Renderer {
     int dummy;
     uint8_t draw_r, draw_g, draw_b, draw_a;
 };
-
+ 
 struct SDL_Window {
     int w, h;
 };
-
+ 
 static SDL_Renderer s_renderer_storage;
 static SDL_Window s_window_storage;
-
+ 
 /* Texture structure - maps to C3D texture */
 struct SDL_Texture {
     C3D_Tex c3d_tex;
@@ -45,29 +45,29 @@ struct SDL_Texture {
     void *pixels_shadow;  /* For UpdateTexture */
     int pitch;
 };
-
+ 
 /* Audio state (stub - ndsp not implemented yet) */
 static int s_audio_open = 0;
-
+ 
 /* Timer state */
 static uint64_t s_start_ticks = 0;
-
+ 
 /* Error string */
 static char s_error_buf[256] = "No error";
-
+ 
 static void set_error(const char *msg)
 {
     strncpy(s_error_buf, msg, sizeof(s_error_buf) - 1);
     s_error_buf[sizeof(s_error_buf) - 1] = '\0';
 }
-
+ 
 const char* SDL_GetError(void)
 {
     return s_error_buf;
 }
-
+ 
 /* ---- SDL Init/Quit ---- */
-
+ 
 int SDL_Init(uint32_t flags)
 {
     if (s_initialized) return 0;
@@ -101,7 +101,7 @@ int SDL_Init(uint32_t flags)
     s_initialized = 1;
     return 0;
 }
-
+ 
 void SDL_Quit(void)
 {
     if (!s_initialized) return;
@@ -117,9 +117,9 @@ void SDL_Quit(void)
     
     s_initialized = 0;
 }
-
+ 
 /* ---- SDL Hints ---- */
-
+ 
 int SDL_SetHint(const char *name, const char *value)
 {
     /* Ignore hints - we don't need them on 3DS */
@@ -127,9 +127,9 @@ int SDL_SetHint(const char *name, const char *value)
     (void)value;
     return 1;
 }
-
+ 
 /* ---- Window Management ---- */
-
+ 
 SDL_Window* SDL_CreateWindow(const char *title, int x, int y, int w, int h, uint32_t flags)
 {
     (void)title; (void)x; (void)y; (void)flags;
@@ -139,15 +139,15 @@ SDL_Window* SDL_CreateWindow(const char *title, int x, int y, int w, int h, uint
     
     return &s_window_storage;
 }
-
+ 
 void SDL_DestroyWindow(SDL_Window *window)
 {
     (void)window;
     /* Nothing to clean up - static storage */
 }
-
+ 
 /* ---- Renderer Management ---- */
-
+ 
 SDL_Renderer* SDL_CreateRenderer(SDL_Window *window, int index, uint32_t flags)
 {
     (void)window; (void)index; (void)flags;
@@ -160,13 +160,13 @@ SDL_Renderer* SDL_CreateRenderer(SDL_Window *window, int index, uint32_t flags)
     
     return &s_renderer_storage;
 }
-
+ 
 void SDL_DestroyRenderer(SDL_Renderer *renderer)
 {
     (void)renderer;
     /* Nothing to clean up */
 }
-
+ 
 int SDL_SetRenderDrawColor(SDL_Renderer *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     if (!renderer) return -1;
@@ -178,7 +178,7 @@ int SDL_SetRenderDrawColor(SDL_Renderer *renderer, uint8_t r, uint8_t g, uint8_t
     
     return 0;
 }
-
+ 
 int SDL_RenderClear(SDL_Renderer *renderer)
 {
     if (!renderer) return -1;
@@ -194,7 +194,7 @@ int SDL_RenderClear(SDL_Renderer *renderer)
     
     return 0;
 }
-
+ 
 void SDL_RenderPresent(SDL_Renderer *renderer)
 {
     (void)renderer;
@@ -205,7 +205,7 @@ void SDL_RenderPresent(SDL_Renderer *renderer)
     /* Wait for VBlank */
     gspWaitForVBlank();
 }
-
+ 
 int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture, 
                    const SDL_Rect *srcrect, const SDL_Rect *dstrect)
 {
@@ -261,13 +261,13 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     int bottom_h = 240;
     
     /* Calculate source region for zoom (centered around cursor) */
-    extern int g_cursor_x, g_cursor_y;  /* From engine */
+    extern int16_t g_mouse_x, g_mouse_y;  /* From engine globals */
     
     int zoom_src_w = (int)((float)bottom_w * zoom_factor);
     int zoom_src_h = (int)((float)bottom_h * zoom_factor);
     
-    int zoom_src_x = g_cursor_x - zoom_src_w / 2;
-    int zoom_src_y = g_cursor_y - zoom_src_h / 2;
+    int zoom_src_x = g_mouse_x - zoom_src_w / 2;
+    int zoom_src_y = g_mouse_y - zoom_src_h / 2;
     
     /* Clamp to texture bounds */
     if (zoom_src_x < 0) zoom_src_x = 0;
@@ -293,7 +293,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     
     return 0;
 }
-
+ 
 int SDL_RenderSetLogicalSize(SDL_Renderer *renderer, int w, int h)
 {
     (void)renderer;
@@ -302,9 +302,9 @@ int SDL_RenderSetLogicalSize(SDL_Renderer *renderer, int w, int h)
     /* 3DS handles scaling internally - ignore logical size */
     return 0;
 }
-
+ 
 /* ---- Texture Management ---- */
-
+ 
 SDL_Texture* SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format, 
                                int access, int w, int h)
 {
@@ -378,7 +378,7 @@ SDL_Texture* SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format,
     
     return tex;
 }
-
+ 
 void SDL_DestroyTexture(SDL_Texture *texture)
 {
     if (!texture) return;
@@ -394,7 +394,7 @@ void SDL_DestroyTexture(SDL_Texture *texture)
     C3D_TexDelete(&texture->c3d_tex);
     free(texture);
 }
-
+ 
 int SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect, 
                       const void *pixels, int pitch)
 {
@@ -473,7 +473,7 @@ int SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect,
     
     return 0;
 }
-
+ 
 int SDL_SetTextureBlendMode(SDL_Texture *texture, SDL_BlendMode blendMode)
 {
     (void)texture;
@@ -481,9 +481,9 @@ int SDL_SetTextureBlendMode(SDL_Texture *texture, SDL_BlendMode blendMode)
     /* 3DS handles blending automatically */
     return 0;
 }
-
+ 
 /* ---- Surface Management ---- */
-
+ 
 SDL_Surface* SDL_CreateRGBSurfaceWithFormat(uint32_t flags, int width, int height, 
                                             int depth, uint32_t format)
 {
@@ -524,7 +524,7 @@ SDL_Surface* SDL_CreateRGBSurfaceWithFormat(uint32_t flags, int width, int heigh
     
     return surface;
 }
-
+ 
 void SDL_FreeSurface(SDL_Surface *surface)
 {
     if (!surface) return;
@@ -539,7 +539,7 @@ void SDL_FreeSurface(SDL_Surface *surface)
     if (surface->format) free(surface->format);
     free(surface);
 }
-
+ 
 SDL_Surface* SDL_LoadBMP_RW(SDL_RWops *src, int freesrc)
 {
     (void)src;
@@ -547,7 +547,7 @@ SDL_Surface* SDL_LoadBMP_RW(SDL_RWops *src, int freesrc)
     set_error("SDL_LoadBMP_RW not implemented");
     return NULL;
 }
-
+ 
 int SDL_SetColorKey(SDL_Surface *surface, int flag, uint32_t key)
 {
     (void)surface;
@@ -555,9 +555,9 @@ int SDL_SetColorKey(SDL_Surface *surface, int flag, uint32_t key)
     (void)key;
     return 0;
 }
-
+ 
 /* ---- Event Handling ---- */
-
+ 
 int SDL_PollEvent(SDL_Event *event)
 {
     if (!event) return 0;
@@ -577,7 +577,7 @@ int SDL_PollEvent(SDL_Event *event)
         event->type = SDL_FINGERDOWN;
         
         /* Map touch to cursor position (will be used by engine) */
-        extern int g_cursor_x, g_cursor_y;
+        extern int16_t g_mouse_x, g_mouse_y;
         
         /* Get zoom level to map touch to game coordinates */
         extern int platform_3ds_get_zoom_level(void);
@@ -593,16 +593,16 @@ int SDL_PollEvent(SDL_Event *event)
         float rel_y = (float)touch.py / 240.0f;
         
         /* Map to game coordinates */
-        int zoom_src_x = g_cursor_x - zoom_src_w / 2;
-        int zoom_src_y = g_cursor_y - zoom_src_h / 2;
+        int zoom_src_x = g_mouse_x - zoom_src_w / 2;
+        int zoom_src_y = g_mouse_y - zoom_src_h / 2;
         
         /* Clamp zoom source */
         if (zoom_src_x < 0) zoom_src_x = 0;
         if (zoom_src_y < 0) zoom_src_y = 0;
         
         /* Calculate absolute game coordinates */
-        g_cursor_x = zoom_src_x + (int)(rel_x * zoom_src_w);
-        g_cursor_y = zoom_src_y + (int)(rel_y * zoom_src_h);
+        g_mouse_x = (int16_t)(zoom_src_x + (int)(rel_x * zoom_src_w));
+        g_mouse_y = (int16_t)(zoom_src_y + (int)(rel_y * zoom_src_h));
         
         return 1;
     }
@@ -610,20 +610,20 @@ int SDL_PollEvent(SDL_Event *event)
     /* No events */
     return 0;
 }
-
+ 
 /* ---- Timing ---- */
-
+ 
 uint32_t SDL_GetTicks(void)
 {
     uint64_t now = osGetTime();
     return (uint32_t)(now - s_start_ticks);
 }
-
+ 
 void SDL_Delay(uint32_t ms)
 {
     svcSleepThread((s64)ms * 1000000LL);
 }
-
+ 
 SDL_TimerID SDL_AddTimer(uint32_t interval, SDL_TimerCallback callback, void *param)
 {
     /* Stub - timers not implemented */
@@ -632,27 +632,27 @@ SDL_TimerID SDL_AddTimer(uint32_t interval, SDL_TimerCallback callback, void *pa
     (void)param;
     return 0;
 }
-
+ 
 int SDL_RemoveTimer(SDL_TimerID id)
 {
     (void)id;
     return 0;
 }
-
+ 
 /* ---- Text Input ---- */
-
+ 
 void SDL_StartTextInput(void)
 {
     /* Could use 3DS software keyboard - not implemented yet */
 }
-
+ 
 void SDL_StopTextInput(void)
 {
     /* Stub */
 }
-
+ 
 /* ---- Audio Stubs ---- */
-
+ 
 int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
 {
     if (s_audio_open) return 0;
@@ -668,7 +668,7 @@ int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
     s_audio_open = 1;
     return 0;
 }
-
+ 
 void SDL_CloseAudio(void)
 {
     if (!s_audio_open) return;
@@ -676,7 +676,7 @@ void SDL_CloseAudio(void)
     ndspExit();
     s_audio_open = 0;
 }
-
+ 
 void SDL_PauseAudio(int pause_on)
 {
     /* Stub - would control ndsp playback */
