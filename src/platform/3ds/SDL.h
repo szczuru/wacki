@@ -11,6 +11,7 @@
 #define WACKI_3DS_SDL_H
 
 #include <string.h>
+#include <stdlib.h>
 
 /* Pull in our compatibility layer */
 #include "SDL_compat.h"
@@ -18,6 +19,13 @@
 /* Additional SDL2 compatibility defines */
 #define SDL_WINDOW_FULLSCREEN_DESKTOP (SDL_WINDOW_FULLSCREEN | 0x00001000)
 #define SDL_WINDOW_RESIZABLE          0x00000020
+
+/* SDL_GetBasePath - return SD card path */
+static inline char* SDL_GetBasePath(void) {
+    char *path = malloc(32);
+    if (path) strcpy(path, "sdmc:/3ds/wacki/");
+    return path;
+}
 
 /* Init flags */
 #define SDL_INIT_EVENTS 0x00004000
@@ -178,6 +186,9 @@ static inline void SDL_UnlockTexture(SDL_Texture *texture) {
 /* Additional utility macros */
 #define SDL_memset memset
 #define SDL_memcpy memcpy
+#define SDL_malloc malloc
+#define SDL_free free
+#define SDL_getenv getenv
 
 /* Audio bitsize helper */
 #define SDL_AUDIO_BITSIZE(x) (((x) & 0xFF))
