@@ -21,10 +21,16 @@ jobs:
       run: docker pull devkitpro/devkitarm:latest
     
     - name: Download WACKI.EXE (if available)
-      if: secrets.WACKI_EXE_URL != ''
+      env:
+        WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
       run: |
         mkdir -p data
-        curl -L -o data/WACKI.EXE "${{ secrets.WACKI_EXE_URL }}" || true
+        if [ -n "$WACKI_EXE_URL" ]; then
+          echo "Downloading WACKI.EXE from secret URL..."
+          curl -L -o data/WACKI.EXE "$WACKI_EXE_URL" || echo "Download failed, using stub"
+        else
+          echo "No WACKI_EXE_URL secret set, using stub implementation"
+        fi
     
     - name: Build 3DS port
       run: |
