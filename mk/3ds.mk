@@ -1,4 +1,4 @@
-# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + SDL2).
+# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + citro3d).
 
 DEVKITPRO ?= /opt/devkitpro
 DEVKITARM ?= $(DEVKITPRO)/devkitARM
@@ -6,27 +6,25 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 CC       := $(DEVKITARM)/bin/arm-none-eabi-gcc
 BIN_NAME := wacki
 
-# SDL2 for 3DS
-N3DS_SDL2_CONFIG := $(DEVKITPRO)/portlibs/3ds/bin/arm-none-eabi-pkg-config
-SDL2_CFLAGS := $(shell PKG_CONFIG_PATH=$(DEVKITPRO)/portlibs/3ds/lib/pkgconfig $(N3DS_SDL2_CONFIG) --cflags sdl2)
-SDL2_LIBS   := $(shell PKG_CONFIG_PATH=$(DEVKITPRO)/portlibs/3ds/lib/pkgconfig $(N3DS_SDL2_CONFIG) --libs sdl2)
-
 CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I$(DEVKITPRO)/libctru/include \
           -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I src/platform/3ds \
-          $(SDL2_CFLAGS)
+          -I src/platform/3ds
 
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
 
+# 3DS libraries: citro3d/citro2d for graphics, ctru for system
+LIBS_3DS := -lcitro2d -lcitro3d -lctru -lm
+
 LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
                    -specs=3dsx.specs \
-                   $(SDL2_LIBS) -lctru -lm
+                   $(LIBS_3DS)
 
-# Jesli data/WACKI.EXE istnieje, uzywamy embed-pe-data
+# Jesli data/WACKI.EXE istnieje (CI z sekretem / lokalne budowanie),
+# uzywamy standardowego embed-pe-data. W przeciwnym razie - pusty stub.
 ifeq ($(wildcard data/WACKI.EXE),)
     EMBEDDED_PE_SRC := src/platform/3ds/embedded_wacki_pe_stub.c
 endif
@@ -34,24 +32,24 @@ endif
 # 3DS uses SDL compatibility layer (SDL_compat.c) + custom gamepad.
 # This allows reusing SDL platform code (video_sdl.c, audio_sdl.c, platform_sdl.c)
 # while providing dual-screen rendering and custom controls via the compat layer.
- 
+
 # SDL compatibility layer - provides SDL API on top of citro3d/citro2d/ndsp
 SDL_COMPAT_SRCS := src/platform/3ds/SDL_compat.c
- 
+
 # 3DS-specific platform files
 N3DS_PLATFORM_SRCS := src/platform/3ds/3ds.c \
                       src/platform/3ds/storage_3ds.c \
                       src/platform/3ds/data_root_3ds.c \
                       src/platform/3ds/gamepad_3ds.c \
                       src/platform/3ds/system_3ds.c
- 
+
 # Reuse SDL platform implementations (they use our SDL.h via -I src/platform/3ds)
 SDL_PLATFORM_SRCS := src/platform/sdl/platform_sdl.c \
                      src/platform/sdl/video_sdl.c \
                      src/platform/sdl/audio_sdl.c \
                      src/platform/sdl/file_host.c \
                      src/platform/sdl/flic_host.c
- 
+
 ENGINE_SRCS += $(SDL_COMPAT_SRCS) $(N3DS_PLATFORM_SRCS) $(SDL_PLATFORM_SRCS)
 
 # ---- .3dsx packaging ------------------------------------------------------
