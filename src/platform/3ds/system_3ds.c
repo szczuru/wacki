@@ -10,9 +10,9 @@
 
 void plat_system_early_init(void)
 {
-    /* Initialize 3DS services */
+    /* Initialize 3DS services
+     * Note: sdmcInit() is automatic in modern libctru, no need to call it */
     romfsInit();
-    sdmcInit();
     hidInit();
     aptInit();
     
@@ -24,7 +24,6 @@ void plat_system_exit(int rc)
     /* Cleanup 3DS services */
     aptExit();
     hidExit();
-    sdmcExit();
     romfsExit();
     
     LOG_INFO("platform", "3DS system exit (code=%d)", rc);
