@@ -53,7 +53,7 @@ SDL_PLATFORM_SRCS := src/platform/sdl/platform_sdl.c \
 ENGINE_SRCS += $(SDL_COMPAT_SRCS) $(N3DS_PLATFORM_SRCS) $(SDL_PLATFORM_SRCS)
 
 # ---- .3dsx packaging ------------------------------------------------------
-N3DS_ICON     := assets/icons/wacki-3ds.png
+N3DS_ICON     := assets/icons/wacki-3ds-48x48.png
 N3DS_3DSX     := $(DIST)/wacki.3dsx
 N3DS_SMDH     := $(DIST)/wacki.smdh
 SMDHTOOL      := $(DEVKITPRO)/tools/bin/smdhtool
