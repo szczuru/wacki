@@ -462,3 +462,179 @@ SDL_Surface* SDL_CreateRGBSurfaceWithFormat(uint32_t flags, int width, int heigh
     memset(surface->format, 0, sizeof(SDL_PixelFormat));
     surface->format->format = format;
     surface->format->BitsPerPixel = (format == SDL_PIXELFORMAT_INDEX8) ? 8
+
+            surface->format->BytesPerPixel = surface->format->BitsPerPixel / 8;
+    
+    surface->w = width;
+    surface->h = height;
+    surface->pitch = width * surface->format->BytesPerPixel;
+    
+    surface->pixels = malloc(surface->pitch * height);
+    if (!surface->pixels) {
+        free(surface->format);
+        free(surface);
+        set_error("Out of memory");
+        return NULL;
+    }
+    
+    return surface;
+}
+
+void SDL_FreeSurface(SDL_Surface *surface)
+{
+    if (!surface) return;
+    
+    if (surface->pixels) free(surface->pixels);
+    if (surface->format && surface->format->palette) {
+        if (surface->format->palette->colors) {
+            free(surface->format->palette->colors);
+        }
+        free(surface->format->palette);
+    }
+    if (surface->format) free(surface->format);
+    free(surface);
+}
+
+SDL_Surface* SDL_LoadBMP_RW(SDL_RWops *src, int freesrc)
+{
+    (void)src;
+    (void)freesrc;
+    set_error("SDL_LoadBMP_RW not implemented");
+    return NULL;
+}
+
+int SDL_SetColorKey(SDL_Surface *surface, int flag, uint32_t key)
+{
+    (void)surface;
+    (void)flag;
+    (void)key;
+    return 0;
+}
+
+/* ---- Event Handling ---- */
+
+int SDL_PollEvent(SDL_Event *event)
+{
+    if (!event) return 0;
+    
+    /* 3DS uses native input polling in gamepad_3ds.c */
+    /* Touch screen events are handled here for bottom screen */
+    
+    hidScanInput();
+    
+    touchPosition touch;
+    u32 kDown = hidKeysDown();
+    u32 kHeld = hidKeysHeld();
+    
+    /* Check for touch on bottom screen */
+    if (kDown & KEY_TOUCH) {
+        hidTouchRead(&touch);
+        event->type = SDL_FINGERDOWN;
+        
+        /* Map touch to cursor position (will be used by engine) */
+        extern int16_t g_mouse_x, g_mouse_y;
+        
+        /* Get zoom level to map touch to game coordinates */
+        extern int platform_3ds_get_zoom_level(void);
+        int zoom = platform_3ds_get_zoom_level();
+        float zoom_factor = 1.0f / (1 << zoom);
+        
+        /* Bottom screen is 320x240, map to zoomed game coordinates */
+        int zoom_src_w = (int)(320.0f * zoom_factor);
+        int zoom_src_h = (int)(240.0f * zoom_factor);
+        
+        /* Touch position relative to zoom window */
+        float rel_x = (float)touch.px / 320.0f;
+        float rel_y = (float)touch.py / 240.0f;
+        
+        /* Map to game coordinates */
+        int zoom_src_x = g_mouse_x - zoom_src_w / 2;
+        int zoom_src_y = g_mouse_y - zoom_src_h / 2;
+        
+        /* Clamp zoom source */
+        if (zoom_src_x < 0) zoom_src_x = 0;
+        if (zoom_src_y < 0) zoom_src_y = 0;
+        
+        /* Calculate absolute game coordinates */
+        g_mouse_x = (int16_t)(zoom_src_x + (int)(rel_x * zoom_src_w));
+        g_mouse_y = (int16_t)(zoom_src_y + (int)(rel_y * zoom_src_h));
+        
+        return 1;
+    }
+    
+    /* No events */
+    return 0;
+}
+
+/* ---- Timing ---- */
+
+uint32_t SDL_GetTicks(void)
+{
+    uint64_t now = osGetTime();
+    return (uint32_t)(now - s_start_ticks);
+}
+
+void SDL_Delay(uint32_t ms)
+{
+    svcSleepThread((s64)ms * 1000000LL);
+}
+
+SDL_TimerID SDL_AddTimer(uint32_t interval, SDL_TimerCallback callback, void *param)
+{
+    /* Stub - timers not implemented */
+    (void)interval;
+    (void)callback;
+    (void)param;
+    return 0;
+}
+
+int SDL_RemoveTimer(SDL_TimerID id)
+{
+    (void)id;
+    return 0;
+}
+
+/* ---- Text Input ---- */
+
+void SDL_StartTextInput(void)
+{
+    /* Could use 3DS software keyboard - not implemented yet */
+}
+
+void SDL_StopTextInput(void)
+{
+    /* Stub */
+}
+
+/* ---- Audio Stubs ---- */
+
+int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
+{
+    if (s_audio_open) return 0;
+    
+    /* Initialize ndsp */
+    ndspInit();
+    ndspSetOutputMode(NDSP_OUTPUT_STEREO);
+    
+    if (obtained) {
+        memcpy(obtained, desired, sizeof(SDL_AudioSpec));
+    }
+    
+    s_audio_open = 1;
+    return 0;
+}
+
+void SDL_CloseAudio(void)
+{
+    if (!s_audio_open) return;
+    
+    ndspExit();
+    s_audio_open = 0;
+}
+
+void SDL_PauseAudio(int pause_on)
+{
+    /* Stub - would control ndsp playback */
+    (void)pause_on;
+}
+
