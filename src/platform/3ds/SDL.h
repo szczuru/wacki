@@ -53,11 +53,31 @@
 #define SDL_WINDOWPOS_UNDEFINED 0x1FFF0000
 #define SDL_WINDOWPOS_CENTERED  0x2FFF0000
 
-/* RWops stubs */
-typedef struct SDL_RWops {
-    void *hidden;
-} SDL_RWops;
+/* Environment variables (stubs) */
+#include <stdlib.h>
+#define SDL_getenv getenv
+#define SDL_setenv(name, value, overwrite) setenv(name, value, overwrite)
 
+/* Path helpers */
+static inline char* SDL_GetBasePath(void) {
+    char *path = (char*)malloc(256);
+    if (path) {
+        strcpy(path, "sdmc:/3ds/wacki/");
+    }
+    return path;
+}
+
+static inline void SDL_free(void *ptr) {
+    free(ptr);
+}
+
+/* Event push (stub) */
+static inline int SDL_PushEvent(SDL_Event *event) {
+    (void)event;
+    return 0;  /* Success but does nothing */
+}
+
+/* RWops stubs */
 static inline SDL_RWops* SDL_RWFromConstMem(const void *mem, int size) {
     (void)mem; (void)size;
     return NULL;
@@ -155,6 +175,7 @@ static inline void SDL_UnlockTexture(SDL_Texture *texture) {
 /* Additional utility macros */
 #define SDL_memset memset
 #define SDL_memcpy memcpy
+#define SDL_malloc malloc
 
 /* Audio bitsize helper */
 #define SDL_AUDIO_BITSIZE(x) (((x) & 0xFF))
