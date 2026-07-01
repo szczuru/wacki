@@ -189,8 +189,74 @@ static inline void SDL_UnlockTexture(SDL_Texture *texture) {
 #define SDL_malloc malloc
 #define SDL_free free
 #define SDL_getenv getenv
+#define SDL_setenv(name, value, overwrite) setenv(name, value, overwrite)
 
 /* Audio bitsize helper */
 #define SDL_AUDIO_BITSIZE(x) (((x) & 0xFF))
+
+/* SDL_PushEvent stub */
+static inline int SDL_PushEvent(SDL_Event *event) {
+    (void)event;
+    return 0;
+}
+
+/* Audio conversion structure */
+typedef struct SDL_AudioCVT {
+    int needed;
+    uint16_t src_format;
+    uint16_t dst_format;
+    double rate_incr;
+    uint8_t *buf;
+    int len;
+    int len_cvt;
+    int len_mult;
+    double len_ratio;
+    void (*filters[10])(struct SDL_AudioCVT *cvt, uint16_t format);
+    int filter_index;
+} SDL_AudioCVT;
+
+/* Audio conversion functions */
+static inline int SDL_BuildAudioCVT(SDL_AudioCVT *cvt,
+                                   uint16_t src_format, uint8_t src_channels, int src_rate,
+                                   uint16_t dst_format, uint8_t dst_channels, int dst_rate) {
+    if (!cvt) return -1;
+    SDL_memset(cvt, 0, sizeof(*cvt));
+    
+    /* Check if conversion is needed */
+    if (src_format == dst_format && src_channels == dst_channels && src_rate == dst_rate) {
+        cvt->needed = 0;
+        return 0;
+    }
+    
+    cvt->needed = 1;
+    cvt->src_format = src_format;
+    cvt->dst_format = dst_format;
+    cvt->rate_incr = (double)dst_rate / (double)src_rate;
+    cvt->len_mult = 2;  /* Conservative estimate */
+    cvt->len_ratio = cvt->rate_incr * ((double)dst_channels / (double)src_channels);
+    
+    return 1;
+}
+
+static inline int SDL_ConvertAudio(SDL_AudioCVT *cvt) {
+    if (!cvt || !cvt->needed) return 0;
+    
+    /* Simple pass-through for now - real implementation would convert formats */
+    cvt->len_cvt = cvt->len;
+    return 0;
+}
+
+/* SDL_LoadWAV_RW - load WAV file from RWops */
+static inline SDL_AudioSpec* SDL_LoadWAV_RW(SDL_RWops *src, int freesrc,
+                                           SDL_AudioSpec *spec, uint8_t **audio_buf, uint32_t *audio_len) {
+    (void)src; (void)freesrc; (void)spec; (void)audio_buf; (void)audio_len;
+    /* Stub - return NULL to indicate failure */
+    return NULL;
+}
+
+/* SDL_FreeWAV - free WAV data loaded by SDL_LoadWAV_RW */
+static inline void SDL_FreeWAV(uint8_t *audio_buf) {
+    if (audio_buf) SDL_free(audio_buf);
+}
 
 #endif /* WACKI_3DS_SDL_H */
