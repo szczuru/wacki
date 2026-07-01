@@ -11,6 +11,7 @@
 
 #include <3ds.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static int atomic_replace(const char *from, const char *to)
 {
