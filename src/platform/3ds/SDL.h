@@ -10,6 +10,8 @@
 #ifndef WACKI_3DS_SDL_H
 #define WACKI_3DS_SDL_H
 
+#include <string.h>
+
 /* Pull in our compatibility layer */
 #include "SDL_compat.h"
 
@@ -17,10 +19,19 @@
 #define SDL_WINDOW_FULLSCREEN_DESKTOP (SDL_WINDOW_FULLSCREEN | 0x00001000)
 #define SDL_WINDOW_RESIZABLE          0x00000020
 
+/* Init flags */
+#define SDL_INIT_EVENTS 0x00004000
+
 /* Texture access modes */
 #define SDL_TEXTUREACCESS_STATIC    0
 #define SDL_TEXTUREACCESS_STREAMING 1
 #define SDL_TEXTUREACCESS_TARGET    2
+
+/* Renderer flags */
+#define SDL_RENDERER_SOFTWARE 0x00000001
+
+/* Pixel formats */
+#define SDL_PIXELFORMAT_ARGB8888 0x16362004
 
 /* Audio formats */
 #define AUDIO_U8     0x0008
@@ -33,16 +44,28 @@
 #define SDL_AUDIO_ALLOW_CHANNELS_CHANGE  0x00000004
 #define SDL_AUDIO_ALLOW_SAMPLES_CHANGE   0x00000008
 
+/* SDL Cursor/Display modes */
+#define SDL_DISABLE 0
+#define SDL_ENABLE  1
+
 /* Additional functions that might be used */
-#define SDL_ShowCursor(toggle) (0)
-#define SDL_SetWindowIcon(window, icon) ((void)0)
-#define SDL_PumpEvents() ((void)0)
-#define SDL_GetWindowSize(window, w, h) do { \
-    *(w) = (window)->w; \
-    *(h) = (window)->h; \
-} while(0)
-#define SDL_SetWindowFullscreen(window, flags) (0)
-#define SDL_ShowSimpleMessageBox(flags, title, message, window) ((void)0)
+static inline int SDL_ShowCursor(int toggle) { (void)toggle; return 0; }
+static inline void SDL_SetWindowIcon(SDL_Window *window, SDL_Surface *icon) { (void)window; (void)icon; }
+static inline void SDL_PumpEvents(void) {}
+static inline void SDL_GetWindowSize(SDL_Window *window, int *w, int *h) { 
+    if (window && w && h) { *w = window->w; *h = window->h; }
+}
+static inline int SDL_SetWindowFullscreen(SDL_Window *window, Uint32 flags) { (void)window; (void)flags; return 0; }
+static inline int SDL_ShowSimpleMessageBox(Uint32 flags, const char *title, const char *message, SDL_Window *window) {
+    (void)flags; (void)title; (void)message; (void)window; return 0;
+}
+
+/* Keyboard state */
+static inline const Uint8* SDL_GetKeyboardState(int *numkeys) {
+    (void)numkeys;
+    static Uint8 dummy_keys[512] = {0};
+    return dummy_keys;
+}
 
 /* Message box flags */
 #define SDL_MESSAGEBOX_ERROR       0x00000010

@@ -43,17 +43,33 @@ typedef enum {
     SDLK_ESCAPE = 27,
     SDLK_BACKSPACE = 8,
     SDLK_SPACE = 32,
+    SDLK_TAB = 9,
     SDLK_UP = 1073741906,
     SDLK_DOWN = 1073741905,
     SDLK_RIGHT = 1073741903,
     SDLK_LEFT = 1073741904,
+    SDLK_F3 = 1073741882,
+    SDLK_F5 = 1073741884,
+    SDLK_F8 = 1073741887,
+    SDLK_F9 = 1073741888,
+    SDLK_F10 = 1073741889,
+    SDLK_F11 = 1073741890,
+    SDLK_F12 = 1073741891,
+    SDLK_KP_ENTER = 1073741912,
+    SDLK_AC_BACK = 1073742094,
 } SDL_Keycode;
+
+#define SDLK_SCANCODE_MASK (1<<30)
 
 /* SDL Scancodes */
 typedef enum {
     SDL_SCANCODE_UNKNOWN = 0,
     SDL_SCANCODE_RETURN = 40,
     SDL_SCANCODE_ESCAPE = 41,
+    SDL_SCANCODE_UP = 82,
+    SDL_SCANCODE_DOWN = 81,
+    SDL_SCANCODE_RIGHT = 79,
+    SDL_SCANCODE_LEFT = 80,
 } SDL_Scancode;
 
 /* SDL Key state */
@@ -68,6 +84,7 @@ typedef struct SDL_Keysym {
 typedef enum {
     SDL_FIRSTEVENT     = 0,
     SDL_QUIT           = 0x100,
+    SDL_WINDOWEVENT    = 0x200,
     SDL_KEYDOWN        = 0x300,
     SDL_KEYUP          = 0x301,
     SDL_TEXTINPUT      = 0x303,
@@ -77,7 +94,23 @@ typedef enum {
     SDL_FINGERDOWN     = 0x700,
     SDL_FINGERUP       = 0x701,
     SDL_FINGERMOTION   = 0x702,
+    SDL_CONTROLLERBUTTONDOWN = 0x650,
+    SDL_CONTROLLERDEVICEADDED = 0x651,
+    SDL_CONTROLLERDEVICEREMOVED = 0x652,
 } SDL_EventType;
+
+/* Window events */
+#define SDL_WINDOWEVENT_CLOSE   14
+#define SDL_WINDOWEVENT_RESIZED 5
+
+/* Mouse buttons */
+#define SDL_BUTTON_LEFT   1
+#define SDL_BUTTON_RIGHT  3
+
+/* SDL Types */
+typedef uint32_t Uint32;
+typedef uint8_t Uint8;
+typedef int64_t SDL_FingerID;
 
 /* SDL Event structure */
 typedef struct SDL_Event {
@@ -105,6 +138,22 @@ typedef struct SDL_Event {
             uint8_t button;
             uint8_t state;
         } button;
+        struct {
+            uint32_t windowID;
+            uint8_t event;
+            uint8_t padding1;
+            uint8_t padding2;
+            uint8_t padding3;
+            int32_t data1;
+            int32_t data2;
+        } window;
+        struct {
+            SDL_FingerID fingerId;
+            float x;
+            float y;
+            float dx;
+            float dy;
+        } tfinger;
     };
 } SDL_Event;
 
@@ -164,22 +213,28 @@ typedef struct SDL_Texture SDL_Texture;
 /* SDL Renderer (opaque pointer) */
 typedef struct SDL_Renderer SDL_Renderer;
 
-/* SDL Window (opaque pointer) */
+/* SDL Window (needs public fields for macro access) */
+struct SDL_Window {
+    int w, h;
+};
 typedef struct SDL_Window SDL_Window;
 
 /* SDL RWops (opaque pointer) */
 typedef struct SDL_RWops SDL_RWops;
 
+/* SDL Audio types */
+typedef uint16_t SDL_AudioFormat;
+
 /* SDL Audio spec */
 typedef struct SDL_AudioSpec {
     int freq;
-    uint16_t format;
+    SDL_AudioFormat format;
     uint8_t channels;
     uint8_t silence;
     uint16_t samples;
     uint16_t padding;
     uint32_t size;
-    void (*callback)(void *userdata, uint8_t *stream, int len);
+    void (*callback)(void *userdata, Uint8 *stream, int len);
     void *userdata;
 } SDL_AudioSpec;
 

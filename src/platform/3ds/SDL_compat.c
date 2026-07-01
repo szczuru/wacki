@@ -26,15 +26,13 @@ static int s_screen_width = 400;   /* Top screen width */
 static int s_screen_height = 240;  /* Screen height */
 static int s_initialized = 0;
 
-/* Renderer and Window (dummy structures - we only need one) */
+/* Renderer and Window structures */
 struct SDL_Renderer {
     int dummy;
     uint8_t draw_r, draw_g, draw_b, draw_a;
 };
 
-struct SDL_Window {
-    int w, h;
-};
+/* Window structure defined in SDL_compat.h */
 
 static SDL_Renderer s_renderer_storage;
 static SDL_Window s_window_storage;
