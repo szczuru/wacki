@@ -1,154 +1,188 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/gamepad_3ds.c — Nintendo 3DS input handling.
+ * src/platform/3ds/gamepad_3ds.c — Nintendo 3DS gamepad input with custom controls.
  *
- * 3DS uses its own gamepad file with custom button mapping:
- *
- * Nintendo's physical buttons (3DS layout):
- *   physical A (right)  → left click
- *   physical B (bottom) → right click
- *   physical X (top)    → cycle zoom level on bottom screen
- *   physical Y (left)   → (reserved for future use)
- *   START               → pause menu
- *   SELECT              → toggle left/right-hand mode
- *   
- * L/ZL and R/ZR shoulder buttons:
- *   In RIGHT-HAND mode (default):
- *     L  → quickload
- *     ZL → left click (alternative)
- *     R  → quicksave
- *     ZR → right click (alternative)
- *   
- *   In LEFT-HAND mode:
- *     L  → left click
- *     ZL → right click
- *     R  → quicksave
- *     ZR → quickload
- *
- * Circle Pad → cursor movement
- * Touch Screen → cursor position + zoom view on bottom screen */
+ * Features:
+ * - A/B button swap (like Switch) - A=left click, B=right click
+ * - X button cycles zoom level (100% → 50% → 25% → 12.5%)
+ * - SELECT toggles left/right hand mode for L/ZL/R/ZR mapping
+ * - Circle Pad and D-Pad for cursor movement
+ * - Touch screen support via SDL_PollEvent in SDL_compat.c */
 
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/input.h"
 #include <3ds.h>
-#include <string.h>
+#include <math.h>
 
-#define PAD_ANALOG_MAX_PX   9
-#define PAD_ANALOG_DEADZONE 20  /* 3DS circle pad deadzone */
+/* Zoom state - exposed to SDL_compat.c for rendering */
+static int s_zoom_level = 0;  /* 0=100%, 1=50%, 2=25%, 3=12.5% */
 
-/* Zoom levels for bottom screen (percentage of top screen area shown) */
-static int s_zoom_level = 1;  /* 0=100%, 1=50%, 2=25%, 3=12.5% */
-#define MAX_ZOOM_LEVEL 3
-
-/* Hand mode: 0 = right-hand (default), 1 = left-hand */
+/* Hand mode: 0=right-handed (default), 1=left-handed */
 static int s_hand_mode = 0;
 
+/* Button state tracking for edge detection */
 static u32 s_prev_keys = 0;
 
-void platform_pad_open(void)
+/* Cursor speed from engine */
+extern uint16_t g_cursor_speed;
+
+/* Click latches from engine */
+extern uint8_t g_lmb_clicked;
+extern uint8_t g_rmb_clicked;
+
+/* Quicksave/load latches */
+extern uint8_t g_quicksave_request;
+extern uint8_t g_quickload_request;
+
+/* Pause menu latch */
+extern uint8_t g_pause_menu_request;
+
+/* Exposed to SDL_compat.c for zoom rendering */
+int platform_3ds_get_zoom_level(void)
 {
-    /* 3DS input initialized in system_3ds.c via hidInit() */
-    LOG_INFO("platform", "3DS gamepad initialized");
+    return s_zoom_level;
 }
 
-int platform_pad_handle_event(void *ev)
+void plat_gamepad_read_cursor(float *ax, float *ay)
 {
-    /* 3DS doesn't use SDL events - we poll directly in platform_pad_read_motion */
-    (void)ev;
-    return 0;
-}
-
-void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
-{
+    if (!ax || !ay) return;
+    
+    *ax = 0.0f;
+    *ay = 0.0f;
+    
     hidScanInput();
-    u32 kDown = hidKeysDown();
+    
     u32 kHeld = hidKeysHeld();
+    u32 kDown = hidKeysDown();
     
-    /* Button press events (edge-triggered) */
-    if (kDown & KEY_START) {
-        g_pause_menu_request = 1;
+    /* Circle Pad (analog) */
+    circlePosition pos;
+    hidCircleRead(&pos);
+    
+    /* Deadzone and scaling */
+    float stick_x = (float)pos.dx / 156.0f;  /* 3DS circle pad range is ~156 */
+    float stick_y = (float)pos.dy / 156.0f;
+    
+    const float deadzone = 0.15f;
+    if (fabsf(stick_x) > deadzone) {
+        *ax += stick_x * 8.0f;  /* Scale for cursor speed */
+    }
+    if (fabsf(stick_y) > deadzone) {
+        *ay -= stick_y * 8.0f;  /* Invert Y axis */
     }
     
-    /* SELECT toggles left/right-hand mode */
-    if (kDown & KEY_SELECT) {
+    /* D-Pad (discrete) */
+    if (kHeld & KEY_DRIGHT) *ax += 4.0f;
+    if (kHeld & KEY_DLEFT)  *ax -= 4.0f;
+    if (kHeld & KEY_DDOWN)  *ay += 4.0f;
+    if (kHeld & KEY_DUP)    *ay -= 4.0f;
+    
+    /* X button - cycle zoom level (edge-triggered) */
+    if ((kDown & KEY_X) && !(s_prev_keys & KEY_X)) {
+        s_zoom_level = (s_zoom_level + 1) & 3;  /* 0→1→2→3→0 */
+        LOG_INFO("3ds", "Zoom level: %d (%.1f%%)", 
+                 s_zoom_level, 100.0f / (1 << s_zoom_level));
+    }
+    
+    /* SELECT button - toggle hand mode (edge-triggered) */
+    if ((kDown & KEY_SELECT) && !(s_prev_keys & KEY_SELECT)) {
         s_hand_mode = !s_hand_mode;
-        LOG_INFO("input", "Hand mode: %s", s_hand_mode ? "LEFT" : "RIGHT");
+        LOG_INFO("3ds", "Hand mode: %s", s_hand_mode ? "LEFT" : "RIGHT");
     }
     
-    /* X button cycles zoom level */
-    if (kDown & KEY_X) {
-        s_zoom_level = (s_zoom_level + 1) % (MAX_ZOOM_LEVEL + 1);
-        LOG_INFO("input", "Zoom level: %d", s_zoom_level);
-    }
-    
-    /* Face buttons: A/B swapped like Switch */
-    if (kDown & KEY_A) {  /* physical A (right position) */
+    /* A/B buttons - SWAPPED (like Switch)
+     * 3DS physical layout: A=right, B=bottom
+     * We want: A=left click, B=right click */
+    if (kDown & KEY_A) {
         g_lmb_clicked = 1;
     }
-    if (kDown & KEY_B) {  /* physical B (bottom position) */
+    if (kDown & KEY_B) {
         g_rmb_clicked = 1;
     }
     
-    /* Shoulder buttons - depends on hand mode */
+    /* L/ZL/R/ZR - depends on hand mode
+     *
+     * RIGHT-HANDED (default):
+     *   L  = quickload
+     *   ZL = left click (alternative)
+     *   R  = quicksave
+     *   ZR = right click (alternative)
+     *
+     * LEFT-HANDED:
+     *   L  = left click
+     *   ZL = right click
+     *   R  = quicksave
+     *   ZR = quickload
+     */
+    
     if (s_hand_mode == 0) {
-        /* RIGHT-HAND mode */
+        /* Right-handed */
         if (kDown & KEY_L)  g_quickload_request = 1;
         if (kDown & KEY_ZL) g_lmb_clicked = 1;
         if (kDown & KEY_R)  g_quicksave_request = 1;
         if (kDown & KEY_ZR) g_rmb_clicked = 1;
     } else {
-        /* LEFT-HAND mode */
+        /* Left-handed */
         if (kDown & KEY_L)  g_lmb_clicked = 1;
         if (kDown & KEY_ZL) g_rmb_clicked = 1;
         if (kDown & KEY_R)  g_quicksave_request = 1;
         if (kDown & KEY_ZR) g_quickload_request = 1;
     }
     
-    /* D-Pad for discrete cursor movement */
-    if (kHeld & KEY_DRIGHT) (*dx)++;
-    if (kHeld & KEY_DLEFT)  (*dx)--;
-    if (kHeld & KEY_DDOWN)  (*dy)++;
-    if (kHeld & KEY_DUP)    (*dy)--;
-    
-    /* Circle Pad for analog cursor movement */
-    circlePosition pos;
-    hidCircleRead(&pos);
-    
-    if (pos.dx > PAD_ANALOG_DEADZONE || pos.dx < -PAD_ANALOG_DEADZONE) {
-        *ax = (float)pos.dx / 156.0f * PAD_ANALOG_MAX_PX;  /* 3DS circle pad range is -156 to 156 */
-    }
-    if (pos.dy > PAD_ANALOG_DEADZONE || pos.dy < -PAD_ANALOG_DEADZONE) {
-        *ay = -(float)pos.dy / 156.0f * PAD_ANALOG_MAX_PX;  /* Invert Y for natural control */
+    /* START button - pause menu */
+    if (kDown & KEY_START) {
+        g_pause_menu_request = 1;
     }
     
+    /* Store current keys for next frame edge detection */
     s_prev_keys = kHeld;
 }
 
 int plat_pad_menu_nav(int *up, int *down, int *confirm)
 {
-    *up = *down = *confirm = 0;
+    /* Simple menu navigation for pre-game modals */
+    static u32 prev = 0;
     
     hidScanInput();
     u32 kDown = hidKeysDown();
+    u32 kHeld = hidKeysHeld();
     
-    if (kDown & KEY_DUP)   *up = 1;
-    if (kDown & KEY_DDOWN) *down = 1;
-    if (kDown & KEY_A)     *confirm = 1;  /* A confirms in menus */
+    *up = 0;
+    *down = 0;
+    *confirm = 0;
     
-    return 1;  /* 3DS always has input available */
+    /* Edge-triggered navigation */
+    if ((kDown & KEY_DUP) || (kDown & KEY_CPAD_UP)) {
+        *up = 1;
+    }
+    if ((kDown & KEY_DDOWN) || (kDown & KEY_CPAD_DOWN)) {
+        *down = 1;
+    }
+    if (kDown & KEY_A) {
+        *confirm = 1;
+    }
+    
+    prev = kHeld;
+    
+    /* Return 1 if any controller is connected (3DS always has built-in controls) */
+    return 1;
 }
 
 void plat_input_flush(void)
 {
+    /* Clear any queued input after a modal */
     hidScanInput();
+    
+    /* Clear click latches */
+    extern uint8_t g_lmb_clicked, g_rmb_clicked, g_lmb_handled;
     g_lmb_clicked = 0;
     g_rmb_clicked = 0;
-}
-
-/* Export zoom level for video layer */
-int platform_3ds_get_zoom_level(void)
-{
-    return s_zoom_level;
+    g_lmb_handled = 0;
+    
+    /* Clear F-key latches */
+    g_quicksave_request = 0;
+    g_quickload_request = 0;
+    g_pause_menu_request = 0;
 }
