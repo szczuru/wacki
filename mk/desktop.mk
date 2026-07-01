@@ -66,4 +66,5 @@ endif
 # Desktop platform HAL: the shared SDL family + the desktop hooks provider
 # (display-mode picker / windowed default) + the external-media + folder-picker
 # data-root impl.
-ENGINE_SRCS += src/platform/sdl/hooks_desktop.c $(SDL_PLATFORM_SRCS) $(SDL_DATAROOT_DESKTOP)
+ENGINE_SRCS += src/platform/sdl/platform_sdl.c \
+               src/platform/sdl/hooks_desktop.c $(SDL_PLATFORM_SRCS) $(SDL_DATAROOT_DESKTOP)

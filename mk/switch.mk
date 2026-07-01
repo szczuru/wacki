@@ -34,7 +34,8 @@ endif
 
 # Switch uzywa wlasnego gamepad_switch.c zamiast gamepad_sdl.c -
 # remapping A/B pozostaje wylacznie w plikach Switch-specyficznych.
-ENGINE_SRCS += src/platform/switch/switch.c \
+ENGINE_SRCS += src/platform/sdl/platform_sdl.c \
+               src/platform/switch/switch.c \
                src/platform/switch/storage_switch.c \
                src/platform/switch/data_root_switch.c \
                src/platform/switch/gamepad_switch.c \

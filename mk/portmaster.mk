@@ -9,4 +9,5 @@ CFLAGS += -DWACKI_HANDHELD -DWACKI_PORTMASTER
 
 # Platform HAL: portmaster/portmaster.c is the hooks provider (fullscreen
 # default) on top of the shared SDL family + the handheld data-root impl.
-ENGINE_SRCS += src/platform/portmaster/portmaster.c $(SDL_PLATFORM_SRCS) $(SDL_DATAROOT_HANDHELD)
+ENGINE_SRCS += src/platform/sdl/platform_sdl.c \
+               src/platform/portmaster/portmaster.c $(SDL_PLATFORM_SRCS) $(SDL_DATAROOT_HANDHELD)

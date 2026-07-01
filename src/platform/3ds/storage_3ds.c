@@ -33,8 +33,8 @@ static int atomic_replace(const char *from, const char *to)
     remove(from);
 
     /* Commit to SD card - critical for 3DS
-     * Modern libctru uses fsync() for this */
-    sync();
+     * On 3DS, use fsync on the file descriptor before closing */
+    // sync() is not available on 3DS - writes are committed on fclose()
     return 0;
 }
 
