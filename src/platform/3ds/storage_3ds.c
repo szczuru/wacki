@@ -3,7 +3,7 @@
  *
  * src/platform/3ds/storage_3ds.c — save-image storage HAL, Nintendo 3DS.
  *
- * 3DS requires explicit FSUSER_ControlArchive to commit writes to SD card.
+ * 3DS requires explicit sync() to commit writes to SD card.
  * Without it, saves work in-session but vanish after reboot. */
 
 #include "wacki.h"
@@ -12,6 +12,7 @@
 
 #include <3ds.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static int atomic_replace(const char *from, const char *to)
 {
@@ -31,10 +32,9 @@ static int atomic_replace(const char *from, const char *to)
     if (!ok) return -1;
     remove(from);
 
-    /* Commit to SD card - critical for 3DS */
-    Result rc = FSUSER_ControlArchive(sdmcArchive, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
-    if (R_FAILED(rc))
-        LOG_INFO("save", "FSUSER_ControlArchive failed (0x%08lX)", rc);
+    /* Commit to SD card - critical for 3DS
+     * Modern libctru uses fsync() for this */
+    sync();
     return 0;
 }
 

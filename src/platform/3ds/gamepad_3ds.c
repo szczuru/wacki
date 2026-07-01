@@ -137,6 +137,8 @@ int plat_pad_menu_nav(int *up, int *down, int *confirm)
     if (kDown & KEY_DDOWN) *down = 1;
     if (kDown & KEY_A)     *confirm = 1;  /* A confirms in menus */
     
+    s_prev_keys = hidKeysHeld();
+    
     return 1;  /* 3DS always has input available */
 }
 
