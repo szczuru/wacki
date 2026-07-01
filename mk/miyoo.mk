@@ -18,4 +18,5 @@ LDFLAGS_SIZE := -Wl,--gc-sections -ldl
 
 # Platform HAL: miyoo/miyoo.c is the hooks provider (MI_AO volume + keysym
 # buttons) on top of the shared SDL family + the handheld data-root impl.
-ENGINE_SRCS += src/platform/miyoo/miyoo.c $(SDL_PLATFORM_SRCS) $(SDL_DATAROOT_HANDHELD)
+ENGINE_SRCS += src/platform/sdl/platform_sdl.c \
+               src/platform/miyoo/miyoo.c $(SDL_PLATFORM_SRCS) $(SDL_DATAROOT_HANDHELD)

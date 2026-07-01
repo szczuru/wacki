@@ -96,7 +96,7 @@ ENGINE_SRCS = \
 	src/save.c    src/font.c      src/flic.c   src/flic/decoder.c \
 	src/heap.c     src/timer.c     src/stubs.c                    \
 	src/binary_data.c src/pe_loader.c src/log.c                  \
-	src/platform/sdl/platform_sdl.c src/vm/script_obj.c src/vm/parser.c \
+	src/vm/script_obj.c src/vm/parser.c \
 	src/util/rng.c                                               \
 	src/hud/panel.c src/hud/inventory.c src/hud/items.c          \
 	src/scene/click_queue.c src/scene/hit_test.c src/scene/mask_list.c \
@@ -135,7 +135,7 @@ SDL_DATAROOT_HANDHELD = src/platform/sdl/data_root_handheld.c
 # a confusing "missing symbol" link error later.
 TGT := $(or $(strip $(TARGET)),desktop)
 ifeq ($(wildcard mk/$(TGT).mk),)
-$(error Unknown TARGET '$(TARGET)' — no mk/$(TGT).mk (valid: desktop, miyoo, portmaster, ps2))
+$(error Unknown TARGET '$(TARGET)' — no mk/$(TGT).mk (valid: desktop, miyoo, portmaster, ps2, switch, 3ds))
 endif
 include mk/$(TGT).mk
 
