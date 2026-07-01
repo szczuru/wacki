@@ -171,4 +171,69 @@ typedef struct SDL_Window SDL_Window;
 typedef struct SDL_RWops SDL_RWops;
 
 /* SDL Audio spec */
-typedef struct SDL_AudioSpec
+typedef struct SDL_AudioSpec {
+    int freq;
+    uint16_t format;
+    uint8_t channels;
+    uint8_t silence;
+    uint16_t samples;
+    uint16_t padding;
+    uint32_t size;
+    void (*callback)(void *userdata, uint8_t *stream, int len);
+    void *userdata;
+} SDL_AudioSpec;
+
+/* SDL Timer callback */
+typedef uint32_t (*SDL_TimerCallback)(uint32_t interval, void *param);
+typedef int SDL_TimerID;
+
+/* SDL Hints */
+#define SDL_HINT_RENDER_SCALE_QUALITY "SDL_RENDER_SCALE_QUALITY"
+#define SDL_HINT_TOUCH_MOUSE_EVENTS "SDL_TOUCH_MOUSE_EVENTS"
+
+/* SDL Functions - implemented in SDL_compat.c */
+int SDL_Init(uint32_t flags);
+void SDL_Quit(void);
+const char* SDL_GetError(void);
+int SDL_SetHint(const char *name, const char *value);
+
+SDL_Window* SDL_CreateWindow(const char *title, int x, int y, int w, int h, uint32_t flags);
+void SDL_DestroyWindow(SDL_Window *window);
+
+SDL_Renderer* SDL_CreateRenderer(SDL_Window *window, int index, uint32_t flags);
+void SDL_DestroyRenderer(SDL_Renderer *renderer);
+int SDL_SetRenderDrawColor(SDL_Renderer *renderer, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+int SDL_RenderClear(SDL_Renderer *renderer);
+void SDL_RenderPresent(SDL_Renderer *renderer);
+int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture, const SDL_Rect *srcrect, const SDL_Rect *dstrect);
+int SDL_RenderSetLogicalSize(SDL_Renderer *renderer, int w, int h);
+
+SDL_Texture* SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format, int access, int w, int h);
+void SDL_DestroyTexture(SDL_Texture *texture);
+int SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect, const void *pixels, int pitch);
+int SDL_SetTextureBlendMode(SDL_Texture *texture, SDL_BlendMode blendMode);
+
+SDL_Surface* SDL_CreateRGBSurfaceWithFormat(uint32_t flags, int width, int height, int depth, uint32_t format);
+void SDL_FreeSurface(SDL_Surface *surface);
+SDL_Surface* SDL_LoadBMP_RW(SDL_RWops *src, int freesrc);
+int SDL_SetColorKey(SDL_Surface *surface, int flag, uint32_t key);
+
+int SDL_PollEvent(SDL_Event *event);
+uint32_t SDL_GetTicks(void);
+void SDL_Delay(uint32_t ms);
+
+SDL_TimerID SDL_AddTimer(uint32_t interval, SDL_TimerCallback callback, void *param);
+int SDL_RemoveTimer(SDL_TimerID id);
+
+void SDL_StartTextInput(void);
+void SDL_StopTextInput(void);
+
+/* Audio stubs */
+int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained);
+void SDL_CloseAudio(void);
+void SDL_PauseAudio(int pause_on);
+
+/* Utility macros */
+#define SDL_arraysize(array) (sizeof(array)/sizeof(array[0]))
+
+#endif /* WACKI_3DS_SDL_COMPAT_H */
