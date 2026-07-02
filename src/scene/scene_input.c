@@ -317,6 +317,13 @@ void HandleSceneInput(void)
     g_hover_scene_verb = hover_verb;
 
     if (g_lmb_clicked) {
+        /* DEBUG: Log first 10 clicks detected in HandleSceneInput */
+        static int click_handled_count = 0;
+        if (click_handled_count < 10) {
+            click_handled_count++;
+            LOG_INFO("scene-input", "HandleSceneInput #%d: g_lmb_clicked=1 detected, consuming", click_handled_count);
+        }
+        
         /* CONSUME the click immediately, before any dispatch or walker
          * bind. Without this, blocking-wait pumps inside DispatchClick
          * Event call PGFT Inner which would snapshot g_lmb_handled =

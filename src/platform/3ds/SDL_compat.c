@@ -255,11 +255,11 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     }
     
     /* ===== TOP SCREEN: Main game view ===== 
-     * Top screen: 400x240 logical
-     * Game: 640x480
-     * Scale to fit maintaining aspect ratio */
+     * Top screen is physically rotated 90° (portrait hardware)
+     * Use C2D_SceneSize with tilt=true to handle this */
     
     C2D_SceneBegin(s_top_screen);
+    C2D_SceneSize(400, 240, true);  /* tilt=true for 3DS rotated screens */
     
     /* Scale game (640x480) to fit screen (400x240) */
     /* Use uniform scale of 0.5 to fit 480 height into 240 */
@@ -272,9 +272,10 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
                     NULL, scale, scale);
     
     /* ===== BOTTOM SCREEN: Zoom view ===== 
-     * Bottom screen: 320x240 logical */
+     * Bottom screen also physically rotated */
     
     C2D_SceneBegin(s_bottom_screen);
+    C2D_SceneSize(320, 240, true);  /* tilt=true for 3DS rotated screens */
     
     /* Get zoom level and cursor position */
     extern int platform_3ds_get_zoom_level(void);

@@ -66,6 +66,13 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     u32 kDown = hidKeysDown();
     u32 kHeld = hidKeysHeld();
     
+    /* DEBUG: Log first 10 A button presses */
+    static int a_press_count = 0;
+    if ((kDown & KEY_A) && a_press_count < 10) {
+        a_press_count++;
+        LOG_INFO("input-debug", "A button press #%d - setting g_lmb_clicked=1", a_press_count);
+    }
+    
     /* Button press events (edge-triggered) */
     if (kDown & KEY_START) {
         g_pause_menu_request = 1;
@@ -74,11 +81,13 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     /* SELECT toggles left/right-hand mode */
     if (kDown & KEY_SELECT) {
         s_hand_mode = !s_hand_mode;
+        LOG_INFO("input", "Hand mode switched to: %s", s_hand_mode ? "LEFT" : "RIGHT");
     }
     
     /* X button cycles zoom level */
     if (kDown & KEY_X) {
         s_zoom_level = (s_zoom_level + 1) % (MAX_ZOOM_LEVEL + 1);
+        LOG_INFO("input", "Zoom level: %d", s_zoom_level);
     }
     
     /* Face buttons: A/B swapped like Switch 
