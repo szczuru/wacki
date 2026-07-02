@@ -66,34 +66,19 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     u32 kDown = hidKeysDown();
     u32 kHeld = hidKeysHeld();
     
-    /* Debug: log button presses */
-    static int s_first_input_logged = 0;
-    if (!s_first_input_logged && kDown != 0) {
-        LOG_INFO("input", "First button press detected: 0x%08lX", kDown);
-        s_first_input_logged = 1;
-    }
-    
-    /* Log A button specifically */
-    if (kDown & KEY_A) {
-        LOG_INFO("input", "A button pressed - setting g_lmb_clicked");
-    }
-    
     /* Button press events (edge-triggered) */
     if (kDown & KEY_START) {
         g_pause_menu_request = 1;
-        LOG_INFO("input", "START pressed");
     }
     
     /* SELECT toggles left/right-hand mode */
     if (kDown & KEY_SELECT) {
         s_hand_mode = !s_hand_mode;
-        LOG_INFO("input", "Hand mode: %s", s_hand_mode ? "LEFT" : "RIGHT");
     }
     
     /* X button cycles zoom level */
     if (kDown & KEY_X) {
         s_zoom_level = (s_zoom_level + 1) % (MAX_ZOOM_LEVEL + 1);
-        LOG_INFO("input", "Zoom level: %d", s_zoom_level);
     }
     
     /* Face buttons: A/B swapped like Switch 
@@ -101,11 +86,9 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
      * Physical B (bottom position) = right click */
     if (kDown & KEY_A) {
         g_lmb_clicked = 1;
-        LOG_INFO("input", "A pressed - LMB clicked");
     }
     if (kDown & KEY_B) {
         g_rmb_clicked = 1;
-        LOG_INFO("input", "B pressed - RMB clicked");
     }
     
     /* Shoulder buttons - depends on hand mode */

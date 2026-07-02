@@ -6,7 +6,7 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 CC       := $(DEVKITARM)/bin/arm-none-eabi-gcc
 BIN_NAME := wacki
 
-CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
+CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS -DWACKI_VERBOSE \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I$(DEVKITPRO)/libctru/include \
           -I$(DEVKITPRO)/portlibs/3ds/include \

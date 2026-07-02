@@ -31,14 +31,16 @@ static void update_audio_buffers(void);
 /* Global 3DS graphics state */
 static C3D_RenderTarget *s_top_screen = NULL;
 static C3D_RenderTarget *s_bottom_screen = NULL;
-static int s_screen_width = 400;   /* Top screen width */
-static int s_screen_height = 240;  /* Screen height */
+static int s_screen_width = 400;   /* Top screen logical width */
+static int s_screen_height = 240;  /* Top screen logical height */
 static int s_initialized = 0;
 
-/* 3DS screens are rotated 90° - actual hardware layout:
- * Top screen: 400x240 (displayed as 240 wide x 400 tall in portrait)
- * Bottom screen: 320x240 (displayed as 240 wide x 320 tall in portrait)
- * We need to handle rotation in our rendering */
+/* 3DS screen hardware:
+ * - Physical screens are rotated 90° (portrait mode in hardware)
+ * - citro2d handles this via GX_TRANSFER automatically
+ * - Top screen: 400x240 logical (landscape)
+ * - Bottom screen: 320x240 logical (landscape)
+ * We use logical coordinates throughout */
 
 /* Renderer and Window structures */
 struct SDL_Renderer {
@@ -221,13 +223,6 @@ int SDL_RenderClear(SDL_Renderer *renderer)
 {
     if (!renderer) return -1;
     
-    /* Log first few clears to verify rendering is happening */
-    static int clear_count = 0;
-    if (clear_count < 5) {
-        LOG_INFO("3ds-render", "SDL_RenderClear #%d", clear_count);
-        clear_count++;
-    }
-    
     /* Clear both screens with the draw color */
     uint32_t clear_color = C2D_Color32(renderer->draw_r, renderer->draw_g, 
                                        renderer->draw_b, renderer->draw_a);
@@ -245,17 +240,10 @@ void SDL_RenderPresent(SDL_Renderer *renderer)
 {
     (void)renderer;
     
-    /* Log first few presents */
-    static int present_count = 0;
-    if (present_count < 5) {
-        LOG_INFO("3ds-render", "SDL_RenderPresent #%d", present_count);
-        present_count++;
-    }
-    
     /* End the frame - this presents to both screens */
     C3D_FrameEnd(0);
     
-    /* Important: wait for VBlank to avoid tearing */
+    /* Wait for VBlank to prevent tearing and maintain 60fps timing */
     gspWaitForVBlank();
 }
 
@@ -267,26 +255,20 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     }
     
     /* ===== TOP SCREEN: Main game view ===== 
-     * Citro2D uses logical coordinates that match physical screen orientation.
-     * Top screen: 400x240 logical (already landscape-oriented by citro2d)
-     * Game: 640x480 
-     * Scale to fit 400x240 maintaining aspect ratio */
+     * Top screen: 400x240 logical
+     * Game: 640x480
+     * Scale to fit maintaining aspect ratio */
     
     C2D_SceneBegin(s_top_screen);
     
-    /* Calculate scale to fit game into screen */
-    float scale_x = 400.0f / 640.0f;  /* 0.625 */
-    float scale_y = 240.0f / 480.0f;  /* 0.5 */
-    float scale = (scale_x < scale_y) ? scale_x : scale_y;  /* 0.5 - use smaller */
+    /* Scale game (640x480) to fit screen (400x240) */
+    /* Use uniform scale of 0.5 to fit 480 height into 240 */
+    /* This gives us 320x240, centered horizontally */
+    float scale = 0.5f;
+    float offset_x = (400.0f - 320.0f) / 2.0f;  /* 40px black bars on sides */
     
-    /* Calculate centered position */
-    float scaled_w = 640.0f * scale;  /* 320 */
-    float scaled_h = 480.0f * scale;  /* 240 */
-    float offset_x = (400.0f - scaled_w) / 2.0f;  /* 40 */
-    float offset_y = (240.0f - scaled_h) / 2.0f;  /* 0 */
-    
-    /* Draw without rotation - citro2d handles screen orientation */
-    C2D_DrawImageAt(texture->c2d_img, offset_x, offset_y, 0.5f, 
+    /* Draw main game view */
+    C2D_DrawImageAt(texture->c2d_img, offset_x, 0.0f, 0.5f, 
                     NULL, scale, scale);
     
     /* ===== BOTTOM SCREEN: Zoom view ===== 
@@ -387,13 +369,19 @@ SDL_Texture* SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format,
     
     /* Determine C3D texture format - wacki uses ARGB8888 */
     GPU_TEXCOLOR c3d_format = GPU_RGBA8;  /* Always use RGBA8 for simplicity */
-    int bytes_per_pixel = 4;  /* RGBA8 = 4 bytes per pixel */
     
-    /* Calculate proper texture size (must be power of 2) */
-    int tex_w = 64;
-    while (tex_w < w) tex_w *= 2;
-    int tex_h = 64;
-    while (tex_h < h) tex_h *= 2;
+    /* For 3DS performance, use exact size (not power of 2) if possible
+     * New 3DS supports non-POT textures up to certain sizes */
+    int tex_w = w;
+    int tex_h = h;
+    
+    /* Only use POT if dimensions are large */
+    if (w > 512 || h > 512) {
+        tex_w = 64;
+        while (tex_w < w && tex_w < 1024) tex_w *= 2;
+        tex_h = 64;
+        while (tex_h < h && tex_h < 1024) tex_h *= 2;
+    }
     
     /* Create C3D texture */
     if (!C3D_TexInit(&tex->c3d_tex, tex_w, tex_h, c3d_format)) {
@@ -428,7 +416,7 @@ SDL_Texture* SDL_CreateTexture(SDL_Renderer *renderer, uint32_t format,
     tex->c2d_img.subtex = subtex;
     
     /* Allocate shadow buffer for UpdateTexture */
-    tex->pitch = w * bytes_per_pixel;
+    tex->pitch = w * 4;  /* RGBA8 = 4 bytes per pixel */
     tex->pixels_shadow = linearAlloc(tex->pitch * h);
     if (!tex->pixels_shadow) {
         C3D_TexDelete(&tex->c3d_tex);
@@ -633,17 +621,6 @@ int SDL_PollEvent(SDL_Event *event)
 {
     if (!event) return 0;
     
-    /* Log first few polls */
-    static int poll_count = 0;
-    static int last_log_time = 0;
-    int current_time = (int)osGetTime();
-    
-    if (poll_count < 10 || (current_time - last_log_time) > 1000) {
-        LOG_INFO("3ds-events", "SDL_PollEvent #%d", poll_count);
-        last_log_time = current_time;
-    }
-    poll_count++;
-    
     /* Update audio buffers first */
     update_audio_buffers();
     
@@ -660,18 +637,11 @@ int SDL_PollEvent(SDL_Event *event)
     u32 kUp = hidKeysUp();
     u32 kHeld = hidKeysHeld();
     
-    /* Log any button presses */
-    if (kDown != 0) {
-        LOG_INFO("3ds-input", "Keys down in SDL_PollEvent: 0x%08lX", kDown);
-    }
-    
     /* Check for touch on bottom screen */
     if (kDown & KEY_TOUCH) {
         hidTouchRead(&touch);
         SDL_Event touch_event;
         touch_event.type = SDL_FINGERDOWN;
-        
-        LOG_INFO("3ds-input", "Touch at %d, %d", touch.px, touch.py);
         
         /* Map touch to cursor position */
         extern int16_t g_mouse_x, g_mouse_y;
@@ -708,7 +678,6 @@ int SDL_PollEvent(SDL_Event *event)
     
     /* Check for quit request (HOME button) */
     if (!aptMainLoop()) {
-        LOG_INFO("3ds-events", "aptMainLoop returned false - quitting");
         SDL_Event quit_event;
         quit_event.type = SDL_QUIT;
         push_event(&quit_event);
@@ -884,15 +853,7 @@ static void update_audio_buffers(void)
 {
     if (!s_audio_open || !s_audio_callback) return;
     
-    /* Log first few updates */
-    static int update_count = 0;
-    if (update_count < 5) {
-        LOG_INFO("3ds-audio", "update_audio_buffers #%d", update_count);
-        update_count++;
-    }
-    
     /* Check if any buffer needs refilling */
-    int refilled = 0;
     for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
         if (s_wave_bufs[i].status == NDSP_WBUF_DONE) {
             /* Refill this buffer */
@@ -900,11 +861,6 @@ static void update_audio_buffers(void)
                            s_audio_buffer_size);
             DSP_FlushDataCache(s_audio_buffer[i], s_audio_buffer_size);
             ndspChnWaveBufAdd(NDSP_CHANNEL, &s_wave_bufs[i]);
-            refilled++;
         }
-    }
-    
-    if (refilled > 0 && update_count < 10) {
-        LOG_INFO("3ds-audio", "Refilled %d buffers", refilled);
     }
 }
