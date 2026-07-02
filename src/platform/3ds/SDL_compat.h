@@ -224,6 +224,7 @@ typedef struct SDL_RWops SDL_RWops;
 
 /* SDL Audio types */
 typedef uint16_t SDL_AudioFormat;
+typedef void (*SDL_AudioCallback)(void *userdata, Uint8 *stream, int len);
 
 /* SDL Audio spec */
 typedef struct SDL_AudioSpec {
@@ -234,7 +235,7 @@ typedef struct SDL_AudioSpec {
     uint16_t samples;
     uint16_t padding;
     uint32_t size;
-    void (*callback)(void *userdata, Uint8 *stream, int len);
+    SDL_AudioCallback callback;
     void *userdata;
 } SDL_AudioSpec;
 

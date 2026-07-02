@@ -14,6 +14,9 @@
 #include <string.h>
 #include <malloc.h>
 
+/* Forward declarations */
+static void update_audio_buffers(void);
+
 /* Forward declarations for functions that may not be in old libctru */
 #ifndef gspWaitForPPF
 #define gspWaitForPPF gspWaitForP3D
@@ -49,8 +52,17 @@ struct SDL_Texture {
     int pitch;
 };
 
-/* Audio state (stub - ndsp not implemented yet) */
+/* Audio state */
+#define NDSP_CHANNEL 0
+#define AUDIO_BUFFER_COUNT 2
+
+static ndspWaveBuf s_wave_bufs[AUDIO_BUFFER_COUNT];
 static int s_audio_open = 0;
+static SDL_AudioCallback s_audio_callback = NULL;
+static void *s_audio_userdata = NULL;
+static int16_t *s_audio_buffer[AUDIO_BUFFER_COUNT];
+static int s_audio_buffer_size = 0;
+static int s_current_buffer = 0;
 
 /* Timer state */
 static uint64_t s_start_ticks = 0;
@@ -211,61 +223,96 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
 {
     if (!renderer || !texture) return -1;
     
-    /* Render to top screen (main game view) */
+    /* ===== TOP SCREEN: Main game view (400x240) ===== */
     C2D_SceneBegin(s_top_screen);
     
-    /* For now, just draw the full texture to top screen */
-    /* TODO: Handle source/dest rectangles for proper scaling */
-    C2D_DrawImageAt(texture->c2d_img, 0.0f, 0.0f, 0.5f, NULL, 1.0f, 1.0f);
+    /* Game is 640x480, top screen is 400x240.
+     * We need to scale and letterbox to fit.
+     * Scale factor: 400/640 = 0.625 for width, 240/480 = 0.5 for height.
+     * Use 0.5 to maintain aspect ratio (creates letterbox bars on sides). */
     
-    /* Render zoom view to bottom screen */
+    float top_scale = 240.0f / 480.0f;  /* Scale to fit height */
+    float scaled_width = 640.0f * top_scale;  /* 320 pixels */
+    float offset_x = (400.0f - scaled_width) / 2.0f;  /* Center horizontally: 40px offset */
+    
+    /* Draw full game texture scaled to top screen */
+    C2D_DrawImageAt(texture->c2d_img, offset_x, 0.0f, 0.5f, 
+                    NULL, top_scale, top_scale);
+    
+    /* ===== BOTTOM SCREEN: Zoom view around cursor (320x240) ===== */
     C2D_SceneBegin(s_bottom_screen);
     
     /* Get zoom level from gamepad */
     extern int platform_3ds_get_zoom_level(void);
     int zoom = platform_3ds_get_zoom_level();
     
-    /* Zoom levels: 0=100%, 1=50%, 2=25%, 3=12.5% */
-    float zoom_factor = 1.0f / (1 << zoom);
+    /* Zoom levels: 0=1x (100%), 1=2x (50%), 2=4x (25%), 3=8x (12.5%) */
+    float zoom_scale = (float)(1 << zoom);
     
-    /* Bottom screen is 320x240 */
-    int bottom_w = 320;
-    int bottom_h = 240;
-    
-    /* Calculate source region for zoom (centered around cursor) */
+    /* Get cursor position in game coordinates */
     extern int16_t g_mouse_x, g_mouse_y;
     
-    /* Scale cursor from 640x480 game space to 400x240 screen space */
-    int screen_cursor_x = (g_mouse_x * 400) / 640;
-    int screen_cursor_y = (g_mouse_y * 240) / 480;
+    /* Calculate what region of the game to show on bottom screen.
+     * Bottom screen shows 320x240 of the 640x480 game at zoom level. */
     
-    int zoom_src_w = (int)((float)bottom_w * zoom_factor);
-    int zoom_src_h = (int)((float)bottom_h * zoom_factor);
+    /* At 1x zoom: show 320x240 region
+     * At 2x zoom: show 160x120 region (scaled up to 320x240)
+     * At 4x zoom: show 80x60 region (scaled up to 320x240) */
     
-    int zoom_src_x = screen_cursor_x - zoom_src_w / 2;
-    int zoom_src_y = screen_cursor_y - zoom_src_h / 2;
+    float view_w = 320.0f / zoom_scale;  /* Width of game region to show */
+    float view_h = 240.0f / zoom_scale;  /* Height of game region to show */
     
-    /* Clamp to texture bounds */
-    if (zoom_src_x < 0) zoom_src_x = 0;
-    if (zoom_src_y < 0) zoom_src_y = 0;
-    if (zoom_src_x + zoom_src_w > 400) 
-        zoom_src_x = 400 - zoom_src_w;
-    if (zoom_src_y + zoom_src_h > 240) 
-        zoom_src_y = 240 - zoom_src_h;
+    /* Center view around cursor */
+    float view_x = (float)g_mouse_x - view_w / 2.0f;
+    float view_y = (float)g_mouse_y - view_h / 2.0f;
     
-    /* Draw full texture to bottom with scale */
-    float bottom_scale_x = (float)bottom_w / 400.0f;
-    float bottom_scale_y = (float)bottom_h / 240.0f;
+    /* Clamp to game bounds (640x480) */
+    if (view_x < 0.0f) view_x = 0.0f;
+    if (view_y < 0.0f) view_y = 0.0f;
+    if (view_x + view_w > 640.0f) view_x = 640.0f - view_w;
+    if (view_y + view_h > 480.0f) view_y = 480.0f - view_h;
     
-    /* Offset to center zoom area */
-    float offset_x = -(float)zoom_src_x * (bottom_w / (float)zoom_src_w);
-    float offset_y = -(float)zoom_src_y * (bottom_h / (float)zoom_src_h);
+    /* Calculate texture coordinates (normalized 0..1) */
+    const Tex3DS_SubTexture *subtex = texture->c2d_img.subtex;
+    float tex_w = subtex->right - subtex->left;
+    float tex_h = subtex->bottom - subtex->top;
     
-    /* Apply zoom scale */
-    float zoom_scale = 1.0f / zoom_factor;
+    float u0 = subtex->left + (view_x / 640.0f) * tex_w;
+    float v0 = subtex->top + (view_y / 480.0f) * tex_h;
+    float u1 = subtex->left + ((view_x + view_w) / 640.0f) * tex_w;
+    float v1 = subtex->top + ((view_y + view_h) / 480.0f) * tex_h;
     
-    C2D_DrawImageAt(texture->c2d_img, offset_x, offset_y, 0.5f, 
-                    NULL, zoom_scale * bottom_scale_x, zoom_scale * bottom_scale_y);
+    /* Create a custom subtex for the zoomed region */
+    Tex3DS_SubTexture zoom_subtex = *subtex;
+    *(float*)&zoom_subtex.left = u0;
+    *(float*)&zoom_subtex.top = v0;
+    *(float*)&zoom_subtex.right = u1;
+    *(float*)&zoom_subtex.bottom = v1;
+    *(u16*)&zoom_subtex.width = (u16)view_w;
+    *(u16*)&zoom_subtex.height = (u16)view_h;
+    
+    C2D_Image zoom_img = texture->c2d_img;
+    zoom_img.subtex = &zoom_subtex;
+    
+    /* Draw zoomed region to fill bottom screen */
+    C2D_DrawImageAt(zoom_img, 0.0f, 0.0f, 0.5f, 
+                    NULL, zoom_scale, zoom_scale);
+    
+    /* Draw cursor indicator on bottom screen */
+    /* Calculate cursor position relative to zoom view */
+    float cursor_screen_x = ((float)g_mouse_x - view_x) * zoom_scale;
+    float cursor_screen_y = ((float)g_mouse_y - view_y) * zoom_scale;
+    
+    /* Draw a small crosshair */
+    u32 cursor_color = C2D_Color32(255, 255, 0, 255);  /* Yellow */
+    float crosshair_size = 5.0f;
+    
+    /* Horizontal line */
+    C2D_DrawRectSolid(cursor_screen_x - crosshair_size, cursor_screen_y - 1.0f,
+                     0.6f, crosshair_size * 2.0f, 2.0f, cursor_color);
+    /* Vertical line */
+    C2D_DrawRectSolid(cursor_screen_x - 1.0f, cursor_screen_y - crosshair_size,
+                     0.6f, 2.0f, crosshair_size * 2.0f, cursor_color);
     
     return 0;
 }
@@ -375,31 +422,26 @@ int SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect,
 {
     if (!texture || !pixels) return -1;
     
-    /* For 3DS, we'll use a simpler approach: convert pixels to texture format
-     * and upload directly. The engine uses ARGB8888 format. */
+    /* The wacki engine sends us ARGB8888 data (0xAARRGGBB).
+     * 3DS GPU_RGBA8 format expects bytes in memory as: AABBGGRR (little-endian).
+     * Each pixel is stored as 4 bytes: [AA][BB][GG][RR] in memory order. */
     
     int update_w = texture->width;
     int update_h = texture->height;
     
     if (rect) {
-        /* Partial update not fully supported yet - just do full update */
         update_w = rect->w;
         update_h = rect->h;
     }
     
-    /* The wacki engine sends us ARGB8888 data.
-     * We need to convert it to a format 3DS understands.
-     * For simplicity, we'll convert to RGBA8 which C3D supports. */
-    
     const uint32_t *src = (const uint32_t *)pixels;
     
-    /* Allocate temp buffer for converted data if needed */
     if (!texture->pixels_shadow) {
         return -1;
     }
     
-    /* Convert ARGB8888 to RGBA8 (swap channels) */
-    uint32_t *dst = (uint32_t *)texture->pixels_shadow;
+    /* Convert ARGB8888 (0xAARRGGBB) to GPU_RGBA8 format (ABGR byte order) */
+    uint8_t *dst = (uint8_t *)texture->pixels_shadow;
     int src_pitch_pixels = pitch / 4;
     
     for (int y = 0; y < update_h && y < texture->height; y++) {
@@ -410,17 +452,19 @@ int SDL_UpdateTexture(SDL_Texture *texture, const SDL_Rect *rect,
             uint8_t g = (argb >> 8) & 0xFF;
             uint8_t b = argb & 0xFF;
             
-            /* Convert to RGBA8 */
-            uint32_t rgba = (r << 24) | (g << 16) | (b << 8) | a;
-            dst[y * texture->width + x] = rgba;
+            /* Write in ABGR byte order for GPU_RGBA8 */
+            int idx = (y * texture->width + x) * 4;
+            dst[idx + 0] = a;
+            dst[idx + 1] = b;
+            dst[idx + 2] = g;
+            dst[idx + 3] = r;
         }
     }
     
-    /* Flush cache and upload to VRAM */
+    /* Flush cache and upload to VRAM using GX transfer */
     GSPGPU_FlushDataCache(texture->pixels_shadow, 
                           texture->width * texture->height * 4);
     
-    /* Use C3D_SyncDisplayTransfer to upload texture data */
     GX_DisplayTransfer((u32*)texture->pixels_shadow, 
                        GX_BUFFER_DIM(texture->width, texture->height),
                        (u32*)texture->c3d_tex.data, 
@@ -520,23 +564,60 @@ int SDL_SetColorKey(SDL_Surface *surface, int flag, uint32_t key)
 
 /* ---- Event Handling ---- */
 
+/* Event queue for 3DS input system */
+static SDL_Event s_event_queue[32];
+static int s_event_queue_head = 0;
+static int s_event_queue_tail = 0;
+
+static void push_event(SDL_Event *event)
+{
+    int next = (s_event_queue_tail + 1) % 32;
+    if (next != s_event_queue_head) {
+        s_event_queue[s_event_queue_tail] = *event;
+        s_event_queue_tail = next;
+    }
+}
+
+static int pop_event(SDL_Event *event)
+{
+    if (s_event_queue_head == s_event_queue_tail) {
+        return 0;  /* Queue empty */
+    }
+    
+    *event = s_event_queue[s_event_queue_head];
+    s_event_queue_head = (s_event_queue_head + 1) % 32;
+    return 1;
+}
+
 int SDL_PollEvent(SDL_Event *event)
 {
     if (!event) return 0;
     
-    /* 3DS uses native input polling in gamepad_3ds.c */
-    /* Touch screen events are handled here for bottom screen */
+    /* Update audio buffers first */
+    update_audio_buffers();
     
+    /* First, try to pop from queue */
+    if (pop_event(event)) {
+        return 1;
+    }
+    
+    /* Poll 3DS input and generate events */
     hidScanInput();
     
     touchPosition touch;
     u32 kDown = hidKeysDown();
+    u32 kUp = hidKeysUp();
     u32 kHeld = hidKeysHeld();
+    
+    /* The gamepad_3ds.c handles most input, but we need to generate
+     * SDL events for the main loop to continue running. Generate a
+     * dummy event to keep the loop active. */
     
     /* Check for touch on bottom screen */
     if (kDown & KEY_TOUCH) {
         hidTouchRead(&touch);
-        event->type = SDL_FINGERDOWN;
+        SDL_Event touch_event;
+        touch_event.type = SDL_FINGERDOWN;
         
         /* Map touch to cursor position (will be used by engine) */
         extern int16_t g_mouse_x, g_mouse_y;
@@ -546,30 +627,51 @@ int SDL_PollEvent(SDL_Event *event)
         int zoom = platform_3ds_get_zoom_level();
         float zoom_factor = 1.0f / (1 << zoom);
         
-        /* Bottom screen is 320x240, map to zoomed game coordinates */
-        int zoom_src_w = (int)(320.0f * zoom_factor);
-        int zoom_src_h = (int)(240.0f * zoom_factor);
+        /* Bottom screen is 320x240, game is 640x480 */
+        /* Map touch from bottom screen to game coordinates */
         
-        /* Touch position relative to zoom window */
+        /* Calculate zoomed region size in game coordinates */
+        int zoom_game_w = (int)(640.0f * zoom_factor);
+        int zoom_game_h = (int)(480.0f * zoom_factor);
+        
+        /* Current cursor is center of zoom window */
+        int zoom_src_x = g_mouse_x - zoom_game_w / 2;
+        int zoom_src_y = g_mouse_y - zoom_game_h / 2;
+        
+        /* Clamp zoom source to game bounds */
+        if (zoom_src_x < 0) zoom_src_x = 0;
+        if (zoom_src_y < 0) zoom_src_y = 0;
+        if (zoom_src_x + zoom_game_w > 640) zoom_src_x = 640 - zoom_game_w;
+        if (zoom_src_y + zoom_game_h > 480) zoom_src_y = 480 - zoom_game_h;
+        
+        /* Touch position relative to bottom screen (0..320, 0..240) */
         float rel_x = (float)touch.px / 320.0f;
         float rel_y = (float)touch.py / 240.0f;
         
         /* Map to game coordinates */
-        int zoom_src_x = g_mouse_x - zoom_src_w / 2;
-        int zoom_src_y = g_mouse_y - zoom_src_h / 2;
+        g_mouse_x = (int16_t)(zoom_src_x + (int)(rel_x * zoom_game_w));
+        g_mouse_y = (int16_t)(zoom_src_y + (int)(rel_y * zoom_game_h));
         
-        /* Clamp zoom source */
-        if (zoom_src_x < 0) zoom_src_x = 0;
-        if (zoom_src_y < 0) zoom_src_y = 0;
+        /* Clamp to game bounds */
+        if (g_mouse_x < 0) g_mouse_x = 0;
+        if (g_mouse_x >= 640) g_mouse_x = 639;
+        if (g_mouse_y < 0) g_mouse_y = 0;
+        if (g_mouse_y >= 480) g_mouse_y = 479;
         
-        /* Calculate absolute game coordinates */
-        g_mouse_x = (int16_t)(zoom_src_x + (int)(rel_x * zoom_src_w));
-        g_mouse_y = (int16_t)(zoom_src_y + (int)(rel_y * zoom_src_h));
-        
-        return 1;
+        push_event(&touch_event);
+        return pop_event(event);
     }
     
-    /* No events */
+    /* Check for quit request (HOME button) */
+    if (!aptMainLoop()) {
+        SDL_Event quit_event;
+        quit_event.type = SDL_QUIT;
+        push_event(&quit_event);
+        return pop_event(event);
+    }
+    
+    /* No real events, but return 0 to indicate no events available.
+     * The engine will call platform_pad_read_motion() to get input state. */
     return 0;
 }
 
@@ -613,21 +715,75 @@ void SDL_StopTextInput(void)
     /* Stub */
 }
 
-/* ---- Audio Stubs ---- */
+/* ---- Audio Implementation ---- */
 
 int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
 {
     if (s_audio_open) return 0;
     
     /* Initialize ndsp */
-    ndspInit();
+    if (ndspInit() != 0) {
+        set_error("Failed to initialize ndsp");
+        return -1;
+    }
+    
     ndspSetOutputMode(NDSP_OUTPUT_STEREO);
     
+    /* Set up channel 0 for audio playback */
+    ndspChnReset(NDSP_CHANNEL);
+    ndspChnSetInterp(NDSP_CHANNEL, NDSP_INTERP_LINEAR);
+    ndspChnSetRate(NDSP_CHANNEL, (float)desired->freq);
+    ndspChnSetFormat(NDSP_CHANNEL, 
+                     desired->channels == 1 ? NDSP_FORMAT_MONO_PCM16 
+                                            : NDSP_FORMAT_STEREO_PCM16);
+    
+    /* Allocate audio buffers */
+    int samples_per_buf = desired->samples;
+    s_audio_buffer_size = samples_per_buf * desired->channels * sizeof(int16_t);
+    
+    for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+        s_audio_buffer[i] = (int16_t *)linearAlloc(s_audio_buffer_size);
+        if (!s_audio_buffer[i]) {
+            /* Clean up on failure */
+            for (int j = 0; j < i; j++) {
+                linearFree(s_audio_buffer[j]);
+            }
+            ndspExit();
+            set_error("Failed to allocate audio buffers");
+            return -1;
+        }
+        memset(s_audio_buffer[i], 0, s_audio_buffer_size);
+        
+        /* Set up wave buffer */
+        memset(&s_wave_bufs[i], 0, sizeof(ndspWaveBuf));
+        s_wave_bufs[i].data_vaddr = s_audio_buffer[i];
+        s_wave_bufs[i].nsamples = samples_per_buf;
+        s_wave_bufs[i].looping = false;
+        s_wave_bufs[i].status = NDSP_WBUF_DONE;
+    }
+    
+    /* Save callback info */
+    s_audio_callback = desired->callback;
+    s_audio_userdata = desired->userdata;
+    s_current_buffer = 0;
+    
+    /* Fill obtained spec */
     if (obtained) {
         memcpy(obtained, desired, sizeof(SDL_AudioSpec));
     }
     
     s_audio_open = 1;
+    
+    /* Start initial buffers */
+    for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+        if (s_audio_callback) {
+            s_audio_callback(s_audio_userdata, (uint8_t *)s_audio_buffer[i], 
+                           s_audio_buffer_size);
+        }
+        DSP_FlushDataCache(s_audio_buffer[i], s_audio_buffer_size);
+        ndspChnWaveBufAdd(NDSP_CHANNEL, &s_wave_bufs[i]);
+    }
+    
     return 0;
 }
 
@@ -635,12 +791,44 @@ void SDL_CloseAudio(void)
 {
     if (!s_audio_open) return;
     
+    /* Stop playback */
+    ndspChnReset(NDSP_CHANNEL);
+    
+    /* Free buffers */
+    for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+        if (s_audio_buffer[i]) {
+            linearFree(s_audio_buffer[i]);
+            s_audio_buffer[i] = NULL;
+        }
+    }
+    
     ndspExit();
     s_audio_open = 0;
+    s_audio_callback = NULL;
+    s_audio_userdata = NULL;
 }
 
 void SDL_PauseAudio(int pause_on)
 {
-    /* Stub - would control ndsp playback */
-    (void)pause_on;
+    if (!s_audio_open) return;
+    
+    ndspChnSetPaused(NDSP_CHANNEL, pause_on != 0);
+}
+
+/* This function should be called regularly to refill audio buffers.
+ * We'll call it from SDL_PollEvent to keep audio streaming. */
+static void update_audio_buffers(void)
+{
+    if (!s_audio_open || !s_audio_callback) return;
+    
+    /* Check if any buffer needs refilling */
+    for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+        if (s_wave_bufs[i].status == NDSP_WBUF_DONE) {
+            /* Refill this buffer */
+            s_audio_callback(s_audio_userdata, (uint8_t *)s_audio_buffer[i],
+                           s_audio_buffer_size);
+            DSP_FlushDataCache(s_audio_buffer[i], s_audio_buffer_size);
+            ndspChnWaveBufAdd(NDSP_CHANNEL, &s_wave_bufs[i]);
+        }
+    }
 }
