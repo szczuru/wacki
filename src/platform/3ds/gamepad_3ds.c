@@ -66,11 +66,16 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     u32 kDown = hidKeysDown();
     u32 kHeld = hidKeysHeld();
     
-    /* Debug: log first button press to verify input works */
+    /* Debug: log button presses */
     static int s_first_input_logged = 0;
     if (!s_first_input_logged && kDown != 0) {
         LOG_INFO("input", "First button press detected: 0x%08lX", kDown);
         s_first_input_logged = 1;
+    }
+    
+    /* Log A button specifically */
+    if (kDown & KEY_A) {
+        LOG_INFO("input", "A button pressed - setting g_lmb_clicked");
     }
     
     /* Button press events (edge-triggered) */
@@ -91,17 +96,19 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
         LOG_INFO("input", "Zoom level: %d", s_zoom_level);
     }
     
-    /* Face buttons: A/B swapped like Switch */
-    if (kDown & KEY_A) {  /* physical A (right position) */
+    /* Face buttons: A/B swapped like Switch 
+     * Physical A (right position) = left click
+     * Physical B (bottom position) = right click */
+    if (kDown & KEY_A) {
         g_lmb_clicked = 1;
     }
-    if (kDown & KEY_B) {  /* physical B (bottom position) */
+    if (kDown & KEY_B) {
         g_rmb_clicked = 1;
     }
     
     /* Shoulder buttons - depends on hand mode */
     if (s_hand_mode == 0) {
-        /* RIGHT-HAND mode */
+        /* RIGHT-HAND mode (default) */
         if (kDown & KEY_L)  g_quickload_request = 1;
         if (kDown & KEY_ZL) g_lmb_clicked = 1;
         if (kDown & KEY_R)  g_quicksave_request = 1;
@@ -125,10 +132,10 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     hidCircleRead(&pos);
     
     if (pos.dx > PAD_ANALOG_DEADZONE || pos.dx < -PAD_ANALOG_DEADZONE) {
-        *ax = (float)pos.dx / 156.0f * PAD_ANALOG_MAX_PX;  /* 3DS circle pad range is -156 to 156 */
+        *ax = (float)pos.dx / 156.0f * PAD_ANALOG_MAX_PX;
     }
     if (pos.dy > PAD_ANALOG_DEADZONE || pos.dy < -PAD_ANALOG_DEADZONE) {
-        *ay = -(float)pos.dy / 156.0f * PAD_ANALOG_MAX_PX;  /* Invert Y for natural control */
+        *ay = -(float)pos.dy / 156.0f * PAD_ANALOG_MAX_PX;
     }
     
     s_prev_keys = kHeld;
