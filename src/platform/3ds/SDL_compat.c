@@ -93,8 +93,11 @@ int SDL_Init(uint32_t flags)
 {
     if (s_initialized) return 0;
     
+    LOG_INFO("3ds-init", "SDL_Init called with flags=0x%08X", flags);
+    
     /* Initialize graphics */
     if (flags & SDL_INIT_VIDEO) {
+        LOG_INFO("3ds-init", "Initializing video subsystem...");
         gfxInitDefault();
         C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
         C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
@@ -105,9 +108,12 @@ int SDL_Init(uint32_t flags)
         s_bottom_screen = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
         
         if (!s_top_screen || !s_bottom_screen) {
+            LOG_INFO("3ds-init", "FAILED to create screen targets!");
             set_error("Failed to create screen targets");
             return -1;
         }
+        
+        LOG_INFO("3ds-init", "Video initialized successfully");
         
         /* Enable gyro for potential motion controls */
         HIDUSER_EnableGyroscope();
@@ -115,15 +121,17 @@ int SDL_Init(uint32_t flags)
     
     /* Initialize audio */
     if (flags & SDL_INIT_AUDIO) {
-        /* Audio init is deferred to SDL_OpenAudio */
+        LOG_INFO("3ds-init", "Audio init deferred to SDL_OpenAudio");
     }
     
     /* Initialize timer */
     if (flags & SDL_INIT_TIMER) {
         s_start_ticks = osGetTime();
+        LOG_INFO("3ds-init", "Timer initialized");
     }
     
     s_initialized = 1;
+    LOG_INFO("3ds-init", "SDL_Init completed successfully");
     return 0;
 }
 
@@ -208,6 +216,13 @@ int SDL_RenderClear(SDL_Renderer *renderer)
 {
     if (!renderer) return -1;
     
+    /* Log first few clears to verify rendering is happening */
+    static int clear_count = 0;
+    if (clear_count < 5) {
+        LOG_INFO("3ds-render", "SDL_RenderClear #%d", clear_count);
+        clear_count++;
+    }
+    
     /* Clear both screens with the draw color */
     uint32_t clear_color = C2D_Color32(renderer->draw_r, renderer->draw_g, 
                                        renderer->draw_b, renderer->draw_a);
@@ -225,6 +240,13 @@ void SDL_RenderPresent(SDL_Renderer *renderer)
 {
     (void)renderer;
     
+    /* Log first few presents */
+    static int present_count = 0;
+    if (present_count < 5) {
+        LOG_INFO("3ds-render", "SDL_RenderPresent #%d", present_count);
+        present_count++;
+    }
+    
     /* End the frame - this presents to both screens */
     C3D_FrameEnd(0);
     
@@ -235,7 +257,19 @@ void SDL_RenderPresent(SDL_Renderer *renderer)
 int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture, 
                    const SDL_Rect *srcrect, const SDL_Rect *dstrect)
 {
-    if (!renderer || !texture) return -1;
+    if (!renderer || !texture) {
+        LOG_INFO("3ds-render", "SDL_RenderCopy: invalid params (renderer=%p, texture=%p)", 
+                 (void*)renderer, (void*)texture);
+        return -1;
+    }
+    
+    /* Log first few copies */
+    static int copy_count = 0;
+    if (copy_count < 3) {
+        LOG_INFO("3ds-render", "SDL_RenderCopy #%d (tex %dx%d)", 
+                 copy_count, texture->width, texture->height);
+        copy_count++;
+    }
     
     /* ===== TOP SCREEN: Main game view ===== */
     C2D_SceneBegin(s_top_screen);
@@ -259,11 +293,15 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     /* ===== BOTTOM SCREEN: Zoom view around cursor ===== */
     C2D_SceneBegin(s_bottom_screen);
     
+    /* For now, just draw a test rectangle to verify bottom screen works */
+    C2D_DrawRectSolid(10.0f, 10.0f, 0.5f, 100.0f, 100.0f, 
+                      C2D_Color32(255, 0, 0, 255));  /* Red square */
+    
     /* Get zoom level and cursor position */
     extern int platform_3ds_get_zoom_level(void);
     extern int16_t g_mouse_x, g_mouse_y;
     int zoom = platform_3ds_get_zoom_level();
-    float zoom_scale = (float)(1 << zoom);  /* 1x, 2x, 4x, 8x */
+    float zoom_scale = (float)(1 << zoom);
     
     /* Calculate view region in game coordinates */
     float view_w = 320.0f / zoom_scale;
@@ -598,6 +636,17 @@ int SDL_PollEvent(SDL_Event *event)
 {
     if (!event) return 0;
     
+    /* Log first few polls */
+    static int poll_count = 0;
+    static int last_log_time = 0;
+    int current_time = (int)osGetTime();
+    
+    if (poll_count < 10 || (current_time - last_log_time) > 1000) {
+        LOG_INFO("3ds-events", "SDL_PollEvent #%d", poll_count);
+        last_log_time = current_time;
+    }
+    poll_count++;
+    
     /* Update audio buffers first */
     update_audio_buffers();
     
@@ -614,9 +663,10 @@ int SDL_PollEvent(SDL_Event *event)
     u32 kUp = hidKeysUp();
     u32 kHeld = hidKeysHeld();
     
-    /* The gamepad_3ds.c handles most input, but we need to generate
-     * SDL events for the main loop to continue running. Generate a
-     * dummy event to keep the loop active. */
+    /* Log any button presses */
+    if (kDown != 0) {
+        LOG_INFO("3ds-input", "Keys down in SDL_PollEvent: 0x%08lX", kDown);
+    }
     
     /* Check for touch on bottom screen */
     if (kDown & KEY_TOUCH) {
@@ -624,40 +674,32 @@ int SDL_PollEvent(SDL_Event *event)
         SDL_Event touch_event;
         touch_event.type = SDL_FINGERDOWN;
         
-        /* Map touch to cursor position (will be used by engine) */
-        extern int16_t g_mouse_x, g_mouse_y;
+        LOG_INFO("3ds-input", "Touch at %d, %d", touch.px, touch.py);
         
-        /* Get zoom level to map touch to game coordinates */
+        /* Map touch to cursor position */
+        extern int16_t g_mouse_x, g_mouse_y;
         extern int platform_3ds_get_zoom_level(void);
+        
         int zoom = platform_3ds_get_zoom_level();
         float zoom_factor = 1.0f / (1 << zoom);
         
-        /* Bottom screen is 320x240, game is 640x480 */
-        /* Map touch from bottom screen to game coordinates */
-        
-        /* Calculate zoomed region size in game coordinates */
         int zoom_game_w = (int)(640.0f * zoom_factor);
         int zoom_game_h = (int)(480.0f * zoom_factor);
         
-        /* Current cursor is center of zoom window */
         int zoom_src_x = g_mouse_x - zoom_game_w / 2;
         int zoom_src_y = g_mouse_y - zoom_game_h / 2;
         
-        /* Clamp zoom source to game bounds */
         if (zoom_src_x < 0) zoom_src_x = 0;
         if (zoom_src_y < 0) zoom_src_y = 0;
         if (zoom_src_x + zoom_game_w > 640) zoom_src_x = 640 - zoom_game_w;
         if (zoom_src_y + zoom_game_h > 480) zoom_src_y = 480 - zoom_game_h;
         
-        /* Touch position relative to bottom screen (0..320, 0..240) */
         float rel_x = (float)touch.px / 320.0f;
         float rel_y = (float)touch.py / 240.0f;
         
-        /* Map to game coordinates */
         g_mouse_x = (int16_t)(zoom_src_x + (int)(rel_x * zoom_game_w));
         g_mouse_y = (int16_t)(zoom_src_y + (int)(rel_y * zoom_game_h));
         
-        /* Clamp to game bounds */
         if (g_mouse_x < 0) g_mouse_x = 0;
         if (g_mouse_x >= 640) g_mouse_x = 639;
         if (g_mouse_y < 0) g_mouse_y = 0;
@@ -669,14 +711,13 @@ int SDL_PollEvent(SDL_Event *event)
     
     /* Check for quit request (HOME button) */
     if (!aptMainLoop()) {
+        LOG_INFO("3ds-events", "aptMainLoop returned false - quitting");
         SDL_Event quit_event;
         quit_event.type = SDL_QUIT;
         push_event(&quit_event);
         return pop_event(event);
     }
     
-    /* No real events, but return 0 to indicate no events available.
-     * The engine will call platform_pad_read_motion() to get input state. */
     return 0;
 }
 
