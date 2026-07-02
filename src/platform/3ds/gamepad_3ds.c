@@ -101,9 +101,11 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
      * Physical B (bottom position) = right click */
     if (kDown & KEY_A) {
         g_lmb_clicked = 1;
+        LOG_INFO("input", "A pressed - LMB clicked");
     }
     if (kDown & KEY_B) {
         g_rmb_clicked = 1;
+        LOG_INFO("input", "B pressed - RMB clicked");
     }
     
     /* Shoulder buttons - depends on hand mode */

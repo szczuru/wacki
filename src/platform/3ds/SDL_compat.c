@@ -884,7 +884,15 @@ static void update_audio_buffers(void)
 {
     if (!s_audio_open || !s_audio_callback) return;
     
+    /* Log first few updates */
+    static int update_count = 0;
+    if (update_count < 5) {
+        LOG_INFO("3ds-audio", "update_audio_buffers #%d", update_count);
+        update_count++;
+    }
+    
     /* Check if any buffer needs refilling */
+    int refilled = 0;
     for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
         if (s_wave_bufs[i].status == NDSP_WBUF_DONE) {
             /* Refill this buffer */
@@ -892,6 +900,11 @@ static void update_audio_buffers(void)
                            s_audio_buffer_size);
             DSP_FlushDataCache(s_audio_buffer[i], s_audio_buffer_size);
             ndspChnWaveBufAdd(NDSP_CHANNEL, &s_wave_bufs[i]);
+            refilled++;
         }
+    }
+    
+    if (refilled > 0 && update_count < 10) {
+        LOG_INFO("3ds-audio", "Refilled %d buffers", refilled);
     }
 }
