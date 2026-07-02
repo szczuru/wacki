@@ -50,7 +50,7 @@ static u32 s_prev_keys = 0;
 void platform_pad_open(void)
 {
     /* 3DS input initialized in system_3ds.c via hidInit() */
-    LOG_INFO("platform", "3DS gamepad initialized");
+    LOG_INFO("platform", "3DS gamepad initialized (hidInit already called in system_3ds.c)");
 }
 
 int platform_pad_handle_event(void *ev)
@@ -66,9 +66,17 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     u32 kDown = hidKeysDown();
     u32 kHeld = hidKeysHeld();
     
+    /* Debug: log first button press to verify input works */
+    static int s_first_input_logged = 0;
+    if (!s_first_input_logged && kDown != 0) {
+        LOG_INFO("input", "First button press detected: 0x%08lX", kDown);
+        s_first_input_logged = 1;
+    }
+    
     /* Button press events (edge-triggered) */
     if (kDown & KEY_START) {
         g_pause_menu_request = 1;
+        LOG_INFO("input", "START pressed");
     }
     
     /* SELECT toggles left/right-hand mode */

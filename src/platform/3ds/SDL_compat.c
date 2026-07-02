@@ -8,6 +8,7 @@
  * without modifications while rendering on dual 3DS screens. */
 
 #include "SDL_compat.h"
+#include "wacki/log.h"
 #include <citro2d.h>
 #include <citro3d.h>
 #include <tex3ds.h>
@@ -28,6 +29,11 @@ static C3D_RenderTarget *s_bottom_screen = NULL;
 static int s_screen_width = 400;   /* Top screen width */
 static int s_screen_height = 240;  /* Screen height */
 static int s_initialized = 0;
+
+/* 3DS screens are rotated 90° - actual hardware layout:
+ * Top screen: 400x240 (displayed as 240 wide x 400 tall in portrait)
+ * Bottom screen: 320x240 (displayed as 240 wide x 320 tall in portrait)
+ * We need to handle rotation in our rendering */
 
 /* Renderer and Window structures */
 struct SDL_Renderer {
@@ -94,6 +100,7 @@ int SDL_Init(uint32_t flags)
         C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
         C2D_Prepare();
         
+        /* Create screen targets - GFX_LEFT is the 2D monocular view */
         s_top_screen = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
         s_bottom_screen = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
         
@@ -101,11 +108,14 @@ int SDL_Init(uint32_t flags)
             set_error("Failed to create screen targets");
             return -1;
         }
+        
+        /* Enable gyro for potential motion controls */
+        HIDUSER_EnableGyroscope();
     }
     
-    /* Initialize audio (stub) */
+    /* Initialize audio */
     if (flags & SDL_INIT_AUDIO) {
-        ndspInit();
+        /* Audio init is deferred to SDL_OpenAudio */
     }
     
     /* Initialize timer */
@@ -223,56 +233,58 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
 {
     if (!renderer || !texture) return -1;
     
-    /* ===== TOP SCREEN: Main game view (400x240) ===== */
+    /* ===== TOP SCREEN: Main game view ===== 
+     * Physical top screen is 400x240, but displayed rotated 90° CCW.
+     * In landscape orientation: 400 wide x 240 tall
+     * Game is 640x480, we scale to fit in 400x240 maintaining aspect ratio. */
     C2D_SceneBegin(s_top_screen);
     
-    /* Game is 640x480, top screen is 400x240.
-     * We need to scale and letterbox to fit.
-     * Scale factor: 400/640 = 0.625 for width, 240/480 = 0.5 for height.
-     * Use 0.5 to maintain aspect ratio (creates letterbox bars on sides). */
+    /* Scale game 640x480 to fit in top screen 400x240
+     * Aspect ratio: 640/480 = 4:3, screen 400/240 = 5:3
+     * Use 0.5x scale (240/480) to fit height, gives width of 320 
+     * Center horizontally: offset = (400-320)/2 = 40 */
     
-    float top_scale = 240.0f / 480.0f;  /* Scale to fit height */
+    float top_scale = 240.0f / 480.0f;  /* 0.5 - fit to height */
     float scaled_width = 640.0f * top_scale;  /* 320 pixels */
-    float offset_x = (400.0f - scaled_width) / 2.0f;  /* Center horizontally: 40px offset */
+    float offset_x = (400.0f - scaled_width) / 2.0f;  /* 40px centering */
     
-    /* Draw full game texture scaled to top screen */
-    C2D_DrawImageAt(texture->c2d_img, offset_x, 0.0f, 0.5f, 
-                    NULL, top_scale, top_scale);
+    /* Set up draw params for rotation */
+    C2D_DrawParams params;
+    params.pos.x = offset_x;
+    params.pos.y = 0.0f;
+    params.pos.w = scaled_width;
+    params.pos.h = 240.0f;
+    params.center.x = 0.0f;
+    params.center.y = 0.0f;
+    params.depth = 0.5f;
+    params.angle = 0.0f;  /* No rotation needed - citro2d handles screen rotation */
     
-    /* ===== BOTTOM SCREEN: Zoom view around cursor (320x240) ===== */
+    C2D_DrawImage(texture->c2d_img, &params, NULL);
+    
+    /* ===== BOTTOM SCREEN: Zoom view around cursor ===== 
+     * Physical bottom screen is 320x240 */
     C2D_SceneBegin(s_bottom_screen);
     
-    /* Get zoom level from gamepad */
+    /* Get zoom level and cursor position */
     extern int platform_3ds_get_zoom_level(void);
-    int zoom = platform_3ds_get_zoom_level();
-    
-    /* Zoom levels: 0=1x (100%), 1=2x (50%), 2=4x (25%), 3=8x (12.5%) */
-    float zoom_scale = (float)(1 << zoom);
-    
-    /* Get cursor position in game coordinates */
     extern int16_t g_mouse_x, g_mouse_y;
+    int zoom = platform_3ds_get_zoom_level();
+    float zoom_scale = (float)(1 << zoom);  /* 1x, 2x, 4x, 8x */
     
-    /* Calculate what region of the game to show on bottom screen.
-     * Bottom screen shows 320x240 of the 640x480 game at zoom level. */
+    /* Calculate view region in game coordinates (640x480) */
+    float view_w = 320.0f / zoom_scale;
+    float view_h = 240.0f / zoom_scale;
     
-    /* At 1x zoom: show 320x240 region
-     * At 2x zoom: show 160x120 region (scaled up to 320x240)
-     * At 4x zoom: show 80x60 region (scaled up to 320x240) */
-    
-    float view_w = 320.0f / zoom_scale;  /* Width of game region to show */
-    float view_h = 240.0f / zoom_scale;  /* Height of game region to show */
-    
-    /* Center view around cursor */
     float view_x = (float)g_mouse_x - view_w / 2.0f;
     float view_y = (float)g_mouse_y - view_h / 2.0f;
     
-    /* Clamp to game bounds (640x480) */
+    /* Clamp to game bounds */
     if (view_x < 0.0f) view_x = 0.0f;
     if (view_y < 0.0f) view_y = 0.0f;
     if (view_x + view_w > 640.0f) view_x = 640.0f - view_w;
     if (view_y + view_h > 480.0f) view_y = 480.0f - view_h;
     
-    /* Calculate texture coordinates (normalized 0..1) */
+    /* Calculate texture coordinates (0..1 range) */
     const Tex3DS_SubTexture *subtex = texture->c2d_img.subtex;
     float tex_w = subtex->right - subtex->left;
     float tex_h = subtex->bottom - subtex->top;
@@ -282,7 +294,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     float u1 = subtex->left + ((view_x + view_w) / 640.0f) * tex_w;
     float v1 = subtex->top + ((view_y + view_h) / 480.0f) * tex_h;
     
-    /* Create a custom subtex for the zoomed region */
+    /* Create temporary subtex for zoomed region */
     Tex3DS_SubTexture zoom_subtex = *subtex;
     *(float*)&zoom_subtex.left = u0;
     *(float*)&zoom_subtex.top = v0;
@@ -294,25 +306,33 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     C2D_Image zoom_img = texture->c2d_img;
     zoom_img.subtex = &zoom_subtex;
     
-    /* Draw zoomed region to fill bottom screen */
-    C2D_DrawImageAt(zoom_img, 0.0f, 0.0f, 0.5f, 
-                    NULL, zoom_scale, zoom_scale);
+    /* Draw zoomed region */
+    C2D_DrawParams zoom_params;
+    zoom_params.pos.x = 0.0f;
+    zoom_params.pos.y = 0.0f;
+    zoom_params.pos.w = 320.0f;
+    zoom_params.pos.h = 240.0f;
+    zoom_params.center.x = 0.0f;
+    zoom_params.center.y = 0.0f;
+    zoom_params.depth = 0.5f;
+    zoom_params.angle = 0.0f;
     
-    /* Draw cursor indicator on bottom screen */
-    /* Calculate cursor position relative to zoom view */
+    C2D_DrawImage(zoom_img, &zoom_params, NULL);
+    
+    /* Draw cursor crosshair on bottom screen */
     float cursor_screen_x = ((float)g_mouse_x - view_x) * zoom_scale;
     float cursor_screen_y = ((float)g_mouse_y - view_y) * zoom_scale;
     
-    /* Draw a small crosshair */
-    u32 cursor_color = C2D_Color32(255, 255, 0, 255);  /* Yellow */
-    float crosshair_size = 5.0f;
+    u32 cursor_color = C2D_Color32(255, 255, 0, 200);  /* Yellow, semi-transparent */
+    float crosshair_size = 6.0f;
+    float thickness = 2.0f;
     
     /* Horizontal line */
-    C2D_DrawRectSolid(cursor_screen_x - crosshair_size, cursor_screen_y - 1.0f,
-                     0.6f, crosshair_size * 2.0f, 2.0f, cursor_color);
+    C2D_DrawRectSolid(cursor_screen_x - crosshair_size, cursor_screen_y - thickness/2.0f,
+                     0.6f, crosshair_size * 2.0f, thickness, cursor_color);
     /* Vertical line */
-    C2D_DrawRectSolid(cursor_screen_x - 1.0f, cursor_screen_y - crosshair_size,
-                     0.6f, 2.0f, crosshair_size * 2.0f, cursor_color);
+    C2D_DrawRectSolid(cursor_screen_x - thickness/2.0f, cursor_screen_y - crosshair_size,
+                     0.6f, thickness, crosshair_size * 2.0f, cursor_color);
     
     return 0;
 }
@@ -719,10 +739,21 @@ void SDL_StopTextInput(void)
 
 int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
 {
-    if (s_audio_open) return 0;
+    if (s_audio_open) {
+        LOG_INFO("3ds-audio", "Audio already open, reusing");
+        if (obtained) {
+            memcpy(obtained, desired, sizeof(SDL_AudioSpec));
+        }
+        return 0;
+    }
+    
+    LOG_INFO("3ds-audio", "Opening audio: %d Hz, %d ch, %d samples",
+             desired->freq, desired->channels, desired->samples);
     
     /* Initialize ndsp */
-    if (ndspInit() != 0) {
+    Result res = ndspInit();
+    if (R_FAILED(res)) {
+        LOG_INFO("3ds-audio", "Failed to initialize ndsp: 0x%08lX", res);
         set_error("Failed to initialize ndsp");
         return -1;
     }
@@ -741,12 +772,17 @@ int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
     int samples_per_buf = desired->samples;
     s_audio_buffer_size = samples_per_buf * desired->channels * sizeof(int16_t);
     
+    LOG_INFO("3ds-audio", "Allocating %d buffers of %d bytes each",
+             AUDIO_BUFFER_COUNT, s_audio_buffer_size);
+    
     for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
         s_audio_buffer[i] = (int16_t *)linearAlloc(s_audio_buffer_size);
         if (!s_audio_buffer[i]) {
+            LOG_INFO("3ds-audio", "Failed to allocate buffer %d", i);
             /* Clean up on failure */
             for (int j = 0; j < i; j++) {
                 linearFree(s_audio_buffer[j]);
+                s_audio_buffer[j] = NULL;
             }
             ndspExit();
             set_error("Failed to allocate audio buffers");
@@ -774,6 +810,8 @@ int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
     
     s_audio_open = 1;
     
+    LOG_INFO("3ds-audio", "Filling initial buffers...");
+    
     /* Start initial buffers */
     for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
         if (s_audio_callback) {
@@ -783,6 +821,8 @@ int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
         DSP_FlushDataCache(s_audio_buffer[i], s_audio_buffer_size);
         ndspChnWaveBufAdd(NDSP_CHANNEL, &s_wave_bufs[i]);
     }
+    
+    LOG_INFO("3ds-audio", "Audio initialized successfully");
     
     return 0;
 }
