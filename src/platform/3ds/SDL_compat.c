@@ -266,46 +266,32 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
         return -1;
     }
     
-    /* ===== TOP SCREEN: Main game view (with rotation) ===== */
+    /* ===== TOP SCREEN: Main game view ===== 
+     * Citro2D uses logical coordinates that match physical screen orientation.
+     * Top screen: 400x240 logical (already landscape-oriented by citro2d)
+     * Game: 640x480 
+     * Scale to fit 400x240 maintaining aspect ratio */
+    
     C2D_SceneBegin(s_top_screen);
     
-    /* 3DS screens are rotated 90° - we need to account for this.
-     * Top screen physical dimensions: 400x240 (landscape)
-     * Game dimensions: 640x480
-     * 
-     * To fix the 90° rotation, we need to:
-     * 1. Rotate the image 90° counter-clockwise
-     * 2. Adjust positioning accordingly
-     */
+    /* Calculate scale to fit game into screen */
+    float scale_x = 400.0f / 640.0f;  /* 0.625 */
+    float scale_y = 240.0f / 480.0f;  /* 0.5 */
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;  /* 0.5 - use smaller */
     
-    /* Calculate scale to fit 640x480 into 240x400 (rotated dimensions) */
-    float scale_x = 240.0f / 640.0f;  /* 0.375 */
-    float scale_y = 400.0f / 480.0f;  /* 0.833 */
-    float scale = (scale_x < scale_y) ? scale_x : scale_y;  /* Use smaller = 0.375 */
+    /* Calculate centered position */
+    float scaled_w = 640.0f * scale;  /* 320 */
+    float scaled_h = 480.0f * scale;  /* 240 */
+    float offset_x = (400.0f - scaled_w) / 2.0f;  /* 40 */
+    float offset_y = (240.0f - scaled_h) / 2.0f;  /* 0 */
     
-    /* After 90° CCW rotation, width becomes height and vice versa */
-    float scaled_w = 640.0f * scale;  /* ~240 */
-    float scaled_h = 480.0f * scale;  /* ~180 */
+    /* Draw without rotation - citro2d handles screen orientation */
+    C2D_DrawImageAt(texture->c2d_img, offset_x, offset_y, 0.5f, 
+                    NULL, scale, scale);
     
-    /* Position in center of screen after rotation */
-    /* After rotation, we need to position from rotated perspective */
-    float center_x = 200.0f;  /* Center of 400px width */
-    float center_y = 120.0f;  /* Center of 240px height */
+    /* ===== BOTTOM SCREEN: Zoom view ===== 
+     * Bottom screen: 320x240 logical */
     
-    /* Draw with rotation using C2D_DrawParams */
-    C2D_DrawParams params;
-    params.pos.x = center_x;
-    params.pos.y = center_y;
-    params.pos.w = scaled_w;
-    params.pos.h = scaled_h;
-    params.center.x = 0.5f;  /* Rotate around center */
-    params.center.y = 0.5f;
-    params.depth = 0.5f;
-    params.angle = -M_PI / 2.0f;  /* -90° (counter-clockwise) */
-    
-    C2D_DrawImage(texture->c2d_img, &params, NULL);
-    
-    /* ===== BOTTOM SCREEN: Zoom view (also needs rotation) ===== */
     C2D_SceneBegin(s_bottom_screen);
     
     /* Get zoom level and cursor position */
@@ -314,7 +300,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     int zoom = platform_3ds_get_zoom_level();
     float zoom_scale = (float)(1 << zoom);
     
-    /* Calculate view region in game coordinates */
+    /* Calculate view region in game coordinates (640x480) */
     float view_w = 320.0f / zoom_scale;
     float view_h = 240.0f / zoom_scale;
     
@@ -327,7 +313,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     if (view_x + view_w > 640.0f) view_x = 640.0f - view_w;
     if (view_y + view_h > 480.0f) view_y = 480.0f - view_h;
     
-    /* Calculate texture coordinates */
+    /* Calculate texture coordinates for zoom region */
     const Tex3DS_SubTexture *subtex = texture->c2d_img.subtex;
     float tex_w = subtex->right - subtex->left;
     float tex_h = subtex->bottom - subtex->top;
@@ -349,22 +335,13 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     C2D_Image zoom_img = texture->c2d_img;
     zoom_img.subtex = &zoom_subtex;
     
-    /* Draw zoomed region with rotation */
-    C2D_DrawParams zoom_params;
-    zoom_params.pos.x = 160.0f;  /* Center of 320px */
-    zoom_params.pos.y = 120.0f;  /* Center of 240px */
-    zoom_params.pos.w = view_w * zoom_scale;
-    zoom_params.pos.h = view_h * zoom_scale;
-    zoom_params.center.x = 0.5f;
-    zoom_params.center.y = 0.5f;
-    zoom_params.depth = 0.5f;
-    zoom_params.angle = -M_PI / 2.0f;  /* -90° rotation */
+    /* Draw zoomed region filling bottom screen */
+    C2D_DrawImageAt(zoom_img, 0.0f, 0.0f, 0.5f, 
+                    NULL, zoom_scale, zoom_scale);
     
-    C2D_DrawImage(zoom_img, &zoom_params, NULL);
-    
-    /* Draw cursor crosshair */
-    float cursor_screen_x = 160.0f;  /* Center for now */
-    float cursor_screen_y = 120.0f;
+    /* Draw cursor crosshair in center of zoom view */
+    float cursor_screen_x = ((float)g_mouse_x - view_x) * zoom_scale;
+    float cursor_screen_y = ((float)g_mouse_y - view_y) * zoom_scale;
     
     u32 cursor_color = C2D_Color32(255, 255, 0, 200);
     float crosshair_size = 6.0f;
