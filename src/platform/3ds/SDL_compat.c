@@ -212,6 +212,7 @@ int SDL_RenderClear(SDL_Renderer *renderer)
     uint32_t clear_color = C2D_Color32(renderer->draw_r, renderer->draw_g, 
                                        renderer->draw_b, renderer->draw_a);
     
+    /* Start frame ONCE at beginning of render */
     C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
     
     C2D_TargetClear(s_top_screen, clear_color);
@@ -226,6 +227,9 @@ void SDL_RenderPresent(SDL_Renderer *renderer)
     
     /* End the frame - this presents to both screens */
     C3D_FrameEnd(0);
+    
+    /* Important: wait for VBlank to avoid tearing */
+    gspWaitForVBlank();
 }
 
 int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture, 
@@ -233,36 +237,26 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
 {
     if (!renderer || !texture) return -1;
     
-    /* ===== TOP SCREEN: Main game view ===== 
-     * Physical top screen is 400x240, but displayed rotated 90° CCW.
-     * In landscape orientation: 400 wide x 240 tall
-     * Game is 640x480, we scale to fit in 400x240 maintaining aspect ratio. */
+    /* ===== TOP SCREEN: Main game view ===== */
     C2D_SceneBegin(s_top_screen);
     
-    /* Scale game 640x480 to fit in top screen 400x240
-     * Aspect ratio: 640/480 = 4:3, screen 400/240 = 5:3
-     * Use 0.5x scale (240/480) to fit height, gives width of 320 
-     * Center horizontally: offset = (400-320)/2 = 40 */
+    /* Top screen is 400x240 in logical coords (citro2d handles rotation automatically)
+     * Game is 640x480, scale to fit maintaining aspect ratio */
     
-    float top_scale = 240.0f / 480.0f;  /* 0.5 - fit to height */
-    float scaled_width = 640.0f * top_scale;  /* 320 pixels */
-    float offset_x = (400.0f - scaled_width) / 2.0f;  /* 40px centering */
+    float scale_x = 400.0f / 640.0f;  /* 0.625 */
+    float scale_y = 240.0f / 480.0f;  /* 0.5 */
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;  /* Use smaller to maintain aspect */
     
-    /* Set up draw params for rotation */
-    C2D_DrawParams params;
-    params.pos.x = offset_x;
-    params.pos.y = 0.0f;
-    params.pos.w = scaled_width;
-    params.pos.h = 240.0f;
-    params.center.x = 0.0f;
-    params.center.y = 0.0f;
-    params.depth = 0.5f;
-    params.angle = 0.0f;  /* No rotation needed - citro2d handles screen rotation */
+    float scaled_w = 640.0f * scale;
+    float scaled_h = 480.0f * scale;
+    float offset_x = (400.0f - scaled_w) / 2.0f;
+    float offset_y = (240.0f - scaled_h) / 2.0f;
     
-    C2D_DrawImage(texture->c2d_img, &params, NULL);
+    /* Draw game texture scaled and centered */
+    C2D_DrawImageAt(texture->c2d_img, offset_x, offset_y, 0.5f, 
+                    NULL, scale, scale);
     
-    /* ===== BOTTOM SCREEN: Zoom view around cursor ===== 
-     * Physical bottom screen is 320x240 */
+    /* ===== BOTTOM SCREEN: Zoom view around cursor ===== */
     C2D_SceneBegin(s_bottom_screen);
     
     /* Get zoom level and cursor position */
@@ -271,7 +265,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     int zoom = platform_3ds_get_zoom_level();
     float zoom_scale = (float)(1 << zoom);  /* 1x, 2x, 4x, 8x */
     
-    /* Calculate view region in game coordinates (640x480) */
+    /* Calculate view region in game coordinates */
     float view_w = 320.0f / zoom_scale;
     float view_h = 240.0f / zoom_scale;
     
@@ -284,7 +278,7 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     if (view_x + view_w > 640.0f) view_x = 640.0f - view_w;
     if (view_y + view_h > 480.0f) view_y = 480.0f - view_h;
     
-    /* Calculate texture coordinates (0..1 range) */
+    /* Calculate texture coordinates */
     const Tex3DS_SubTexture *subtex = texture->c2d_img.subtex;
     float tex_w = subtex->right - subtex->left;
     float tex_h = subtex->bottom - subtex->top;
@@ -307,23 +301,14 @@ int SDL_RenderCopy(SDL_Renderer *renderer, SDL_Texture *texture,
     zoom_img.subtex = &zoom_subtex;
     
     /* Draw zoomed region */
-    C2D_DrawParams zoom_params;
-    zoom_params.pos.x = 0.0f;
-    zoom_params.pos.y = 0.0f;
-    zoom_params.pos.w = 320.0f;
-    zoom_params.pos.h = 240.0f;
-    zoom_params.center.x = 0.0f;
-    zoom_params.center.y = 0.0f;
-    zoom_params.depth = 0.5f;
-    zoom_params.angle = 0.0f;
+    C2D_DrawImageAt(zoom_img, 0.0f, 0.0f, 0.5f, 
+                    NULL, zoom_scale, zoom_scale);
     
-    C2D_DrawImage(zoom_img, &zoom_params, NULL);
-    
-    /* Draw cursor crosshair on bottom screen */
+    /* Draw cursor crosshair */
     float cursor_screen_x = ((float)g_mouse_x - view_x) * zoom_scale;
     float cursor_screen_y = ((float)g_mouse_y - view_y) * zoom_scale;
     
-    u32 cursor_color = C2D_Color32(255, 255, 0, 200);  /* Yellow, semi-transparent */
+    u32 cursor_color = C2D_Color32(255, 255, 0, 200);
     float crosshair_size = 6.0f;
     float thickness = 2.0f;
     
