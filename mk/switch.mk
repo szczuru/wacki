@@ -2,8 +2,6 @@
 
 DEVKITPRO ?= /opt/devkitpro
 DEVKITA64 ?= $(DEVKITPRO)/devkitA64
-# Get version from git (short commit hash), fallback to "dev" if not in git repo
-WACKI_VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo "dev")
 
 CC       := $(DEVKITA64)/bin/aarch64-none-elf-gcc
 BIN_NAME := wacki
