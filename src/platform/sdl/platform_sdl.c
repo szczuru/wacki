@@ -18,7 +18,6 @@
  *   PlatformSetTextInput / PlatformPollTypedChar / PushTypedChar
  *   PlatformShowMessageBox
  */
->>>>>>> master
 
 #include "wacki.h"
 #include "wacki/log.h"
