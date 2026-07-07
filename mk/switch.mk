@@ -2,6 +2,8 @@
 
 DEVKITPRO ?= /opt/devkitpro
 DEVKITA64 ?= $(DEVKITPRO)/devkitA64
+# Get version from git (short commit hash), fallback to "dev" if not in git repo
+WACKI_VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo "dev")
 
 CC       := $(DEVKITA64)/bin/aarch64-none-elf-gcc
 BIN_NAME := wacki
@@ -54,7 +56,7 @@ ELF2NRO     := $(DEVKITPRO)/tools/bin/elf2nro
 all: $(SWITCH_NRO)
 
 $(SWITCH_NACP): | $(DIST)
-	$(NACPTOOL) --create "Wacki: Kosmiczna rozgrywka" "mszula" "$(WACKI_VERSION)" $(SWITCH_NACP)
+	$(NACPTOOL) --create "Wacki: Kosmiczna rozgrywka" "mszula/szczuru/AI" "$(WACKI_VERSION)" $(SWITCH_NACP)
 
 $(SWITCH_NRO): $(DIST)/$(BIN_NAME)$(EXE) $(SWITCH_NACP)
 	$(ELF2NRO) $(DIST)/$(BIN_NAME)$(EXE) $(SWITCH_NRO) \
