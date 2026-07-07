@@ -3,13 +3,22 @@
  *
  * src/platform/sdl/platform_sdl.c — portable platform layer (SDL2).
  *
- * Zmiany względem oryginału:
- *   - g_touch_mode ("absolute"/"relative"/"off") — tryb ekranu dotykowego,
- *     zdefiniowany w src/config.c, persystowany w wacki.cfg.
- *   - Obsługa SDL_FINGER* dla ekranów dotykowych (Switch, przyszłe porty).
- *   - platform_touch_cycle_mode() — wywołana z gamepad_switch.c (MINUS).
- *   - #ifdef WACKI_SWITCH: skalowanie współrzędnych myszy w trybie stretch
- *     (gdy logical-size scaling jest wyłączony). */
+ * Portable platform layer (SDL2) with Switch enhancements:
+ *   - g_touch_mode ("absolute"/"relative"/"off") — touch screen mode
+ *   - SDL_FINGER* event handling for touchscreens (Switch, future ports)
+ *   - platform_touch_cycle_mode() — called from gamepad_switch.c (MINUS button)
+ *   - WACKI_SWITCH: manual coordinate scaling in stretch mode
+ *
+ * Public API (declared in wacki.h):
+ *   PlatformInit / PlatformShutdown
+ *   PlatformPresent  — upload + present one frame
+ *   PlatformPumpEvents — drain SDL events, update input globals
+ *   PlatformShouldQuit — set by SDL_QUIT / WINDOWCLOSE (hard quit only;
+ *                        ESC is per-context, see handle_keydown)
+ *   PlatformSetTextInput / PlatformPollTypedChar / PushTypedChar
+ *   PlatformShowMessageBox
+ */
+>>>>>>> master
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -134,7 +143,20 @@ static void handle_keydown(const SDL_Event *ev)
 {
     SDL_Keycode sym = ev->key.keysym.sym;
     g_key_state = (sym & SDLK_SCANCODE_MASK) ? 0 : (uint16_t)(sym & 0xFF);
-    if (sym == SDLK_ESCAPE) s_quit = 1;
+
+    /* NOTE: ESC does NOT set the hard-quit latch. It reaches g_key_state
+     * above (SDLK_ESCAPE = 0x1B) and every context consumes it there:
+     * gameplay via handle_gameplay_keys (→ GAME_OVER_USER_QUIT), menus
+     * via poll_menu_keyboard_quit (→ MENU_ESC_RC, which at the title menu
+     * drives the quit-confirm dialog). Latching s_quit on ESC — as the
+     * port did — made that permanent flag cascade through every enclosing
+     * PlatformShouldQuit() check, so ESC hard-exited the whole app (unsaved)
+     * and the back-out / confirm paths were dead. s_quit is reserved for
+     * genuine hard quit: SDL_QUIT / WINDOWCLOSE (below) and Cmd-Q. */
+
+    /* T53 — quicksave / quickload latches consumed by the play_demo_
+     * scene main loop once per frame. */
+
     if (sym == SDLK_F5)  g_quicksave_request  = 1;
     if (sym == SDLK_F9)  g_quickload_request  = 1;
     if (sym == SDLK_F3)  g_stats_dump_request = 1;
@@ -270,14 +292,29 @@ static void poll_virtual_cursor(void)
         if (spd > VCUR_MAX_PIXELS_PER_TICK) spd = VCUR_MAX_PIXELS_PER_TICK;
         s_vcur_x += dx * spd; s_vcur_y += dy * spd;
         ++s_vcur_hold_ticks;
-    } else { s_vcur_hold_ticks = 0; }
-    s_vcur_rem_x += ax; s_vcur_rem_y += ay;
-    int mvx = (int)s_vcur_rem_x; s_vcur_rem_x -= mvx; s_vcur_x += mvx;
-    int mvy = (int)s_vcur_rem_y; s_vcur_rem_y -= mvy; s_vcur_y += mvy;
-    if (s_vcur_x < 0) s_vcur_x = 0; if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
-    if (s_vcur_y < 0) s_vcur_y = 0; if (s_vcur_y >= s_h) s_vcur_y = s_h - 1;
-    g_mouse_x = (int16_t)s_vcur_x; g_mouse_y = (int16_t)s_vcur_y;
-    ++s_vcur_hold_ticks;
+    } else {
+        s_vcur_hold_ticks = 0;
+    }
+
+    /* Analog stick: proportional, carrying the sub-pixel remainder so a
+     * gentle push still creeps the cursor for fine aiming. */
+    s_vcur_rem_x += ax;
+    s_vcur_rem_y += ay;
+    int mvx = (int)s_vcur_rem_x; s_vcur_rem_x -= (float)mvx; s_vcur_x += mvx;
+    int mvy = (int)s_vcur_rem_y; s_vcur_rem_y -= (float)mvy; s_vcur_y += mvy;
+
+    if (s_vcur_x < 0)        s_vcur_x = 0;
+    if (s_vcur_y < 0)        s_vcur_y = 0;
+    if (s_vcur_x >= s_w)     s_vcur_x = s_w - 1;
+    if (s_vcur_y >= s_h)     s_vcur_y = s_h - 1;
+
+    g_mouse_x = (int16_t)s_vcur_x;
+    g_mouse_y = (int16_t)s_vcur_y;
+    /* NOTE: s_vcur_hold_ticks is advanced ONLY in the d-pad-held branch
+     * above (and reset to 0 on release). A second unconditional ++ here
+     * double-counted while the d-pad was held, so the acceleration ramp
+     * hit VCUR_MAX in ~half of VCUR_ACCEL_TICKS — a twitchier cursor than
+     * tuned — and also crept the counter up during analog-only motion. */
 }
 
 /* ---- event pump ------------------------------------------------------- */
