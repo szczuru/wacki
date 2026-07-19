@@ -18,9 +18,10 @@ LDFLAGS_SIZE := -Wl,--gc-sections
 # 3DS libraries: citro3d/citro2d for graphics, ctru for system
 LIBS_3DS := -lcitro2d -lcitro3d -lctru -lm
 
-LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
+# Link flags: use 3dsx.specs for homebrew, link libraries
+LDFLAGS_STATIC := -specs=3dsx.specs \
+                   -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
-                   -specs=3dsx.specs \
                    $(LIBS_3DS)
 
 # Jesli data/WACKI.EXE istnieje (CI z sekretem / lokalne budowanie),
