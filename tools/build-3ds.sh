@@ -35,75 +35,86 @@ if ! command -v 3dsxtool &> /dev/null; then
     exit 1
 fi
 
+if ! command -v cmake &> /dev/null; then
+    echo "✗ ERROR: cmake not found (needed for NovaGL)"
+    exit 1
+fi
+
 echo "✓ Build tools ready"
 echo ""
 
-# Check NovaGL submodule
+# Check/Download NovaGL
 if [ ! -d "external/NovaGL" ]; then
-    echo "✗ ERROR: NovaGL not found!"
+    echo "✗ ERROR: NovaGL not found at external/NovaGL"
     echo ""
-    echo "Run these commands:"
-    echo "  git submodule add https://github.com/efimandreev0/NovaGL.git external/NovaGL"
-    echo "  git submodule update --init --recursive"
-    exit 1
+    echo "Downloading NovaGL automatically..."
+    
+    if command -v git &> /dev/null; then
+        git clone --depth=1 https://github.com/efimandreev0/NovaGL.git external/NovaGL
+        echo "✓ NovaGL downloaded"
+    else
+        echo "Download NovaGL manually:"
+        echo "  1. Go to: https://github.com/efimandreev0/NovaGL"
+        echo "  2. Click 'Code' → 'Download ZIP'"
+        echo "  3. Extract to: external/NovaGL"
+        exit 1
+    fi
 fi
+
+# Fix NovaGL CMakeLists.txt
+echo "🔧 Patching NovaGL CMakeLists.txt..."
+cd external/NovaGL/src
+
+# Remove gas.c from CMakeLists.txt (file doesn't exist in current repo)
+if grep -q "gas.c" CMakeLists.txt; then
+    sed -i.bak '/gas.c/d' CMakeLists.txt
+    echo "  ✓ Removed gas.c reference"
+else
+    echo "  ✓ Already patched"
+fi
+
+cd ../../..
 
 # Build NovaGL
 echo "🔨 Building NovaGL..."
 cd external/NovaGL
 
-if [ ! -f "Makefile" ] && [ ! -f "CMakeLists.txt" ]; then
-    echo "✗ ERROR: NovaGL has no Makefile or CMakeLists.txt"
+mkdir -p build && cd build
+
+echo "  Running CMake..."
+cmake -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/3DS.cmake" \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DGL2CITRO3D_BUILD_EXAMPLES=OFF \
+      .. || {
+    echo "✗ CMake configuration failed"
+    exit 1
+}
+
+echo "  Compiling NovaGL..."
+make -j$(nproc) || {
+    echo "✗ NovaGL build failed"
+    exit 1
+}
+
+cd ..
+
+# Find and organize library
+mkdir -p lib
+
+if [ -f "build/src/libNovaGL.a" ]; then
+    cp build/src/libNovaGL.a lib/
+    echo "  ✓ Library: lib/libNovaGL.a"
+elif [ -f "build/libNovaGL.a" ]; then
+    cp build/libNovaGL.a lib/
+    echo "  ✓ Library: lib/libNovaGL.a"
+else
+    echo "✗ ERROR: libNovaGL.a not found after build!"
+    echo "Build artifacts:"
+    find build -name "*.a" -type f
     exit 1
 fi
 
-# Try CMake first
-if [ -f "CMakeLists.txt" ]; then
-    mkdir -p build
-    cd build
-    
-    echo "  Running CMake..."
-    cmake -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/3DS.cmake" \
-          -DCMAKE_BUILD_TYPE=Release \
-          .. || {
-        echo "✗ CMake configuration failed"
-        exit 1
-    }
-    
-    echo "  Compiling NovaGL..."
-    make -j$(nproc) || {
-        echo "✗ NovaGL build failed"
-        exit 1
-    }
-    
-    cd ..
-    mkdir -p lib include
-    
-    # Copy library
-    if [ -f "build/libNovaGL.a" ]; then
-        cp build/libNovaGL.a lib/
-    elif [ -f "build/source/libNovaGL.a" ]; then
-        cp build/source/libNovaGL.a lib/
-    else
-        echo "✗ ERROR: libNovaGL.a not found after build"
-        exit 1
-    fi
-    
-    # Copy headers if needed
-    if [ -d "include" ] && [ ! "$(ls -A include)" ]; then
-        cp -r source/*.h include/ 2>/dev/null || true
-    fi
-    
-    cd ../..
-else
-    # Fallback to Makefile
-    make -j$(nproc) || {
-        echo "✗ NovaGL build failed"
-        exit 1
-    }
-    cd ../..
-fi
-
+cd ../..
 echo "✓ NovaGL built successfully"
 echo ""
 
@@ -181,6 +192,8 @@ if [ -f "dist/wacki.smdh" ]; then
     echo "  🎨 dist/wacki.smdh ($SIZE)"
 fi
 
-### A) Pliki do skopiowania (WSZYSTKIE):
-
-#### 1. `mk/3ds.mk`
+echo ""
+echo "Installation:"
+echo "  Copy dist/wacki.3dsx → sdmc:/3ds/wacki/wacki.3dsx"
+echo "  Copy data/WACKI.EXE  → sdmc:/3ds/wacki/data/WACKI.EXE"
+echo ""
