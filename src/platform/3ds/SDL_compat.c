@@ -168,3 +168,67 @@ int SDL_PushEvent(void *ev)
     (void)ev;
     return 0;
 }
+
+
+/* Additional SDL functions for 3DS compat */
+
+int SDL_PushEvent(SDL_Event *ev)
+{
+    (void)ev;
+    return 1;
+}
+
+char* SDL_getenv(const char *name)
+{
+    (void)name;
+    return NULL;
+}
+
+int SDL_setenv(const char *name, const char *value, int overwrite)
+{
+    (void)name; (void)value; (void)overwrite;
+    return 0;
+}
+
+void SDL_StartTextInput(void)
+{
+}
+
+void SDL_StopTextInput(void)
+{
+}
+
+int SDL_SetHint(const char *name, const char *value)
+{
+    (void)name; (void)value;
+    return 1;
+}
+
+char* SDL_GetBasePath(void)
+{
+    return NULL;
+}
+
+int SDL_ShowSimpleMessageBox(uint32_t flags, const char *title, const char *msg, SDL_Window *win)
+{
+    (void)flags; (void)title; (void)msg; (void)win;
+    return 0;
+}
+
+SDL_Surface* SDL_CreateRGBSurfaceWithFormatFrom(void *pixels, int w, int h, int depth, int pitch, uint32_t format)
+{
+    (void)pixels; (void)w; (void)h; (void)depth; (void)pitch; (void)format;
+    return NULL;
+}
+
+int SDL_SetPaletteColors(void *pal, const SDL_Color *colors, int first, int ncolors)
+{
+    (void)pal; (void)colors; (void)first; (void)ncolors;
+    return 0;
+}
+
+int SDL_SaveBMP(SDL_Surface *s, const char *file)
+{
+    (void)s; (void)file;
+    return -1;
+}
