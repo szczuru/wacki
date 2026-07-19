@@ -9,9 +9,11 @@
 #include <3ds.h>
 
 /* Platform init - called before engine starts */
-void PlatformInit(void)
+int PlatformInit(int w, int h, const char *title)
 {
+    (void)w; (void)h; (void)title;
     /* 3DS initialization done in system_3ds.c */
+    return 1;
 }
 
 /* Platform shutdown - called on exit */
