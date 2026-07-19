@@ -40,17 +40,16 @@ LDFLAGS_STATIC := -specs=3dsx.specs \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
                    $(LIBS_3DS)
 
-# Platform sources - BEZ PLIKÓW SDL
-# Używamy tylko natywnych implementacji 3DS
-PLATFORM_SRCS = src/platform/3ds/video_3ds_gl.c \
+# Platform sources
+PLATFORM_SRCS = src/platform/sdl/save_host.c \
+                src/platform/sdl/file_host.c \
+                src/platform/sdl/audio_sdl.c \
+                src/platform/sdl/flic_host.c \
+                $(SDL_DATAROOT_HANDHELD) \
+                src/platform/3ds/video_3ds_gl.c \
                 src/platform/3ds/gamepad_3ds.c \
-                src/platform/3ds/system_3ds.c \
-                src/platform/3ds/audio_3ds_stub.c \
-                src/platform/3ds/save_3ds_stub.c \
-                src/platform/3ds/file_3ds_stub.c \
-                src/platform/3ds/flic_3ds_stub.c \
-                $(SDL_DATAROOT_HANDHELD)
+                src/platform/3ds/system_3ds.c
 
-# SDL stub - NovaGL provides GL headers
-SDL_CFG :=
+# SDL configuration - will be overridden by workflow to use stub
+SDL_CFG := -I$(DEVKITPRO)/portlibs/3ds/include
 SDL_LIB :=
