@@ -19,62 +19,81 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        submodules: recursive
         fetch-depth: 1
     
     - name: Install dependencies
       run: |
         dkp-pacman -Syu --noconfirm
-        dkp-pacman -S --noconfirm \
-          3ds-dev \
-          3ds-cmake \
-          3dstools
-        apt-get update && apt-get install -y imagemagick cmake
+        dkp-pacman -S --noconfirm 3ds-dev 3ds-cmake 3dstools
+        apt-get update && apt-get install -y imagemagick cmake git
     
-    - name: Verify NovaGL submodule
+    - name: Download and setup NovaGL
       run: |
-        if [ ! -d "external/NovaGL" ]; then
-          echo "ERROR: NovaGL submodule not found"
-          exit 1
-        fi
-        echo "✓ NovaGL found"
+        echo "📦 Downloading NovaGL..."
+        git clone --depth=1 https://github.com/efimandreev0/NovaGL.git external/NovaGL
+        echo "✅ NovaGL downloaded to external/NovaGL"
+        ls -la external/NovaGL
     
     - name: Build NovaGL
       run: |
         cd external/NovaGL
+        echo "🔨 Building NovaGL with CMake..."
         mkdir -p build && cd build
         cmake -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
               -DCMAKE_BUILD_TYPE=Release \
               ..
         make -j$(nproc)
         cd ..
+        
+        # Create lib directory and copy library
         mkdir -p lib
-        cp build/libNovaGL.a lib/ || echo "WARNING: libNovaGL.a not found"
+        if [ -f "build/libNovaGL.a" ]; then
+          cp build/libNovaGL.a lib/
+          echo "✅ Copied libNovaGL.a to lib/"
+        elif [ -f "build/source/libNovaGL.a" ]; then
+          cp build/source/libNovaGL.a lib/
+          echo "✅ Copied libNovaGL.a from source/ to lib/"
+        else
+          echo "❌ ERROR: libNovaGL.a not found!"
+          find build -name "*.a"
+          exit 1
+        fi
+        
+        ls -la lib/
         cd ../..
     
     - name: Build Wacki
       run: |
         export DEVKITPRO=/opt/devkitpro
         export DEVKITARM=$DEVKITPRO/devkitARM
-        make TARGET=3ds clean
+        echo "🔨 Building Wacki for 3DS..."
+        make TARGET=3ds clean || true
         make TARGET=3ds -j$(nproc)
+        echo "✅ Wacki built successfully"
     
     - name: Create 3DSX
       run: |
+        echo "📦 Creating .3dsx file..."
         3dsxtool dist/wacki dist/wacki.3dsx
-        echo "✓ Created wacki.3dsx"
+        ls -lh dist/wacki.3dsx
+        echo "✅ Created wacki.3dsx"
     
     - name: Create icon and SMDH
       run: |
         if [ -f "assets/icons/wacki.png" ]; then
+          echo "🎨 Creating icon..."
           convert assets/icons/wacki.png -resize 48x48! assets/icons/wacki-48.png
+          
           if command -v smdhtool &> /dev/null; then
             smdhtool --create "Wacki" \
               "Point-and-click (NovaGL)" \
               "szczuru" \
               assets/icons/wacki-48.png \
               dist/wacki.smdh
+            echo "✅ Created wacki.smdh"
           fi
+        else
+          echo "⚠️  Icon not found - skipping SMDH creation"
         fi
     
     - name: Upload artifacts
@@ -85,3 +104,18 @@ jobs:
           dist/wacki.3dsx
           dist/wacki.smdh
         retention-days: 30
+    
+    - name: Build summary
+      run: |
+        echo "========================================="
+        echo "  ✅ Build Complete!"
+        echo "========================================="
+        if [ -f "dist/wacki.3dsx" ]; then
+          SIZE=$(du -h dist/wacki.3dsx | cut -f1)
+          echo "  📦 wacki.3dsx: $SIZE"
+        fi
+        if [ -f "dist/wacki.smdh" ]; then
+          SIZE=$(du -h dist/wacki.smdh | cut -f1)
+          echo "  🎨 wacki.smdh: $SIZE"
+        fi
+        echo "========================================="
