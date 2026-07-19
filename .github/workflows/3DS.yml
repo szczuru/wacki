@@ -41,6 +41,9 @@ jobs:
           cd /tmp
           git clone https://github.com/masterfeizz/picaGL.git
           cd picaGL
+          # Fix deprecated flags in Makefile
+          sed -i 's/-DARM11 -D_3DS/-D__3DS__/g' Makefile
+          make
           make install DEVKITPRO=/opt/devkitpro
           echo "✓ picaGL installed to /opt/devkitpro/picaGL"
 
