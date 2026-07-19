@@ -37,6 +37,7 @@ extern "C" {
 #define SDL_PIXELFORMAT_ARGB8888 0x16362004
 #define SDL_PIXELFORMAT_RGB888   0x16161804
 #define SDL_PIXELFORMAT_RGBA8888 0x16462004
+#define SDL_PIXELFORMAT_INDEX8   0x10100801
 
 /* ---- SDL Texture Access ----------------------------------------------- */
 #define SDL_TEXTUREACCESS_STREAMING 0x00000001
@@ -87,6 +88,24 @@ typedef enum {
 } SDL_KeyCode;
 
 typedef SDL_KeyCode SDL_Keycode;
+
+/* ---- SDL Constants ---------------------------------------------------- */
+#define SDL_DISABLE 0
+#define SDL_ENABLE 1
+
+/* Window event IDs */
+#define SDL_WINDOWEVENT_CLOSE 14
+#define SDL_WINDOWEVENT_RESIZED 5
+
+/* Mouse buttons */
+#define SDL_BUTTON_LEFT 1
+#define SDL_BUTTON_RIGHT 3
+
+/* Message box flags */
+#define SDL_MESSAGEBOX_ERROR 0x00000010
+
+/* Hints */
+#define SDL_HINT_TOUCH_MOUSE_EVENTS "SDL_TOUCH_MOUSE_EVENTS"
 
 /* ---- SDL Events ------------------------------------------------------- */
 typedef enum {
@@ -283,6 +302,15 @@ void SDL_free(void *ptr);
 void* SDL_memcpy(void *dst, const void *src, size_t len);
 void* SDL_memset(void *dst, int c, size_t len);
 
+/* Environment and text input */
+char* SDL_getenv(const char *name);
+int SDL_setenv(const char *name, const char *value, int overwrite);
+void SDL_StartTextInput(void);
+void SDL_StopTextInput(void);
+int SDL_SetHint(const char *name, const char *value);
+char* SDL_GetBasePath(void);
+int SDL_ShowSimpleMessageBox(uint32_t flags, const char *title, const char *message, SDL_Window *window);
+
 /* Surface */
 SDL_Surface* SDL_CreateRGBSurface(uint32_t flags, int width, int height, int depth,
                                    uint32_t Rmask, uint32_t Gmask, uint32_t Bmask, uint32_t Amask);
@@ -302,13 +330,36 @@ void SDL_LockAudio(void);
 void SDL_UnlockAudio(void);
 void SDL_MixAudio(uint8_t *dst, const uint8_t *src, uint32_t len, int volume);
 
-/* RWops (file I/O) */
+/* Additional SDL audio types */
+typedef struct SDL_AudioCVT {
+    int needed;
+    Uint16 src_format;
+    Uint16 dst_format;
+    double rate_incr;
+    Uint8 *buf;
+    int len;
+    int len_cvt;
+    int len_mult;
+    double len_ratio;
+    void *filters[10];
+    int filter_index;
+} SDL_AudioCVT;
+
+/* SDL RWops - file I/O */
 SDL_RWops* SDL_RWFromFile(const char *file, const char *mode);
+SDL_RWops* SDL_RWFromConstMem(const void *mem, int size);
 int64_t SDL_RWsize(SDL_RWops *context);
 int64_t SDL_RWseek(SDL_RWops *context, int64_t offset, int whence);
 size_t SDL_RWread(SDL_RWops *context, void *ptr, size_t size, size_t maxnum);
 size_t SDL_RWwrite(SDL_RWops *context, const void *ptr, size_t size, size_t num);
 int SDL_RWclose(SDL_RWops *context);
+
+/* SDL Audio loading */
+SDL_AudioSpec* SDL_LoadWAV_RW(SDL_RWops *src, int freesrc, SDL_AudioSpec *spec, Uint8 **audio_buf, Uint32 *audio_len);
+void SDL_FreeWAV(Uint8 *audio_buf);
+int SDL_BuildAudioCVT(SDL_AudioCVT *cvt, Uint16 src_format, Uint8 src_channels, int src_rate,
+                      Uint16 dst_format, Uint8 dst_channels, int dst_rate);
+int SDL_ConvertAudio(SDL_AudioCVT *cvt);
 
 #define RW_SEEK_SET 0
 #define RW_SEEK_CUR 1

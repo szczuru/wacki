@@ -4,7 +4,7 @@
  * src/platform/3ds/SDL_compat.c — SDL compatibility layer for 3DS.
  *
  * Provides minimal SDL API stubs. Real rendering is done by video_3ds_gl.c
- * using NovaGL (OpenGL ES 1.1 → citro3d).
+ * using picaGL (OpenGL ES 1.1 → citro3d).
  */
 
 #include "wacki.h"
@@ -12,18 +12,7 @@
 #include <3ds.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* SDL types */
-typedef struct SDL_Surface SDL_Surface;
-typedef struct SDL_Window SDL_Window;
-typedef struct SDL_Renderer SDL_Renderer;
-typedef struct SDL_Texture SDL_Texture;
-
-struct SDL_Surface {
-    int w, h;
-    void *pixels;
-    int pitch;
-};
+#include "SDL.h"
 
 /* Minimal SDL API stubs */
 
@@ -114,7 +103,7 @@ void SDL_StopTextInput(void)
 int SDL_SetHint(const char *name, const char *value)
 {
     (void)name; (void)value;
-    return 0;
+    return 1;
 }
 
 /* Paths */
@@ -130,7 +119,7 @@ SDL_Surface* SDL_CreateRGBSurfaceWithFormatFrom(void *pixels, int w, int h, int 
     return NULL;
 }
 
-int SDL_SetPaletteColors(void *pal, const void *colors, int first, int ncolors)
+int SDL_SetPaletteColors(void *pal, const SDL_Color *colors, int first, int ncolors)
 {
     (void)pal; (void)colors; (void)first; (void)ncolors;
     return 0;
@@ -148,7 +137,7 @@ void SDL_FreeSurface(SDL_Surface *s)
 }
 
 /* Message box */
-int SDL_ShowSimpleMessageBox(uint32_t flags, const char *title, const char *msg, void *win)
+int SDL_ShowSimpleMessageBox(uint32_t flags, const char *title, const char *msg, SDL_Window *win)
 {
     (void)flags; (void)title; (void)msg; (void)win;
     LOG_INFO("msgbox", "%s: %s", title ? title : "Info", msg ? msg : "");
@@ -163,72 +152,40 @@ const uint8_t* SDL_GetKeyboardState(int *numkeys)
     return state;
 }
 
-int SDL_PushEvent(void *ev)
-{
-    (void)ev;
-    return 0;
-}
-
-
-/* Additional SDL functions for 3DS compat */
-
 int SDL_PushEvent(SDL_Event *ev)
 {
     (void)ev;
     return 1;
 }
 
-char* SDL_getenv(const char *name)
+/* Audio - minimal stubs (audio won't work but will compile) */
+SDL_RWops* SDL_RWFromConstMem(const void *mem, int size)
 {
-    (void)name;
+    (void)mem; (void)size;
     return NULL;
 }
 
-int SDL_setenv(const char *name, const char *value, int overwrite)
+SDL_AudioSpec* SDL_LoadWAV_RW(SDL_RWops *src, int freesrc, SDL_AudioSpec *spec, Uint8 **audio_buf, Uint32 *audio_len)
 {
-    (void)name; (void)value; (void)overwrite;
-    return 0;
-}
-
-void SDL_StartTextInput(void)
-{
-}
-
-void SDL_StopTextInput(void)
-{
-}
-
-int SDL_SetHint(const char *name, const char *value)
-{
-    (void)name; (void)value;
-    return 1;
-}
-
-char* SDL_GetBasePath(void)
-{
+    (void)src; (void)freesrc; (void)spec; (void)audio_buf; (void)audio_len;
     return NULL;
 }
 
-int SDL_ShowSimpleMessageBox(uint32_t flags, const char *title, const char *msg, SDL_Window *win)
+void SDL_FreeWAV(Uint8 *audio_buf)
 {
-    (void)flags; (void)title; (void)msg; (void)win;
-    return 0;
+    SDL_free(audio_buf);
 }
 
-SDL_Surface* SDL_CreateRGBSurfaceWithFormatFrom(void *pixels, int w, int h, int depth, int pitch, uint32_t format)
+int SDL_BuildAudioCVT(SDL_AudioCVT *cvt, Uint16 src_format, Uint8 src_channels, int src_rate,
+                      Uint16 dst_format, Uint8 dst_channels, int dst_rate)
 {
-    (void)pixels; (void)w; (void)h; (void)depth; (void)pitch; (void)format;
-    return NULL;
+    (void)cvt; (void)src_format; (void)src_channels; (void)src_rate;
+    (void)dst_format; (void)dst_channels; (void)dst_rate;
+    return -1;
 }
 
-int SDL_SetPaletteColors(void *pal, const SDL_Color *colors, int first, int ncolors)
+int SDL_ConvertAudio(SDL_AudioCVT *cvt)
 {
-    (void)pal; (void)colors; (void)first; (void)ncolors;
-    return 0;
-}
-
-int SDL_SaveBMP(SDL_Surface *s, const char *file)
-{
-    (void)s; (void)file;
+    (void)cvt;
     return -1;
 }
