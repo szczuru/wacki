@@ -1,200 +1,225 @@
 #!/bin/bash
-# tools/build-3ds.sh — Build Wacki for Nintendo 3DS using devkitPro toolchain
+# tools/build-3ds.sh — Build Wacki for 3DS with NovaGL
 
 set -e
 
 echo "========================================="
 echo "  Building Wacki for Nintendo 3DS"
+echo "  Using NovaGL for hardware rendering"
 echo "========================================="
 echo ""
 
-# Check for devkitPro environment
+# Check devkitPro
 if [ -z "$DEVKITPRO" ]; then
     export DEVKITPRO=/opt/devkitpro
 fi
 
 if [ ! -d "$DEVKITPRO" ]; then
     echo "✗ ERROR: devkitPro not found at $DEVKITPRO"
-    echo ""
-    echo "Install devkitPro:"
-    echo "  https://devkitpro.org/wiki/Getting_Started"
-    echo ""
     exit 1
 fi
 
 export DEVKITARM=$DEVKITPRO/devkitARM
 export PATH=$DEVKITARM/bin:$DEVKITPRO/tools/bin:$PATH
 
-# Check for required tools
+# Check tools
 echo "🔍 Checking build tools..."
 
 if ! command -v arm-none-eabi-gcc &> /dev/null; then
     echo "✗ ERROR: arm-none-eabi-gcc not found"
-    echo "Install devkitARM: sudo dkp-pacman -S devkitARM"
     exit 1
 fi
 
 if ! command -v 3dsxtool &> /dev/null; then
     echo "✗ ERROR: 3dsxtool not found"
-    echo "Install 3ds-tools: sudo dkp-pacman -S 3ds-tools"
     exit 1
 fi
 
-echo "✓ arm-none-eabi-gcc found"
-echo "✓ 3dsxtool found"
+echo "✓ Build tools ready"
 echo ""
 
-# Check for SDL2
-if [ ! -d "$DEVKITPRO/portlibs/3ds" ]; then
-    echo "✗ ERROR: 3DS portlibs not installed"
-    echo "Install SDL2: sudo dkp-pacman -S 3ds-sdl2"
-    exit 1
-fi
-
-if [ ! -f "$DEVKITPRO/portlibs/3ds/lib/libSDL2.a" ]; then
-    echo "✗ ERROR: SDL2 for 3DS not found"
-    echo "Install: sudo dkp-pacman -S 3ds-sdl2"
-    exit 1
-fi
-
-echo "✓ SDL2 for 3DS found"
-echo ""
-
-# Check for WACKI.EXE
-if [ ! -f "data/WACKI.EXE" ]; then
-    echo "⚠️  WARNING: data/WACKI.EXE not found"
-    echo "The game will not run without it!"
+# Check NovaGL submodule
+if [ ! -d "external/NovaGL" ]; then
+    echo "✗ ERROR: NovaGL not found!"
     echo ""
+    echo "Run these commands:"
+    echo "  git submodule add https://github.com/efimandreev0/NovaGL.git external/NovaGL"
+    echo "  git submodule update --init --recursive"
+    exit 1
 fi
 
-# Prepare 48x48 icon for SMDH (automatically resize if needed)
+# Build NovaGL
+echo "🔨 Building NovaGL..."
+cd external/NovaGL
+
+if [ ! -f "Makefile" ] && [ ! -f "CMakeLists.txt" ]; then
+    echo "✗ ERROR: NovaGL has no Makefile or CMakeLists.txt"
+    exit 1
+fi
+
+# Try CMake first
+if [ -f "CMakeLists.txt" ]; then
+    mkdir -p build
+    cd build
+    
+    echo "  Running CMake..."
+    cmake -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/3DS.cmake" \
+          -DCMAKE_BUILD_TYPE=Release \
+          .. || {
+        echo "✗ CMake configuration failed"
+        exit 1
+    }
+    
+    echo "  Compiling NovaGL..."
+    make -j$(nproc) || {
+        echo "✗ NovaGL build failed"
+        exit 1
+    }
+    
+    cd ..
+    mkdir -p lib include
+    
+    # Copy library
+    if [ -f "build/libNovaGL.a" ]; then
+        cp build/libNovaGL.a lib/
+    elif [ -f "build/source/libNovaGL.a" ]; then
+        cp build/source/libNovaGL.a lib/
+    else
+        echo "✗ ERROR: libNovaGL.a not found after build"
+        exit 1
+    fi
+    
+    # Copy headers if needed
+    if [ -d "include" ] && [ ! "$(ls -A include)" ]; then
+        cp -r source/*.h include/ 2>/dev/null || true
+    fi
+    
+    cd ../..
+else
+    # Fallback to Makefile
+    make -j$(nproc) || {
+        echo "✗ NovaGL build failed"
+        exit 1
+    }
+    cd ../..
+fi
+
+echo "✓ NovaGL built successfully"
+echo ""
+
+# Prepare icon
 ICON_SOURCE="assets/icons/wacki.png"
-ICON_48="assets/icons/wacki-48.png"
+ICON_48="wacki-48.png"
 
 if [ -f "$ICON_SOURCE" ]; then
-    echo "🎨 Preparing 48x48 icon..."
+    echo "🎨 Preparing icon (48x48)..."
     
-    # Check if we need to resize (if icon is not already 48x48)
+    # Try ImageMagick
     if command -v convert &> /dev/null; then
-        # ImageMagick available - use it
-        convert "$ICON_SOURCE" -resize 48x48! "$ICON_48" 2>/dev/null && \
-        echo "✓ Created $ICON_48 (resized from $ICON_SOURCE)" || \
-        echo "⚠️  Failed to resize icon with ImageMagick"
+        convert "$ICON_SOURCE" -resize 48x48! "$ICON_48" 2>/dev/null && echo "  ✓ Resized with ImageMagick"
+    # Try ffmpeg
     elif command -v ffmpeg &> /dev/null; then
-        # FFmpeg available as fallback
-        ffmpeg -i "$ICON_SOURCE" -vf scale=48:48 "$ICON_48" -y 2>/dev/null && \
-        echo "✓ Created $ICON_48 (resized with ffmpeg)" || \
-        echo "⚠️  Failed to resize icon with ffmpeg"
+        ffmpeg -i "$ICON_SOURCE" -vf scale=48:48 "$ICON_48" -y 2>/dev/null && echo "  ✓ Resized with ffmpeg"
+    # Try Python PIL
     elif command -v python3 &> /dev/null; then
-        # Python + PIL as fallback
-        python3 -c "
-from PIL import Image
-import sys
-try:
-    img = Image.open('$ICON_SOURCE')
-    img = img.convert('RGBA')
-    img_resized = img.resize((48, 48), Image.Resampling.LANCZOS)
-    img_resized.save('$ICON_48', 'PNG')
-    print('✓ Created $ICON_48 (resized with PIL)')
-except ImportError:
-    print('⚠️  Python PIL not available')
-    sys.exit(1)
-except Exception as e:
-    print(f'⚠️  Failed to resize: {e}')
-    sys.exit(1)
-" || echo "⚠️  Python resize failed"
+        python3 -c "from PIL import Image; Image.open('$ICON_SOURCE').resize((48,48)).save('$ICON_48')" 2>/dev/null && echo "  ✓ Resized with Python PIL"
     else
-        echo "⚠️  No image tool found (ImageMagick, ffmpeg, or Python PIL)"
-        echo "   Icon will use default if smdhtool fails"
+        echo "  ⚠ WARNING: No image tool found (convert/ffmpeg/python3+PIL)"
+        echo "            Icon will not be created"
     fi
-    echo ""
-else
-    echo "⚠️  Source icon not found: $ICON_SOURCE"
     echo ""
 fi
 
-# Clean previous build
-echo "🧹 Cleaning previous build..."
+# Build Wacki
+echo "🔨 Building Wacki..."
 make TARGET=3ds clean 2>/dev/null || true
-echo ""
-
-# Build
-echo "🔨 Building for TARGET=3ds..."
-echo ""
 make TARGET=3ds -j$(nproc) || {
-    echo ""
-    echo "✗ Build failed!"
+    echo "✗ Wacki build failed"
     exit 1
 }
 
-echo ""
-echo "✓ Compilation successful!"
+echo "✓ Compilation successful"
 echo ""
 
-# Check if ELF was created
+# Create 3DSX
 if [ ! -f "dist/wacki" ]; then
-    echo "✗ ERROR: dist/wacki not created"
+    echo "✗ ERROR: dist/wacki not found"
     exit 1
 fi
 
-# Create .3dsx file (homebrew executable)
-echo "📦 Creating .3dsx homebrew executable..."
-
+echo "📦 Creating .3dsx..."
 3dsxtool dist/wacki dist/wacki.3dsx || {
-    echo "✗ Failed to create .3dsx"
+    echo "✗ 3dsxtool failed"
     exit 1
 }
+echo "  ✓ Created dist/wacki.3dsx"
 
-echo "✓ Created dist/wacki.3dsx"
-echo ""
-
-# Create SMDH (icon/metadata) if 48x48 icon exists
-if [ -f "$ICON_48" ]; then
-    echo "🎨 Creating SMDH metadata with icon..."
-    
-    if command -v smdhtool &> /dev/null; then
-        smdhtool --create "Wacki" \
-                 "Point-and-click adventure" \
-                 "szczuru" \
-                 "$ICON_48" \
-                 dist/wacki.smdh 2>/dev/null && \
-        echo "✓ Created dist/wacki.smdh with custom icon"
-        
-        # Clean up temporary 48x48 icon
-        rm -f "$ICON_48"
-    else
-        echo "⚠️  smdhtool not found - no icon metadata"
-        echo "   Install: sudo dkp-pacman -S smdhtool"
-    fi
-    echo ""
-else
-    echo "⚠️  No 48x48 icon available"
-    echo "   .3dsx will use default icon"
-    echo ""
+# Create SMDH with icon
+if [ -f "$ICON_48" ] && command -v smdhtool &> /dev/null; then
+    echo "📦 Creating .smdh..."
+    smdhtool --create "Wacki" \
+             "Point-and-click adventure (NovaGL)" \
+             "szczuru" \
+             "$ICON_48" \
+             dist/wacki.smdh 2>/dev/null && echo "  ✓ Created dist/wacki.smdh"
+    rm -f "$ICON_48"
 fi
 
-# Print file sizes
-echo "▪ Build artifacts:"
-ls -lh dist/wacki* 2>/dev/null | awk '{print "   " $9 " (" $5 ")"}'
 echo ""
-
-# Final instructions
 echo "========================================="
 echo "  ✓ Build Complete!"
 echo "========================================="
 echo ""
-echo "📂 Output files:"
-echo "   dist/wacki.3dsx - Homebrew executable"
-if [ -f "dist/wacki.smdh" ]; then
-    echo "   dist/wacki.smdh - Icon metadata"
+
+if [ -f "dist/wacki.3dsx" ]; then
+    SIZE=$(du -h dist/wacki.3dsx | cut -f1)
+    echo "  📦 dist/wacki.3dsx ($SIZE)"
 fi
-echo ""
-echo "📝 Installation instructions:"
-echo ""
-echo "1. Copy to SD card:"
-echo "   dist/wacki.3dsx → sdmc:/3ds/wacki/wacki.3dsx"
-echo "   data/WACKI.EXE  → sdmc:/3ds/wacki/data/WACKI.EXE"
-echo ""
-echo "2. Launch via Homebrew Launcher"
-echo ""
-echo "========================================="
+
+if [ -f "dist/wacki.smdh" ]; then
+    SIZE=$(du -h dist/wacki.smdh | cut -f1)
+    echo "  🎨 dist/wacki.smdh ($SIZE)"
+fi
+
+echo ""Rozumiem! Nie używasz CMD - pokażę Ci jak dodać submodule przez stronę GitHub i dam alternatywę.
+
+---
+
+## 🌐 SPOSÓB 1: Przez GitHub Web (Najprostszy)
+
+Niestety **GitHub Web nie wspiera bezpośrednio dodawania submodule** - to wymaga git commands. Ale dam Ci **alternatywę bez CMD**!
+
+---
+
+## ✓ SPOSÓB 2: BEZ SUBMODULE - Kopiuj NovaGL ręcznie
+
+Zamiast submodule, możesz po prostu **skopiować NovaGL do swojego repo**:
+
+### Kroki:
+
+1. **Pobierz NovaGL jako ZIP:**
+   - Idź na: https://github.com/efimandreev0/NovaGL
+   - Kliknij zielony przycisk **Code** → **Download ZIP**
+   - Rozpakuj ZIP
+
+2. **Skopiuj do swojego repo:**
+   - Utwórz folder `external/NovaGL` w swoim repo
+   - Skopiuj całą zawartość rozpakowanego NovaGL do `external/NovaGL`
+
+3. **Dodaj pliki przez GitHub Web:**
+   - Idź na stronę swojego repo: https://github.com/szczuru/wacki
+   - Kliknij **Add file** → **Upload files**
+   - Przeciągnij folder `external/NovaGL` (lub pojedyncze pliki)
+   - Commit z message: `Add NovaGL for 3DS hardware rendering`
+
+4. **Pomiń plik `.gitmodules`:**
+   - Jeśli nie używasz submodule - **NIE DODAWAJ** pliku `.gitmodules`
+   - Po prostu kopiuj NovaGL jako normalne pliki
+
+---
+
+## 📝 ZMODYFIKOWANE INSTRUKCJE (bez CMD)
+
+### A) Pliki do skopiowania (WSZYSTKIE):
+
+#### 1. `mk/3ds.mk`
