@@ -2,7 +2,7 @@ name: Build 3DS (NovaGL)
 
 on:
   push:
-    branches: [ main, master, feature/3ds-*, develop ]
+    branches: [ main, master, test-3ds, feature/3ds-*, develop ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -32,26 +32,26 @@ jobs:
           sed -i 's|https://pkg.devkitpro.org|https://wii.leseratte10.de/devkitpro|g' /etc/pacman.conf
           sed -i 's|http://pkg.devkitpro.org|https://wii.leseratte10.de/devkitpro|g' /etc/pacman.conf
         fi
-        
-        # Check for mirrorlist files
-        find /etc -name "*mirror*" -type f 2>/dev/null || true
-        
-        # Try alternative: skip sync and use cached packages
-        echo "Server = https://wii.leseratte10.de/devkitpro/packages/linux/\$arch/" > /tmp/mirrorlist-dkp-linux || true
-        echo "Server = https://wii.leseratte10.de/devkitpro/packages/\$arch/" > /tmp/mirrorlist-dkp-libs || true
     
     - name: Install dependencies
       run: |
         # Try to update, but don't fail if it doesn't work
         dkp-pacman -Sy --noconfirm || echo "⚠️  Database sync failed, using cached packages"
         
-        # Install required packages
-        dkp-pacman -S --noconfirm 3ds-dev 3dstools --overwrite='*' || {
-          echo "✗ Failed to install 3ds-dev"
+        # Install required packages INCLUDING SDL for 3DS
+        dkp-pacman -S --noconfirm \
+          3ds-dev \
+          3dstools \
+          3ds-sdl \
+          3ds-sdl_mixer \
+          --overwrite='*' || {
+          echo "✗ Failed to install 3ds packages"
           exit 1
         }
         
         apt-get update && apt-get install -y imagemagick git wget curl
+        
+        echo "✓ Dependencies installed"
     
     - name: Download game data files
       env:
