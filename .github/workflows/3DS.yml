@@ -26,19 +26,21 @@ jobs:
         dkp-pacman -Syu --noconfirm
         dkp-pacman -S --noconfirm \
           3ds-dev \
-          3ds-sdl2 \
-          3ds-sdl2_mixer \
-          devkitARM \
-          libctru \
-          citro3d \
-          citro2d \
-          3ds-tools
+          3ds-sdl \
+          3ds-sdl_mixer \
+          3dstools
     
     - name: Verify devkitPro setup
       run: |
         echo "DEVKITPRO=$DEVKITPRO"
         echo "DEVKITARM=$DEVKITARM"
-        ls -la $DEVKITPRO/portlibs/3ds/lib/libSDL2.a || echo "SDL2 not found!"
+        echo ""
+        echo "Checking for SDL..."
+        ls -la $DEVKITPRO/portlibs/3ds/lib/libSDL.a 2>/dev/null || \
+        ls -la $DEVKITPRO/portlibs/3ds/lib/libSDL2.a 2>/dev/null || \
+        echo "WARNING: SDL not found!"
+        echo ""
+        echo "Compiler version:"
         arm-none-eabi-gcc --version
     
     - name: Check for WACKI.EXE
@@ -46,6 +48,10 @@ jobs:
         if [ ! -f "data/WACKI.EXE" ]; then
           echo "::warning::data/WACKI.EXE not found - build will succeed but game won't run"
         fi
+    
+    - name: Install ImageMagick for icon resize
+      run: |
+        apt-get update && apt-get install -y imagemagick
     
     - name: Build for 3DS
       run: |
@@ -67,22 +73,29 @@ jobs:
         ls -lh dist/wacki.3dsx
         echo "✓ Created wacki.3dsx"
     
-    - name: Create SMDH metadata
+    - name: Create SMDH metadata with icon
       run: |
-        # Create a simple icon if none exists
-        if [ ! -f "assets/icons/wacki-48.png" ]; then
-          echo "::warning::No icon found, using placeholder"
-          mkdir -p assets/icons
-          # Skip icon creation in CI for now
-        fi
+        ICON_SOURCE="assets/icons/wacki.png"
+        ICON_48="assets/icons/wacki-48.png"
         
-        if [ -f "assets/icons/wacki-48.png" ] && command -v smdhtool &> /dev/null; then
-          smdhtool --create \
-            "Wacki" \
-            "Point-and-click adventure" \
-            "szczuru" \
-            assets/icons/wacki-48.png \
-            dist/wacki.smdh || echo "::warning::smdhtool failed"
+        if [ -f "$ICON_SOURCE" ]; then
+          echo "Resizing icon to 48x48..."
+          convert "$ICON_SOURCE" -resize 48x48! "$ICON_48"
+          
+          if [ -f "$ICON_48" ] && command -v smdhtool &> /dev/null; then
+            smdhtool --create \
+              "Wacki" \
+              "Point-and-click adventure" \
+              "szczuru" \
+              "$ICON_48" \
+              dist/wacki.smdh
+            echo "✓ Created SMDH with icon"
+            rm -f "$ICON_48"
+          else
+            echo "::warning::smdhtool failed or icon not resized"
+          fi
+        else
+          echo "::warning::Icon not found at $ICON_SOURCE"
         fi
     
     - name: List build artifacts
@@ -117,8 +130,11 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         cd dist
-        zip -9 wacki-3ds-${{ github.ref_name }}.zip wacki.3dsx wacki.smdh 2>/dev/null || \
-        zip -9 wacki-3ds-${{ github.ref_name }}.zip wacki.3dsx
+        if [ -f "wacki.smdh" ]; then
+          zip -9 wacki-3ds-${{ github.ref_name }}.zip wacki.3dsx wacki.smdh
+        else
+          zip -9 wacki-3ds-${{ github.ref_name }}.zip wacki.3dsx
+        fi
         echo "Created release package"
     
     - name: Upload to release (on tag)
