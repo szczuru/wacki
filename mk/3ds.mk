@@ -8,9 +8,10 @@ BIN_NAME := wacki
 
 CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS -DWACKI_VERBOSE \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
+          -I src/platform/3ds \
           -I$(DEVKITPRO)/libctru/include \
           -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I src/platform/3ds \
+          -I$(DEVKITPRO)/picaGL/include \
           -Wno-format
 
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
@@ -25,8 +26,6 @@ LDFLAGS_STATIC := -specs=3dsx.specs \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
                    -L$(DEVKITPRO)/picaGL/lib \
                    $(LIBS_3DS)
-
-CFLAGS += -I$(DEVKITPRO)/picaGL/include
 
 # Jesli data/WACKI.EXE istnieje (CI z sekretem / lokalne budowanie),
 # uzywamy standardowego embed-pe-data. W przeciwnym razie - pusty stub.
