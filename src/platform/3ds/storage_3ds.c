@@ -12,7 +12,7 @@
 
 #define SAVE_PATH "sdmc:/3ds/wacki/wacki.sav"
 
-int plat_save_read(void *buf, size_t sz)
+int plat_save_read(void *buf, int sz)
 {
     FILE *f = fopen(SAVE_PATH, "rb");
     if (!f) {
@@ -32,7 +32,7 @@ int plat_save_read(void *buf, size_t sz)
     return 0;
 }
 
-int plat_save_write(const void *buf, size_t sz)
+int plat_save_write(const void *buf, int sz)
 {
     FILE *f = fopen(SAVE_PATH, "wb");
     if (!f) {

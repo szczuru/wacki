@@ -16,14 +16,17 @@ CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS -DWACKI_VERBOSE \
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
 
-# 3DS libraries: citro3d/citro2d for graphics, ctru for system
-LIBS_3DS := -lcitro2d -lcitro3d -lctru -lm
+# 3DS libraries: picaGL for OpenGL ES, citro3d/citro2d for graphics, ctru for system
+LIBS_3DS := -lpicaGL -lcitro2d -lcitro3d -lctru -lm
 
 # Link flags: use 3dsx.specs for homebrew, link libraries
 LDFLAGS_STATIC := -specs=3dsx.specs \
                    -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
+                   -L$(DEVKITPRO)/picaGL/lib \
                    $(LIBS_3DS)
+
+CFLAGS += -I$(DEVKITPRO)/picaGL/include
 
 # Jesli data/WACKI.EXE istnieje (CI z sekretem / lokalne budowanie),
 # uzywamy standardowego embed-pe-data. W przeciwnym razie - pusty stub.

@@ -35,6 +35,15 @@ jobs:
             echo "⚠ No WACKI_EXE_URL secret - build will use dynamic loading from SD card"
           fi
 
+      - name: Install picaGL (OpenGL ES 1.1 wrapper for 3DS)
+        run: |
+          echo "📦 Installing picaGL..."
+          cd /tmp
+          git clone https://github.com/masterfeizz/picaGL.git
+          cd picaGL
+          make install DEVKITPRO=/opt/devkitpro
+          echo "✓ picaGL installed to /opt/devkitpro/picaGL"
+
       - name: Setup devkitARM environment
         run: |
           export DEVKITPRO=/opt/devkitpro

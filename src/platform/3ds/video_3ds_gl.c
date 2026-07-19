@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/video_3ds_gl.c — 3DS video backend using NovaGL.
+ * src/platform/3ds/video_3ds_gl.c — 3DS video backend using picaGL.
  *
- * Uses NovaGL (OpenGL ES 1.1 → citro3d) for hardware-accelerated rendering.
+ * Uses picaGL (OpenGL ES 1.1 → citro3d) for hardware-accelerated rendering.
  * Dual-screen layout:
  * - Top screen (400x240): Main game view
  * - Bottom screen (320x240): Zoomed view around cursor */
@@ -13,7 +13,7 @@
 #include "wacki/platform/video.h"
 
 #include <3ds.h>
-#include <NovaGL.h>
+#include <GL/picaGL.h>
 #include <string.h>
 
 #define TOP_SCREEN_W    400
@@ -38,13 +38,15 @@ int plat_video_init(int w, int h, const char *title)
 {
     (void)title;
     
-    LOG_INFO("3ds-video", "Initializing NovaGL (OpenGL ES 1.1 → citro3d)");
+    LOG_INFO("3ds-video", "Initializing picaGL (OpenGL ES 1.1 → citro3d)");
     
     gfxInitDefault();
     gfxSet3D(false);
-    nova_init();
     
-    LOG_INFO("3ds-video", "NovaGL initialized");
+    // picaGL init
+    pglInit();
+    
+    LOG_INFO("3ds-video", "picaGL initialized");
     
     glEnable(GL_TEXTURE_2D);
     glDisable(GL_DEPTH_TEST);
@@ -109,6 +111,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 {
     if (!shadow || !pal) return;
     
+    // Convert paletted image to RGBA
     for (int y = 0; y < h; ++y) {
         const uint8_t *src = shadow + y * w;
         uint32_t *dst = s_game_pixels + y * GAME_W;
@@ -119,18 +122,20 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
         }
     }
     
+    // Upload texture
     glBindTexture(GL_TEXTURE_2D, s_game_texture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GAME_W, GAME_H,
                     GL_RGBA, GL_UNSIGNED_BYTE, s_game_pixels);
     
-    nova_set_render_target(0);
+    // ---- Render to TOP screen ----
+    pglSelectScreen(GFX_TOP, GFX_LEFT);
     
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrthof(0, TOP_SCREEN_W, TOP_SCREEN_H, 0, -1, 1);
+    glOrtho(0, TOP_SCREEN_W, TOP_SCREEN_H, 0, -1, 1);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     
@@ -138,6 +143,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     glBindTexture(GL_TEXTURE_2D, s_game_texture);
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     
+    // Scale game 640x480 to fit 400x240 (scale 0.5x, centered)
     float scale = 0.5f;
     float dst_w = GAME_W * scale;
     float dst_h = GAME_H * scale;
@@ -146,13 +152,14 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     draw_textured_quad(offset_x, 0, dst_w, dst_h,
                       0.0f, 0.0f, 1.0f, 1.0f);
     
-    nova_set_render_target(2);
+    // ---- Render to BOTTOM screen (zoomed view) ----
+    pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
     
     glClear(GL_COLOR_BUFFER_BIT);
     
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrthof(0, BOTTOM_SCREEN_W, BOTTOM_SCREEN_H, 0, -1, 1);
+    glOrtho(0, BOTTOM_SCREEN_W, BOTTOM_SCREEN_H, 0, -1, 1);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     
@@ -165,6 +172,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     int view_x = g_mouse_x - view_w / 2;
     int view_y = g_mouse_y - view_h / 2;
     
+    // Clamp to game bounds
     if (view_x < 0) view_x = 0;
     if (view_y < 0) view_y = 0;
     if (view_x + view_w > GAME_W) view_x = GAME_W - view_w;
@@ -181,9 +189,11 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     draw_textured_quad(0, 0, BOTTOM_SCREEN_W, BOTTOM_SCREEN_H,
                       u0, v0, u1, v1);
     
+    // Draw crosshair at center
     draw_crosshair(BOTTOM_SCREEN_W / 2.0f, BOTTOM_SCREEN_H / 2.0f);
     
-    novaSwapBuffers();
+    // Swap buffers
+    pglSwapBuffers();
 }
 
 void plat_video_shutdown(void)
@@ -193,10 +203,10 @@ void plat_video_shutdown(void)
         s_game_texture = 0;
     }
     
-    nova_fini();
+    pglExit();
     gfxExit();
     
-    LOG_INFO("3ds-video", "NovaGL shutdown complete");
+    LOG_INFO("3ds-video", "picaGL shutdown complete");
 }
 
 void plat_video_toggle_fullscreen(void) {}

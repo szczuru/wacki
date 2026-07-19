@@ -5,7 +5,7 @@
  */
 
 #include "wacki.h"
-#include "wacki/platform.h"
+#include <wacki.h>
 #include <3ds.h>
 
 /* Platform init - called before engine starts */
