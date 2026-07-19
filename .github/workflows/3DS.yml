@@ -21,11 +21,18 @@ jobs:
       with:
         fetch-depth: 1
     
+    - name: Update pacman mirrors
+      run: |
+        echo "🔧 Fixing devkitPro mirror..."
+        # Update mirrorlist to use wii.leseratte10.de instead of pkg.devkitpro.org
+        sed -i 's|pkg.devkitpro.org|wii.leseratte10.de/devkitpro|g' /etc/pacman.d/mirrorlist
+        cat /etc/pacman.d/mirrorlist
+    
     - name: Install dependencies
       run: |
         dkp-pacman -Syu --noconfirm
         dkp-pacman -S --noconfirm 3ds-dev 3dstools
-        apt-get update && apt-get install -y imagemagick git wget
+        apt-get update && apt-get install -y imagemagick git wget curl
     
     - name: Download game data files
       env:
@@ -39,14 +46,28 @@ jobs:
         
         echo "📦 Downloading WACKI.EXE from secret URL..."
         mkdir -p data
-        wget -q -O data/WACKI.EXE "$WACKI_EXE_URL" || {
-          echo "✗ Failed to download WACKI.EXE"
-          exit 1
-        }
+        
+        # Try wget first, then curl
+        if command -v wget &> /dev/null; then
+          wget --no-check-certificate -q -O data/WACKI.EXE "$WACKI_EXE_URL" || {
+            echo "✗ wget failed, trying curl..."
+            curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL" || {
+              echo "✗ Failed to download WACKI.EXE"
+              exit 1
+            }
+          }
+        else
+          curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL" || {
+            echo "✗ Failed to download WACKI.EXE"
+            exit 1
+          }
+        fi
         
         # Verify it's a real PE file (starts with MZ)
         if ! head -c 2 data/WACKI.EXE | grep -q "MZ"; then
           echo "✗ Downloaded file is not a valid PE executable!"
+          echo "File contents (first 100 bytes):"
+          head -c 100 data/WACKI.EXE | od -A x -t x1z
           exit 1
         fi
         
