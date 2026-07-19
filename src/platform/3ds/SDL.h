@@ -58,6 +58,10 @@ typedef enum {
     SDL_SCANCODE_RETURN = 40,
     SDL_SCANCODE_LSHIFT = 225,
     SDL_SCANCODE_RSHIFT = 229,
+    SDL_SCANCODE_UP = 82,
+    SDL_SCANCODE_DOWN = 81,
+    SDL_SCANCODE_LEFT = 80,
+    SDL_SCANCODE_RIGHT = 79,
 } SDL_Scancode;
 
 /* ---- SDL KeyCode ------------------------------------------------------ */
@@ -65,22 +69,41 @@ typedef enum {
     SDLK_ESCAPE = 27,
     SDLK_SPACE = 32,
     SDLK_RETURN = 13,
+    SDLK_TAB = 9,
+    SDLK_BACKSPACE = 8,
     SDLK_F1 = 1073741882,
     SDLK_F2 = 1073741883,
     SDLK_F3 = 1073741884,
     SDLK_F4 = 1073741885,
     SDLK_F5 = 1073741886,
+    SDLK_F8 = 1073741889,
+    SDLK_F9 = 1073741890,
     SDLK_F10 = 1073741891,
+    SDLK_F11 = 1073741892,
+    SDLK_F12 = 1073741893,
+    SDLK_KP_ENTER = 1073741912,
+    SDLK_AC_BACK = 1073742094,
+    SDLK_SCANCODE_MASK = (1<<30),
 } SDL_KeyCode;
+
+typedef SDL_KeyCode SDL_Keycode;
 
 /* ---- SDL Events ------------------------------------------------------- */
 typedef enum {
     SDL_QUIT = 0x100,
+    SDL_WINDOWEVENT = 0x200,
     SDL_KEYDOWN = 0x300,
     SDL_KEYUP = 0x301,
+    SDL_TEXTINPUT = 0x303,
     SDL_MOUSEMOTION = 0x400,
     SDL_MOUSEBUTTONDOWN = 0x401,
     SDL_MOUSEBUTTONUP = 0x402,
+    SDL_FINGERDOWN = 0x700,
+    SDL_FINGERUP = 0x701,
+    SDL_FINGERMOTION = 0x702,
+    SDL_CONTROLLERBUTTONDOWN = 0x650,
+    SDL_CONTROLLERDEVICEADDED = 0x651,
+    SDL_CONTROLLERDEVICEREMOVED = 0x652,
 } SDL_EventType;
 
 typedef struct SDL_Keysym {
@@ -125,12 +148,54 @@ typedef union SDL_Event {
     SDL_MouseButtonEvent button;
     SDL_MouseMotionEvent motion;
     SDL_QuitEvent quit;
+    struct {
+        uint32_t type;
+        uint32_t timestamp;
+        uint32_t windowID;
+        uint8_t event;
+        int32_t data1;
+        int32_t data2;
+    } window;
+    struct {
+        uint32_t type;
+        uint32_t timestamp;
+        char text[32];
+    } text;
+    struct {
+        uint32_t type;
+        uint32_t timestamp;
+        int64_t touchId;
+        int64_t fingerId;
+        float x;
+        float y;
+        float dx;
+        float dy;
+        float pressure;
+    } tfinger;
 } SDL_Event;
+
+/* Additional touch/finger types */
+typedef int64_t SDL_FingerID;
+typedef int64_t SDL_TouchID;
 
 /* ---- SDL Types -------------------------------------------------------- */
 typedef struct SDL_Window SDL_Window;
 typedef struct SDL_Renderer SDL_Renderer;
 typedef struct SDL_Texture SDL_Texture;
+
+/* SDL basic types */
+typedef uint8_t Uint8;
+typedef uint16_t Uint16;
+typedef uint32_t Uint32;
+typedef int32_t Sint32;
+
+/* SDL Color */
+typedef struct SDL_Color {
+    uint8_t r;
+    uint8_t g;
+    uint8_t b;
+    uint8_t a;
+} SDL_Color;
 
 typedef struct SDL_Rect {
     int x, y;
@@ -202,6 +267,7 @@ void SDL_UnlockTexture(SDL_Texture *texture);
 /* Events */
 int SDL_PollEvent(SDL_Event *event);
 const uint8_t* SDL_GetKeyboardState(int *numkeys);
+int SDL_PushEvent(SDL_Event *event);
 
 /* Input */
 int SDL_ShowCursor(int toggle);
@@ -220,10 +286,13 @@ void* SDL_memset(void *dst, int c, size_t len);
 /* Surface */
 SDL_Surface* SDL_CreateRGBSurface(uint32_t flags, int width, int height, int depth,
                                    uint32_t Rmask, uint32_t Gmask, uint32_t Bmask, uint32_t Amask);
+SDL_Surface* SDL_CreateRGBSurfaceWithFormatFrom(void *pixels, int w, int h, int depth, int pitch, uint32_t format);
 void SDL_FreeSurface(SDL_Surface *surface);
 int SDL_LockSurface(SDL_Surface *surface);
 void SDL_UnlockSurface(SDL_Surface *surface);
 SDL_Surface* SDL_ConvertSurfaceFormat(SDL_Surface *src, uint32_t pixel_format, uint32_t flags);
+int SDL_SetPaletteColors(void *palette, const SDL_Color *colors, int firstcolor, int ncolors);
+int SDL_SaveBMP(SDL_Surface *surface, const char *file);
 
 /* Audio */
 int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained);
