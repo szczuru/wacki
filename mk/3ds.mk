@@ -1,55 +1,69 @@
-# mk/3ds.mk — Nintendo 3DS with NovaGL (OpenGL ES 1.1 → citro3d hardware rendering)
+# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + citro3d).
 
 DEVKITPRO ?= /opt/devkitpro
 DEVKITARM ?= $(DEVKITPRO)/devkitARM
 
 CC       := $(DEVKITARM)/bin/arm-none-eabi-gcc
-CXX      := $(DEVKITARM)/bin/arm-none-eabi-g++
 BIN_NAME := wacki
 
-# NovaGL paths
-NOVAGL_DIR := external/NovaGL
-NOVAGL_INC := $(NOVAGL_DIR)/include
-NOVAGL_LIB := $(NOVAGL_DIR)/lib
-
-# 3DS architecture flags
-ARCH_FLAGS := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
-
-# 3DS-specific defines
 CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS -DWACKI_VERBOSE \
-          $(ARCH_FLAGS) \
+          -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I$(DEVKITPRO)/libctru/include \
           -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I$(NOVAGL_INC)
+          -I src/platform/3ds
 
-# C++ flags for NovaGL
-CXXFLAGS := $(CFLAGS) -std=gnu++17 -fno-rtti -fno-exceptions
-
-# Size optimization
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
 
-# NovaGL + citro3d + libctru
-LIBS_3DS := -L$(NOVAGL_LIB) -lNovaGL \
-            -lcitro2d -lcitro3d \
-            -lctru -lm
+# 3DS libraries: citro3d/citro2d for graphics, ctru for system
+LIBS_3DS := -lcitro2d -lcitro3d -lctru -lm
 
-# Static linking flags
-LDFLAGS_STATIC := -specs=3dsx.specs \
-                   -L$(DEVKITPRO)/libctru/lib \
+LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
+                   -specs=3dsx.specs \
                    $(LIBS_3DS)
 
-# Platform sources
-PLATFORM_SRCS = src/platform/sdl/save_host.c \
-                src/platform/sdl/file_host.c \
-                src/platform/sdl/audio_sdl.c \
-                src/platform/sdl/flic_host.c \
-                $(SDL_DATAROOT_HANDHELD) \
-                src/platform/3ds/video_3ds_gl.c \
-                src/platform/3ds/gamepad_3ds.c \
-                src/platform/3ds/system_3ds.c
+# Jesli data/WACKI.EXE istnieje (CI z sekretem / lokalne budowanie),
+# uzywamy standardowego embed-pe-data. W przeciwnym razie - pusty stub.
+ifeq ($(wildcard data/WACKI.EXE),)
+    EMBEDDED_PE_SRC := src/platform/3ds/embedded_wacki_pe_stub.c
+endif
 
-# SDL configuration - will be overridden by workflow to use stub
-SDL_CFG := -I$(DEVKITPRO)/portlibs/3ds/include
-SDL_LIB :=
+# 3DS uses SDL compatibility layer (SDL_compat.c) + custom gamepad.
+# This allows reusing SDL platform code (video_sdl.c, audio_sdl.c, platform_sdl.c)
+# while providing dual-screen rendering and custom controls via the compat layer.
+
+# SDL compatibility layer - provides SDL API on top of citro3d/citro2d/ndsp
+SDL_COMPAT_SRCS := src/platform/3ds/SDL_compat.c
+
+# 3DS-specific platform files
+N3DS_PLATFORM_SRCS := src/platform/3ds/3ds.c \
+                      src/platform/3ds/storage_3ds.c \
+                      src/platform/3ds/data_root_3ds.c \
+                      src/platform/3ds/gamepad_3ds.c \
+                      src/platform/3ds/system_3ds.c
+
+# Reuse SDL platform implementations (they use our SDL.h via -I src/platform/3ds)
+SDL_PLATFORM_SRCS := src/platform/sdl/platform_sdl.c \
+                     src/platform/sdl/video_sdl.c \
+                     src/platform/sdl/audio_sdl.c \
+                     src/platform/sdl/file_host.c \
+                     src/platform/sdl/flic_host.c
+
+PLATFORM_SRCS := $(SDL_COMPAT_SRCS) $(N3DS_PLATFORM_SRCS) $(SDL_PLATFORM_SRCS)
+
+# ---- .3dsx packaging ------------------------------------------------------
+N3DS_ICON     := assets/icons/wacki-3ds-48x48.png
+N3DS_3DSX     := $(DIST)/wacki.3dsx
+N3DS_SMDH     := $(DIST)/wacki.smdh
+SMDHTOOL      := $(DEVKITPRO)/tools/bin/smdhtool
+N3DSXTOOL     := $(DEVKITPRO)/tools/bin/3dsxtool
+
+all: $(N3DS_3DSX)
+
+$(N3DS_SMDH): | $(DIST)
+	$(SMDHTOOL) --create "Wacki: Kosmiczna rozgrywka" "Wacki game engine - New 3DS port" "mszula" $(N3DS_ICON) $(N3DS_SMDH)
+
+$(N3DS_3DSX): $(DIST)/$(BIN_NAME)$(EXE) $(N3DS_SMDH)
+	$(N3DSXTOOL) $(DIST)/$(BIN_NAME)$(EXE) $(N3DS_3DSX) --smdh=$(N3DS_SMDH)
+
