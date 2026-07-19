@@ -67,6 +67,52 @@ if [ ! -f "data/WACKI.EXE" ]; then
     echo ""
 fi
 
+# Prepare 48x48 icon for SMDH (automatically resize if needed)
+ICON_SOURCE="assets/icons/wacki.png"
+ICON_48="assets/icons/wacki-48.png"
+
+if [ -f "$ICON_SOURCE" ]; then
+    echo "🎨 Preparing 48x48 icon..."
+    
+    # Check if we need to resize (if icon is not already 48x48)
+    if command -v convert &> /dev/null; then
+        # ImageMagick available - use it
+        convert "$ICON_SOURCE" -resize 48x48! "$ICON_48" 2>/dev/null && \
+        echo "✓ Created $ICON_48 (resized from $ICON_SOURCE)" || \
+        echo "⚠️  Failed to resize icon with ImageMagick"
+    elif command -v ffmpeg &> /dev/null; then
+        # FFmpeg available as fallback
+        ffmpeg -i "$ICON_SOURCE" -vf scale=48:48 "$ICON_48" -y 2>/dev/null && \
+        echo "✓ Created $ICON_48 (resized with ffmpeg)" || \
+        echo "⚠️  Failed to resize icon with ffmpeg"
+    elif command -v python3 &> /dev/null; then
+        # Python + PIL as fallback
+        python3 -c "
+from PIL import Image
+import sys
+try:
+    img = Image.open('$ICON_SOURCE')
+    img = img.convert('RGBA')
+    img_resized = img.resize((48, 48), Image.Resampling.LANCZOS)
+    img_resized.save('$ICON_48', 'PNG')
+    print('✓ Created $ICON_48 (resized with PIL)')
+except ImportError:
+    print('⚠️  Python PIL not available')
+    sys.exit(1)
+except Exception as e:
+    print(f'⚠️  Failed to resize: {e}')
+    sys.exit(1)
+" || echo "⚠️  Python resize failed"
+    else
+        echo "⚠️  No image tool found (ImageMagick, ffmpeg, or Python PIL)"
+        echo "   Icon will use default if smdhtool fails"
+    fi
+    echo ""
+else
+    echo "⚠️  Source icon not found: $ICON_SOURCE"
+    echo ""
+fi
+
 # Clean previous build
 echo "🧹 Cleaning previous build..."
 make TARGET=3ds clean 2>/dev/null || true
@@ -102,24 +148,27 @@ echo "📦 Creating .3dsx homebrew executable..."
 echo "✓ Created dist/wacki.3dsx"
 echo ""
 
-# Create SMDH (icon/metadata) if icon exists
-if [ -f "assets/icons/wacki-48.png" ]; then
-    echo "🎨 Creating SMDH metadata..."
+# Create SMDH (icon/metadata) if 48x48 icon exists
+if [ -f "$ICON_48" ]; then
+    echo "🎨 Creating SMDH metadata with icon..."
     
     if command -v smdhtool &> /dev/null; then
         smdhtool --create "Wacki" \
                  "Point-and-click adventure" \
                  "szczuru" \
-                 assets/icons/wacki-48.png \
+                 "$ICON_48" \
                  dist/wacki.smdh 2>/dev/null && \
-        echo "✓ Created dist/wacki.smdh"
+        echo "✓ Created dist/wacki.smdh with custom icon"
+        
+        # Clean up temporary 48x48 icon
+        rm -f "$ICON_48"
     else
         echo "⚠️  smdhtool not found - no icon metadata"
         echo "   Install: sudo dkp-pacman -S smdhtool"
     fi
     echo ""
 else
-    echo "⚠️  No icon found (assets/icons/wacki-48.png)"
+    echo "⚠️  No 48x48 icon available"
     echo "   .3dsx will use default icon"
     echo ""
 fi
