@@ -40,33 +40,32 @@ jobs:
       run: |
         echo "🔧 Creating minimal SDL.h stub for 3DS build..."
         mkdir -p include/SDL_stub
-        cat > include/SDL_stub/SDL.h << 'EOF'
-/* Minimal SDL.h stub for 3DS build - NovaGL provides rendering */
-#ifndef SDL_STUB_H
-#define SDL_STUB_H
-
-#include <stdint.h>
-
-/* Minimal types that Wacki sources reference */
-typedef struct SDL_Surface SDL_Surface;
-typedef struct SDL_Rect {
-    int16_t x, y;
-    uint16_t w, h;
-} SDL_Rect;
-
-/* Dummy defines */
-#define SDL_INIT_VIDEO 0
-#define SDL_INIT_AUDIO 0
-#define SDL_SWSURFACE 0
-#define SDL_SRCALPHA 0
-
-/* Stub functions - implemented in platform layer */
-static inline int SDL_Init(uint32_t flags) { (void)flags; return 0; }
-static inline void SDL_Quit(void) {}
-
-#endif /* SDL_STUB_H */
-EOF
+        echo "/* Minimal SDL.h stub for 3DS build - NovaGL provides rendering */" > include/SDL_stub/SDL.h
+        echo "#ifndef SDL_STUB_H" >> include/SDL_stub/SDL.h
+        echo "#define SDL_STUB_H" >> include/SDL_stub/SDL.h
+        echo "" >> include/SDL_stub/SDL.h
+        echo "#include <stdint.h>" >> include/SDL_stub/SDL.h
+        echo "" >> include/SDL_stub/SDL.h
+        echo "/* Minimal types that Wacki sources reference */" >> include/SDL_stub/SDL.h
+        echo "typedef struct SDL_Surface SDL_Surface;" >> include/SDL_stub/SDL.h
+        echo "typedef struct SDL_Rect {" >> include/SDL_stub/SDL.h
+        echo "    int16_t x, y;" >> include/SDL_stub/SDL.h
+        echo "    uint16_t w, h;" >> include/SDL_stub/SDL.h
+        echo "} SDL_Rect;" >> include/SDL_stub/SDL.h
+        echo "" >> include/SDL_stub/SDL.h
+        echo "/* Dummy defines */" >> include/SDL_stub/SDL.h
+        echo "#define SDL_INIT_VIDEO 0" >> include/SDL_stub/SDL.h
+        echo "#define SDL_INIT_AUDIO 0" >> include/SDL_stub/SDL.h
+        echo "#define SDL_SWSURFACE 0" >> include/SDL_stub/SDL.h
+        echo "#define SDL_SRCALPHA 0" >> include/SDL_stub/SDL.h
+        echo "" >> include/SDL_stub/SDL.h
+        echo "/* Stub functions - implemented in platform layer */" >> include/SDL_stub/SDL.h
+        echo "static inline int SDL_Init(uint32_t flags) { (void)flags; return 0; }" >> include/SDL_stub/SDL.h
+        echo "static inline void SDL_Quit(void) {}" >> include/SDL_stub/SDL.h
+        echo "" >> include/SDL_stub/SDL.h
+        echo "#endif /* SDL_STUB_H */" >> include/SDL_stub/SDL.h
         echo "✓ SDL stub created at include/SDL_stub/SDL.h"
+        cat include/SDL_stub/SDL.h
     
     - name: Download game data files
       env:
@@ -76,22 +75,17 @@ EOF
           echo "✗ ERROR: WACKI_EXE_URL secret not set!"
           exit 1
         fi
-        
         echo "📦 Downloading WACKI.EXE..."
         mkdir -p data
-        
         if command -v wget &> /dev/null; then
-          wget --no-check-certificate -q -O data/WACKI.EXE "$WACKI_EXE_URL" || \
-            curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL"
+          wget --no-check-certificate -q -O data/WACKI.EXE "$WACKI_EXE_URL" || curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL"
         else
           curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL"
         fi
-        
         if ! head -c 2 data/WACKI.EXE | grep -q "MZ"; then
           echo "✗ Downloaded file is not a valid PE executable!"
           exit 1
         fi
-        
         echo "✓ WACKI.EXE downloaded"
         ls -lh data/WACKI.EXE
     
@@ -112,15 +106,10 @@ EOF
       run: |
         cd external/NovaGL
         echo "🔨 Building NovaGL..."
-        
         mkdir -p build && cd build
-        cmake -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DGL2CITRO3D_BUILD_EXAMPLES=OFF \
-              ..
+        cmake -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake -DCMAKE_BUILD_TYPE=Release -DGL2CITRO3D_BUILD_EXAMPLES=OFF ..
         make -j$(nproc)
         cd ..
-        
         mkdir -p lib
         if [ -f "build/src/libNovaGL.a" ]; then
           cp build/src/libNovaGL.a lib/
@@ -131,7 +120,6 @@ EOF
           find build -name "*.a"
           exit 1
         fi
-        
         echo "✓ NovaGL built"
         cd ../..
     
@@ -140,7 +128,6 @@ EOF
         echo "🔧 Updating mk/3ds.mk to use SDL stub..."
         sed -i 's|SDL_CFG := -I$(DEVKITPRO)/portlibs/3ds/include|SDL_CFG := -I$(PWD)/include/SDL_stub|g' mk/3ds.mk
         echo "✓ mk/3ds.mk updated"
-        cat mk/3ds.mk
     
     - name: Build Wacki
       run: |
@@ -148,10 +135,7 @@ EOF
         export DEVKITARM=$DEVKITPRO/devkitARM
         echo "🔨 Building Wacki for 3DS..."
         make TARGET=3ds clean || true
-        make TARGET=3ds -j$(nproc) || {
-          echo "✗ Wacki build failed"
-          exit 1
-        }
+        make TARGET=3ds -j$(nproc)
         echo "✓ Wacki built successfully"
     
     - name: Create 3DSX
@@ -165,11 +149,7 @@ EOF
         if [ -f "assets/icons/wacki.png" ]; then
           convert assets/icons/wacki.png -resize 48x48! assets/icons/wacki-48.png
           if command -v smdhtool &> /dev/null; then
-            smdhtool --create "Wacki" \
-              "Point-and-click adventure" \
-              "szczuru" \
-              assets/icons/wacki-48.png \
-              dist/wacki.smdh
+            smdhtool --create "Wacki" "Point-and-click adventure" "szczuru" assets/icons/wacki-48.png dist/wacki.smdh
             echo "✓ Created wacki.smdh"
           fi
         fi
