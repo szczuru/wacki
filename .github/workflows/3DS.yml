@@ -24,37 +24,54 @@ jobs:
     - name: Install dependencies
       run: |
         dkp-pacman -Syu --noconfirm
-        dkp-pacman -S --noconfirm 3ds-dev 3ds-cmake 3dstools
-        apt-get update && apt-get install -y imagemagick cmake git
+        dkp-pacman -S --noconfirm 3ds-dev 3dstools
+        apt-get update && apt-get install -y imagemagick git
     
-    - name: Download and setup NovaGL
+    - name: Download NovaGL
       run: |
-        echo "📦 Downloading NovaGL..."
+        echo "📦 Cloning NovaGL..."
         git clone --depth=1 https://github.com/efimandreev0/NovaGL.git external/NovaGL
-        echo "✅ NovaGL downloaded to external/NovaGL"
-        ls -la external/NovaGL
+        echo "✓ NovaGL downloaded"
+    
+    - name: Fix NovaGL CMakeLists.txt
+      run: |
+        cd external/NovaGL/src
+        echo "🔧 Patching CMakeLists.txt (removing gas.c)..."
+        
+        # Remove gas.c from source list
+        sed -i '/gas.c/d' CMakeLists.txt
+        
+        echo "✓ CMakeLists.txt patched"
+        cd ../../..
     
     - name: Build NovaGL
       run: |
         cd external/NovaGL
         echo "🔨 Building NovaGL with CMake..."
+        
         mkdir -p build && cd build
         cmake -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
               -DCMAKE_BUILD_TYPE=Release \
+              -DGL2CITRO3D_BUILD_EXAMPLES=OFF \
               ..
-        make -j$(nproc)
-        cd ..
+        make -j$(nproc) || {
+          echo "✗ NovaGL build failed"
+          exit 1
+        }
         
-        # Create lib directory and copy library
+        cd ..
+        echo "✓ NovaGL built successfully"
+        
+        # Organize library
         mkdir -p lib
-        if [ -f "build/libNovaGL.a" ]; then
+        if [ -f "build/src/libNovaGL.a" ]; then
+          cp build/src/libNovaGL.a lib/
+          echo "  ✓ Copied lib/libNovaGL.a"
+        elif [ -f "build/libNovaGL.a" ]; then
           cp build/libNovaGL.a lib/
-          echo "✅ Copied libNovaGL.a to lib/"
-        elif [ -f "build/source/libNovaGL.a" ]; then
-          cp build/source/libNovaGL.a lib/
-          echo "✅ Copied libNovaGL.a from source/ to lib/"
+          echo "  ✓ Copied lib/libNovaGL.a"
         else
-          echo "❌ ERROR: libNovaGL.a not found!"
+          echo "✗ ERROR: libNovaGL.a not found!"
           find build -name "*.a"
           exit 1
         fi
@@ -68,15 +85,18 @@ jobs:
         export DEVKITARM=$DEVKITPRO/devkitARM
         echo "🔨 Building Wacki for 3DS..."
         make TARGET=3ds clean || true
-        make TARGET=3ds -j$(nproc)
-        echo "✅ Wacki built successfully"
+        make TARGET=3ds -j$(nproc) || {
+          echo "✗ Wacki build failed"
+          exit 1
+        }
+        echo "✓ Wacki built successfully"
     
     - name: Create 3DSX
       run: |
         echo "📦 Creating .3dsx file..."
         3dsxtool dist/wacki dist/wacki.3dsx
         ls -lh dist/wacki.3dsx
-        echo "✅ Created wacki.3dsx"
+        echo "✓ Created wacki.3dsx"
     
     - name: Create icon and SMDH
       run: |
@@ -86,14 +106,15 @@ jobs:
           
           if command -v smdhtool &> /dev/null; then
             smdhtool --create "Wacki" \
-              "Point-and-click (NovaGL)" \
+              "Point-and-click adventure" \
               "szczuru" \
               assets/icons/wacki-48.png \
               dist/wacki.smdh
-            echo "✅ Created wacki.smdh"
+            echo "✓ Created wacki.smdh"
+            ls -lh dist/wacki.smdh
           fi
         else
-          echo "⚠️  Icon not found - skipping SMDH creation"
+          echo "⚠️  Icon not found at assets/icons/wacki.png"
         fi
     
     - name: Upload artifacts
@@ -108,7 +129,7 @@ jobs:
     - name: Build summary
       run: |
         echo "========================================="
-        echo "  ✅ Build Complete!"
+        echo "  ✓ Build Complete!"
         echo "========================================="
         if [ -f "dist/wacki.3dsx" ]; then
           SIZE=$(du -h dist/wacki.3dsx | cut -f1)
@@ -118,4 +139,6 @@ jobs:
           SIZE=$(du -h dist/wacki.smdh | cut -f1)
           echo "  🎨 wacki.smdh: $SIZE"
         fi
+        echo ""
+        echo "Download from Actions → Artifacts"
         echo "========================================="
