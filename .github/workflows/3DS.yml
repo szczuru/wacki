@@ -1,4 +1,4 @@
-name: Build 3DS
+name: Build 3DS (NovaGL)
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-3ds:
-    name: Build Nintendo 3DS Port
+  build-3ds-novagl:
+    name: Build 3DS with NovaGL
     runs-on: ubuntu-latest
     
     container:
@@ -19,128 +19,69 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
+        submodules: recursive
         fetch-depth: 1
     
-    - name: Install 3DS dependencies
+    - name: Install dependencies
       run: |
         dkp-pacman -Syu --noconfirm
         dkp-pacman -S --noconfirm \
           3ds-dev \
-          3ds-sdl \
-          3ds-sdl_mixer \
+          3ds-cmake \
           3dstools
+        apt-get update && apt-get install -y imagemagick cmake
     
-    - name: Verify devkitPro setup
+    - name: Verify NovaGL submodule
       run: |
-        echo "DEVKITPRO=$DEVKITPRO"
-        echo "DEVKITARM=$DEVKITARM"
-        echo ""
-        echo "Checking for SDL..."
-        ls -la $DEVKITPRO/portlibs/3ds/lib/libSDL.a 2>/dev/null || \
-        ls -la $DEVKITPRO/portlibs/3ds/lib/libSDL2.a 2>/dev/null || \
-        echo "WARNING: SDL not found!"
-        echo ""
-        echo "Compiler version:"
-        arm-none-eabi-gcc --version
-    
-    - name: Check for WACKI.EXE
-      run: |
-        if [ ! -f "data/WACKI.EXE" ]; then
-          echo "::warning::data/WACKI.EXE not found - build will succeed but game won't run"
+        if [ ! -d "external/NovaGL" ]; then
+          echo "ERROR: NovaGL submodule not found"
+          exit 1
         fi
+        echo "✓ NovaGL found"
     
-    - name: Install ImageMagick for icon resize
+    - name: Build NovaGL
       run: |
-        apt-get update && apt-get install -y imagemagick
+        cd external/NovaGL
+        mkdir -p build && cd build
+        cmake -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
+              -DCMAKE_BUILD_TYPE=Release \
+              ..
+        make -j$(nproc)
+        cd ..
+        mkdir -p lib
+        cp build/libNovaGL.a lib/ || echo "WARNING: libNovaGL.a not found"
+        cd ../..
     
-    - name: Build for 3DS
+    - name: Build Wacki
       run: |
         export DEVKITPRO=/opt/devkitpro
-        export DEVKITARM=${DEVKITPRO}/devkitARM
-        export PATH=${DEVKITARM}/bin:$PATH
+        export DEVKITARM=$DEVKITPRO/devkitARM
         make TARGET=3ds clean
         make TARGET=3ds -j$(nproc)
     
-    - name: Create 3DSX homebrew file
+    - name: Create 3DSX
       run: |
-        if [ ! -f "dist/wacki" ]; then
-          echo "::error::Build failed - no ELF output"
-          exit 1
-        fi
-        
         3dsxtool dist/wacki dist/wacki.3dsx
-        
-        ls -lh dist/wacki.3dsx
         echo "✓ Created wacki.3dsx"
     
-    - name: Create SMDH metadata with icon
+    - name: Create icon and SMDH
       run: |
-        ICON_SOURCE="assets/icons/wacki.png"
-        ICON_48="assets/icons/wacki-48.png"
-        
-        if [ -f "$ICON_SOURCE" ]; then
-          echo "Resizing icon to 48x48..."
-          convert "$ICON_SOURCE" -resize 48x48! "$ICON_48"
-          
-          if [ -f "$ICON_48" ] && command -v smdhtool &> /dev/null; then
-            smdhtool --create \
-              "Wacki" \
-              "Point-and-click adventure" \
+        if [ -f "assets/icons/wacki.png" ]; then
+          convert assets/icons/wacki.png -resize 48x48! assets/icons/wacki-48.png
+          if command -v smdhtool &> /dev/null; then
+            smdhtool --create "Wacki" \
+              "Point-and-click (NovaGL)" \
               "szczuru" \
-              "$ICON_48" \
+              assets/icons/wacki-48.png \
               dist/wacki.smdh
-            echo "✓ Created SMDH with icon"
-            rm -f "$ICON_48"
-          else
-            echo "::warning::smdhtool failed or icon not resized"
           fi
-        else
-          echo "::warning::Icon not found at $ICON_SOURCE"
         fi
     
-    - name: List build artifacts
-      run: |
-        echo "Build artifacts:"
-        ls -lh dist/wacki* || true
-        
-        echo ""
-        echo "File sizes:"
-        du -h dist/wacki* || true
-    
-    - name: Upload 3DSX
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: wacki-3ds
+        name: wacki-3ds-novagl
         path: |
           dist/wacki.3dsx
           dist/wacki.smdh
         retention-days: 30
-        if-no-files-found: warn
-    
-    - name: Upload debug symbols
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: wacki-3ds-debug
-        path: dist/wacki
-        retention-days: 7
-        if-no-files-found: warn
-    
-    - name: Create release assets (on tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      run: |
-        cd dist
-        if [ -f "wacki.smdh" ]; then
-          zip -9 wacki-3ds-${{ github.ref_name }}.zip wacki.3dsx wacki.smdh
-        else
-          zip -9 wacki-3ds-${{ github.ref_name }}.zip wacki.3dsx
-        fi
-        echo "Created release package"
-    
-    - name: Upload to release (on tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: dist/wacki-3ds-*.zip
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
