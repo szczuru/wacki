@@ -1,13 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/system_3ds.c — 3DS system lifecycle hooks.
+ * src/platform/3ds/system_3ds.c — 3DS system hooks.
  *
- * Handles 3DS-specific initialization and shutdown:
- * - Enable New 3DS clock speed boost (804MHz instead of 268MHz)
- * - No platform-specific volume control (hardware buttons)
- * - No platform-specific key handling beyond gamepad
- */
+ * Enables New 3DS CPU speedup (804 MHz) for better performance. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -15,39 +11,31 @@
 
 #include <3ds.h>
 
-void plat_system_early_init(void)
+void plat_system_init(void)
 {
-    /* Enable New 3DS/2DS XL CPU speed boost
-     * This enables the extra L2 cache and higher clock speeds:
-     * - Old 3DS: 268MHz (unchanged)
-     * - New 3DS: 804MHz (3x faster!)
-     * 
-     * This is safe to call on Old 3DS - it's a no-op there.
-     * Wacki should run on both, but New 3DS will be much smoother. */
-    osSetSpeedupEnable(true);
+    /* Enable New 3DS CPU speedup */
+    bool is_new3ds = false;
+    APT_CheckNew3DS(&is_new3ds);
     
-    LOG_INFO("3ds-system", "Early init complete (speedup enabled for New 3DS)");
+    if (is_new3ds) {
+        osSetSpeedupEnable(true);
+        LOG_INFO("3ds-system", "New 3DS detected - CPU speedup enabled (804 MHz)");
+    } else {
+        LOG_INFO("3ds-system", "Old 3DS detected - running at 268 MHz");
+    }
 }
 
-void plat_system_late_init(void)
+void plat_system_shutdown(void)
 {
-    /* Nothing needed - SDL2 initialization handles everything else */
+    /* Nothing to do */
 }
 
-void plat_system_shutdown_hook(void)
+uint32_t plat_system_get_ticks_ms(void)
 {
-    /* Nothing needed - SDL2 and gfxExit handle cleanup */
+    return (uint32_t)(svcGetSystemTick() / CPU_TICKS_PER_MSEC);
 }
 
-void plat_restore_system_volume(void)
+void plat_system_delay_ms(uint32_t ms)
 {
-    /* 3DS volume is controlled by hardware buttons (VOL +/-)
-     * We don't need to set it programmatically */
-}
-
-void plat_handle_platform_key(int sym)
-{
-    /* No platform-specific keys beyond what gamepad_3ds.c handles
-     * All 3DS buttons are processed in platform_pad_read_motion */
-    (void)sym;
+    svcSleepThread((s64)ms * 1000000LL);
 }
