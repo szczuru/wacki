@@ -25,7 +25,33 @@ jobs:
       run: |
         dkp-pacman -Syu --noconfirm
         dkp-pacman -S --noconfirm 3ds-dev 3dstools
-        apt-get update && apt-get install -y imagemagick git
+        apt-get update && apt-get install -y imagemagick git wget
+    
+    - name: Download game data files
+      env:
+        WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
+      run: |
+        if [ -z "$WACKI_EXE_URL" ]; then
+          echo "✗ ERROR: WACKI_EXE_URL secret not set!"
+          echo "This build requires original game files."
+          exit 1
+        fi
+        
+        echo "📦 Downloading WACKI.EXE from secret URL..."
+        mkdir -p data
+        wget -q -O data/WACKI.EXE "$WACKI_EXE_URL" || {
+          echo "✗ Failed to download WACKI.EXE"
+          exit 1
+        }
+        
+        # Verify it's a real PE file (starts with MZ)
+        if ! head -c 2 data/WACKI.EXE | grep -q "MZ"; then
+          echo "✗ Downloaded file is not a valid PE executable!"
+          exit 1
+        fi
+        
+        echo "✓ WACKI.EXE downloaded successfully"
+        ls -lh data/WACKI.EXE
     
     - name: Download NovaGL
       run: |
@@ -37,10 +63,7 @@ jobs:
       run: |
         cd external/NovaGL/src
         echo "🔧 Patching CMakeLists.txt (removing gas.c)..."
-        
-        # Remove gas.c from source list
         sed -i '/gas.c/d' CMakeLists.txt
-        
         echo "✓ CMakeLists.txt patched"
         cd ../../..
     
