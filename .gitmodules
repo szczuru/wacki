@@ -3,3 +3,6 @@
 	url = https://github.com/libsdl-org/SDL.git
 	branch = release-2.32.x
 	shallow = true
+[submodule "external/NovaGL"]
+	path = external/NovaGL
+	url = https://github.com/efimandreev0/NovaGL.git
