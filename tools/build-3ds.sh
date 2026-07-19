@@ -181,45 +181,6 @@ if [ -f "dist/wacki.smdh" ]; then
     echo "  🎨 dist/wacki.smdh ($SIZE)"
 fi
 
-echo ""Rozumiem! Nie używasz CMD - pokażę Ci jak dodać submodule przez stronę GitHub i dam alternatywę.
-
----
-
-## 🌐 SPOSÓB 1: Przez GitHub Web (Najprostszy)
-
-Niestety **GitHub Web nie wspiera bezpośrednio dodawania submodule** - to wymaga git commands. Ale dam Ci **alternatywę bez CMD**!
-
----
-
-## ✓ SPOSÓB 2: BEZ SUBMODULE - Kopiuj NovaGL ręcznie
-
-Zamiast submodule, możesz po prostu **skopiować NovaGL do swojego repo**:
-
-### Kroki:
-
-1. **Pobierz NovaGL jako ZIP:**
-   - Idź na: https://github.com/efimandreev0/NovaGL
-   - Kliknij zielony przycisk **Code** → **Download ZIP**
-   - Rozpakuj ZIP
-
-2. **Skopiuj do swojego repo:**
-   - Utwórz folder `external/NovaGL` w swoim repo
-   - Skopiuj całą zawartość rozpakowanego NovaGL do `external/NovaGL`
-
-3. **Dodaj pliki przez GitHub Web:**
-   - Idź na stronę swojego repo: https://github.com/szczuru/wacki
-   - Kliknij **Add file** → **Upload files**
-   - Przeciągnij folder `external/NovaGL` (lub pojedyncze pliki)
-   - Commit z message: `Add NovaGL for 3DS hardware rendering`
-
-4. **Pomiń plik `.gitmodules`:**
-   - Jeśli nie używasz submodule - **NIE DODAWAJ** pliku `.gitmodules`
-   - Po prostu kopiuj NovaGL jako normalne pliki
-
----
-
-## 📝 ZMODYFIKOWANE INSTRUKCJE (bez CMD)
-
 ### A) Pliki do skopiowania (WSZYSTKIE):
 
 #### 1. `mk/3ds.mk`
