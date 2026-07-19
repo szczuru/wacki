@@ -24,34 +24,49 @@ jobs:
     - name: Fix devkitPro repositories
       run: |
         echo "🔧 Fixing devkitPro package repositories..."
-        
-        # Find and fix pacman config
         if [ -f "/etc/pacman.conf" ]; then
-          echo "Found /etc/pacman.conf"
-          # Replace pkg.devkitpro.org with mirror
           sed -i 's|https://pkg.devkitpro.org|https://wii.leseratte10.de/devkitpro|g' /etc/pacman.conf
           sed -i 's|http://pkg.devkitpro.org|https://wii.leseratte10.de/devkitpro|g' /etc/pacman.conf
         fi
     
     - name: Install dependencies
       run: |
-        # Try to update, but don't fail if it doesn't work
-        dkp-pacman -Sy --noconfirm || echo "⚠️  Database sync failed, using cached packages"
-        
-        # Install required packages INCLUDING SDL for 3DS
-        dkp-pacman -S --noconfirm \
-          3ds-dev \
-          3dstools \
-          3ds-sdl \
-          3ds-sdl_mixer \
-          --overwrite='*' || {
-          echo "✗ Failed to install 3ds packages"
-          exit 1
-        }
-        
+        dkp-pacman -Sy --noconfirm || echo "⚠️  Database sync failed"
+        dkp-pacman -S --noconfirm 3ds-dev 3dstools --overwrite='*'
         apt-get update && apt-get install -y imagemagick git wget curl
-        
         echo "✓ Dependencies installed"
+    
+    - name: Create SDL stub header for 3DS
+      run: |
+        echo "🔧 Creating minimal SDL.h stub for 3DS build..."
+        mkdir -p include/SDL_stub
+        cat > include/SDL_stub/SDL.h << 'EOF'
+/* Minimal SDL.h stub for 3DS build - NovaGL provides rendering */
+#ifndef SDL_STUB_H
+#define SDL_STUB_H
+
+#include <stdint.h>
+
+/* Minimal types that Wacki sources reference */
+typedef struct SDL_Surface SDL_Surface;
+typedef struct SDL_Rect {
+    int16_t x, y;
+    uint16_t w, h;
+} SDL_Rect;
+
+/* Dummy defines */
+#define SDL_INIT_VIDEO 0
+#define SDL_INIT_AUDIO 0
+#define SDL_SWSURFACE 0
+#define SDL_SRCALPHA 0
+
+/* Stub functions - implemented in platform layer */
+static inline int SDL_Init(uint32_t flags) { (void)flags; return 0; }
+static inline void SDL_Quit(void) {}
+
+#endif /* SDL_STUB_H */
+EOF
+        echo "✓ SDL stub created at include/SDL_stub/SDL.h"
     
     - name: Download game data files
       env:
@@ -59,38 +74,25 @@ jobs:
       run: |
         if [ -z "$WACKI_EXE_URL" ]; then
           echo "✗ ERROR: WACKI_EXE_URL secret not set!"
-          echo "This build requires original game files."
           exit 1
         fi
         
-        echo "📦 Downloading WACKI.EXE from secret URL..."
+        echo "📦 Downloading WACKI.EXE..."
         mkdir -p data
         
-        # Try wget first, then curl
         if command -v wget &> /dev/null; then
-          wget --no-check-certificate -q -O data/WACKI.EXE "$WACKI_EXE_URL" || {
-            echo "⚠️  wget failed, trying curl..."
-            curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL" || {
-              echo "✗ Failed to download WACKI.EXE"
-              exit 1
-            }
-          }
+          wget --no-check-certificate -q -O data/WACKI.EXE "$WACKI_EXE_URL" || \
+            curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL"
         else
-          curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL" || {
-            echo "✗ Failed to download WACKI.EXE"
-            exit 1
-          }
+          curl -k -L -s -o data/WACKI.EXE "$WACKI_EXE_URL"
         fi
         
-        # Verify it's a real PE file (starts with MZ)
         if ! head -c 2 data/WACKI.EXE | grep -q "MZ"; then
           echo "✗ Downloaded file is not a valid PE executable!"
-          echo "File contents (first 100 bytes):"
-          head -c 100 data/WACKI.EXE | od -A x -t x1z
           exit 1
         fi
         
-        echo "✓ WACKI.EXE downloaded successfully"
+        echo "✓ WACKI.EXE downloaded"
         ls -lh data/WACKI.EXE
     
     - name: Download NovaGL
@@ -104,43 +106,41 @@ jobs:
         cd external/NovaGL/src
         echo "🔧 Patching CMakeLists.txt (removing gas.c)..."
         sed -i '/gas.c/d' CMakeLists.txt
-        echo "✓ CMakeLists.txt patched"
         cd ../../..
     
     - name: Build NovaGL
       run: |
         cd external/NovaGL
-        echo "🔨 Building NovaGL with CMake..."
+        echo "🔨 Building NovaGL..."
         
         mkdir -p build && cd build
         cmake -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake \
               -DCMAKE_BUILD_TYPE=Release \
               -DGL2CITRO3D_BUILD_EXAMPLES=OFF \
               ..
-        make -j$(nproc) || {
-          echo "✗ NovaGL build failed"
-          exit 1
-        }
-        
+        make -j$(nproc)
         cd ..
-        echo "✓ NovaGL built successfully"
         
-        # Organize library
         mkdir -p lib
         if [ -f "build/src/libNovaGL.a" ]; then
           cp build/src/libNovaGL.a lib/
-          echo "  ✓ Copied lib/libNovaGL.a"
         elif [ -f "build/libNovaGL.a" ]; then
           cp build/libNovaGL.a lib/
-          echo "  ✓ Copied lib/libNovaGL.a"
         else
           echo "✗ ERROR: libNovaGL.a not found!"
           find build -name "*.a"
           exit 1
         fi
         
-        ls -la lib/
+        echo "✓ NovaGL built"
         cd ../..
+    
+    - name: Update mk/3ds.mk with SDL stub path
+      run: |
+        echo "🔧 Updating mk/3ds.mk to use SDL stub..."
+        sed -i 's|SDL_CFG := -I$(DEVKITPRO)/portlibs/3ds/include|SDL_CFG := -I$(PWD)/include/SDL_stub|g' mk/3ds.mk
+        echo "✓ mk/3ds.mk updated"
+        cat mk/3ds.mk
     
     - name: Build Wacki
       run: |
@@ -156,17 +156,14 @@ jobs:
     
     - name: Create 3DSX
       run: |
-        echo "📦 Creating .3dsx file..."
+        echo "📦 Creating .3dsx..."
         3dsxtool dist/wacki dist/wacki.3dsx
         ls -lh dist/wacki.3dsx
-        echo "✓ Created wacki.3dsx"
     
     - name: Create icon and SMDH
       run: |
         if [ -f "assets/icons/wacki.png" ]; then
-          echo "🎨 Creating icon..."
           convert assets/icons/wacki.png -resize 48x48! assets/icons/wacki-48.png
-          
           if command -v smdhtool &> /dev/null; then
             smdhtool --create "Wacki" \
               "Point-and-click adventure" \
@@ -174,10 +171,7 @@ jobs:
               assets/icons/wacki-48.png \
               dist/wacki.smdh
             echo "✓ Created wacki.smdh"
-            ls -lh dist/wacki.smdh
           fi
-        else
-          echo "⚠️  Icon not found at assets/icons/wacki.png"
         fi
     
     - name: Upload artifacts
@@ -202,6 +196,4 @@ jobs:
           SIZE=$(du -h dist/wacki.smdh | cut -f1)
           echo "  🎨 wacki.smdh: $SIZE"
         fi
-        echo ""
-        echo "Download from Actions → Artifacts"
         echo "========================================="
