@@ -10,7 +10,8 @@ CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS -DWACKI_VERBOSE \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I$(DEVKITPRO)/libctru/include \
           -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I src/platform/3ds
+          -I src/platform/3ds \
+          -Wno-format
 
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
