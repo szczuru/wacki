@@ -35,9 +35,8 @@ endif
 # This allows reusing SDL platform code (video_sdl.c, audio_sdl.c, platform_sdl.c)
 # while providing dual-screen rendering and custom controls via the compat layer.
 
-# 3DS uses SDL compatibility layer (SDL_compat.c) which provides SDL API on top
-# of citro3d/citro2d/ndsp (NovaGL-like rendering). This allows reusing engine code
-# that expects SDL headers, while actual rendering goes through citro3d.
+# 3DS uses NovaGL (OpenGL ES 1.1 → citro3d) for rendering.
+# SDL_compat.c provides minimal SDL stubs, video_3ds_gl.c does real rendering.
 
 ENGINE_SRCS += src/platform/3ds/SDL_compat.c \
                src/platform/3ds/3ds.c \
@@ -45,6 +44,7 @@ ENGINE_SRCS += src/platform/3ds/SDL_compat.c \
                src/platform/3ds/data_root_3ds.c \
                src/platform/3ds/gamepad_3ds.c \
                src/platform/3ds/system_3ds.c \
+               src/platform/3ds/video_3ds_gl.c \
                src/platform/sdl/file_host.c \
                src/platform/sdl/flic_host.c
 
