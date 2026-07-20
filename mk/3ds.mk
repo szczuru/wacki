@@ -9,10 +9,10 @@ BIN_NAME := wacki
 CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
           -DARM11 -D_3DS \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
+          -I src/platform/3ds \
           -I$(DEVKITPRO)/libctru/include \
           -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I/opt/devkitpro/picaGL/include \
-          -I src/platform/3ds
+          -I/opt/devkitpro/picaGL/include
 
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
