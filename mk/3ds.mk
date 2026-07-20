@@ -25,8 +25,16 @@ LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
                    -L/opt/devkitpro/picaGL/lib \
                    -specs=3dsx.specs
 
-# picaGL (installed to /opt/devkitpro/picaGL by build-3ds.sh)
-LIBS_3DS := -L/opt/devkitpro/picaGL/lib -lpicaGL -lcitro3d -lctru -lm
+# The engine-link rule (Makefile) passes $(SDL_LIB) to the linker — that
+# var defaults to `sdl2-config --libs`, which doesn't exist on this
+# toolchain, so it'd otherwise be empty and every libctru/picaGL symbol
+# below would come back "undefined reference". Overriding it here (rather
+# than introducing a separate LIBS_3DS the Makefile doesn't know about) is
+# exactly how mk/switch.mk and mk/ps2.mk redirect the same hook for their
+# own non-SDL2 link lines. picaGL installed to /opt/devkitpro/picaGL by
+# tools/build-3ds.sh; -lm last since libctru's own deps (romfs, gfx, hid,
+# fs) all resolve within libctru itself.
+SDL_LIB := -L/opt/devkitpro/picaGL/lib -lpicaGL -lcitro3d -lctru -lm
 
 # Jesli data/WACKI.EXE istnieje, uzywamy embed-pe-data. W przeciwnym razie - pusty stub.
 ifeq ($(wildcard data/WACKI.EXE),)
