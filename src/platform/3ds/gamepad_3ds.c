@@ -1,133 +1,176 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/gamepad_3ds.c — Nintendo 3DS input handling.
+ * src/platform/3ds/gamepad_3ds.c — 3DS button + touch + D-Pad input.
  *
- * 3DS uses its own gamepad file with custom button mapping:
+ * BUTTON MAPPING (Nintendo layout - swapped A/B vs Xbox):
+ *   Physical A (east)  → left click (KEY_B in ctrulib)
+ *   Physical B (south) → right click (KEY_A in ctrulib)
+ *   Physical X (north) → cycle zoom level (KEY_Y in ctrulib)
+ *   Physical Y (west)  → toggle aspect mode (KEY_X in ctrulib)
+ *   START              → pause menu
+ *   SELECT             → toggle hand mode (left/right)
  *
- * Nintendo's physical buttons (3DS layout):
- *   physical A (right)  → left click
- *   physical B (bottom) → right click
- *   physical X (top)    → cycle zoom level on bottom screen (Note: X is Y in SDL mapping)
- *   physical Y (left)   → (reserved for future use)
- *   START               → pause menu
- *   SELECT              → toggle left/right-hand mode
- *   
- * L/ZL and R/ZR shoulder buttons (pozycja triggerów):
- *   In RIGHT-HAND mode (default):
- *     L  → left click
- *     ZL → right click  
- *     R  → quicksave
- *     ZR → quickload
- *   
- *   In LEFT-HAND mode:
- *     L  → quicksave
- *     ZL → quickload
- *     R  → left click
- *     ZR → right click
+ * HAND MODES:
+ *   - LEFT_HAND:  L=left click,  ZL=right click,  R=quicksave, ZR=quickload
+ *   - RIGHT_HAND: L=quicksave,   ZL=quickload,    R=left click, ZR=right click
  *
- * Circle Pad → cursor movement
- * Touch Screen → cursor position + zoom view on bottom screen */
+ * TOUCH: Bottom screen touch → mouse position (mapped to game coordinates)
+ * D-PAD + CIRCLE PAD: Move cursor
+ */
 
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/input.h"
+#include "wacki/platform/video.h"
 #include <3ds.h>
 #include <string.h>
 
-#define PAD_ANALOG_MAX_PX   9
-#define PAD_ANALOG_DEADZONE 20  /* 3DS circle pad deadzone */
+#define ANALOG_DEADZONE 20
+#define ANALOG_SPEED    5
 
-/* Zoom levels for bottom screen (multiplier) */
-static int s_zoom_level = 1;  /* 0=1x, 1=2x, 2=4x, 3=8x */
-#define MAX_ZOOM_LEVEL 3
+/* Hand mode toggle */
+typedef enum {
+    HAND_MODE_LEFT = 0,
+    HAND_MODE_RIGHT = 1
+} HandMode;
 
-/* Hand mode: 0 = right-hand (default), 1 = left-hand */
-static int s_hand_mode = 0;
+static HandMode s_hand_mode = HAND_MODE_LEFT;
 
+/* Cursor position (exported to video_3ds_gl.c) */
+int g_cursor_x = 320;
+int g_cursor_y = 240;
+
+/* Touch state tracking */
+static int s_touch_active = 0;
+static int s_last_touch_x = 0;
+static int s_last_touch_y = 0;
+
+/* Previous button state for edge detection */
 static u32 s_prev_keys = 0;
+
+extern void platform_video_cycle_zoom(void);
+
+/* Map touch coordinates (320x240) to game coordinates (640x480) */
+static void touch_to_game_coords(int tx, int ty, int *gx, int *gy)
+{
+    /* Bottom screen is 320x240, game is 640x480 */
+    *gx = (tx * 640) / 320;
+    *gy = (ty * 480) / 240;
+}
 
 void platform_pad_open(void)
 {
-    /* 3DS input initialized in system_3ds.c via hidInit() */
-    LOG_INFO("platform", "3DS gamepad initialized (hidInit already called in system_3ds.c)");
+    /* 3DS input initialized in system_3ds.c */
+    LOG_INFO("3ds", "Input initialized (hand_mode=left)");
 }
 
-int platform_pad_handle_event(void *ev)
+void platform_pad_handle_buttons(void)
 {
-    /* 3DS doesn't use SDL events - we poll directly in platform_pad_read_motion */
-    (void)ev;
-    return 0;
+    hidScanInput();
+    u32 keys_down = hidKeysDown();
+    u32 keys_held = hidKeysHeld();
+    u32 keys_up = hidKeysUp();
+
+    /* --- Button presses (edge-triggered) --- */
+    
+    /* Physical A (KEY_B) = left click */
+    if (keys_down & KEY_B) {
+        g_lmb_clicked = 1;
+    }
+    
+    /* Physical B (KEY_A) = right click */
+    if (keys_down & KEY_A) {
+        g_rmb_clicked = 1;
+    }
+    
+    /* Physical X (KEY_Y) = cycle zoom */
+    if (keys_down & KEY_Y) {
+        platform_video_cycle_zoom();
+    }
+    
+    /* Physical Y (KEY_X) = toggle aspect mode (no-op on 3DS but kept for consistency) */
+    if (keys_down & KEY_X) {
+        platform_video_toggle_aspect_mode();
+    }
+    
+    /* START = pause menu */
+    if (keys_down & KEY_START) {
+        g_pause_menu_request = 1;
+    }
+    
+    /* SELECT = toggle hand mode */
+    if (keys_down & KEY_SELECT) {
+        s_hand_mode = (s_hand_mode == HAND_MODE_LEFT) ? HAND_MODE_RIGHT : HAND_MODE_LEFT;
+        LOG_INFO("3ds", "hand_mode=%s", s_hand_mode == HAND_MODE_LEFT ? "left" : "right");
+    }
+    
+    /* --- Shoulder buttons (hand mode dependent) --- */
+    if (s_hand_mode == HAND_MODE_LEFT) {
+        /* LEFT HAND: L/ZL = clicks, R/ZR = save/load */
+        if (keys_down & KEY_L) g_lmb_clicked = 1;
+        if (keys_down & KEY_ZL) g_rmb_clicked = 1;
+        if (keys_down & KEY_R) g_quicksave_request = 1;
+        if (keys_down & KEY_ZR) g_quickload_request = 1;
+    } else {
+        /* RIGHT HAND: L/ZL = save/load, R/ZR = clicks */
+        if (keys_down & KEY_L) g_quicksave_request = 1;
+        if (keys_down & KEY_ZL) g_quickload_request = 1;
+        if (keys_down & KEY_R) g_lmb_clicked = 1;
+        if (keys_down & KEY_ZR) g_rmb_clicked = 1;
+    }
+
+    /* --- Touch input --- */
+    if (keys_held & KEY_TOUCH) {
+        touchPosition touch;
+        hidTouchRead(&touch);
+        
+        int gx, gy;
+        touch_to_game_coords(touch.px, touch.py, &gx, &gy);
+        
+        /* Update cursor position */
+        g_cursor_x = gx;
+        g_cursor_y = gy;
+        
+        /* Touch down = left click */
+        if (!s_touch_active) {
+            g_lmb_clicked = 1;
+            s_touch_active = 1;
+        }
+        
+        s_last_touch_x = touch.px;
+        s_last_touch_y = touch.py;
+    } else if (s_touch_active) {
+        /* Touch released */
+        s_touch_active = 0;
+    }
+
+    s_prev_keys = keys_held;
 }
 
 void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
 {
     hidScanInput();
-    u32 kDown = hidKeysDown();
-    u32 kHeld = hidKeysHeld();
-    
-    /* Button press events (edge-triggered) */
-    if (kDown & KEY_START) {
-        g_pause_menu_request = 1;
-    }
-    
-    /* SELECT toggles left/right-hand mode */
-    if (kDown & KEY_SELECT) {
-        s_hand_mode = !s_hand_mode;
-        LOG_INFO("input", "Hand mode switched to: %s", s_hand_mode ? "LEFT" : "RIGHT");
-    }
-    
-    /* X button cycles zoom level */
-    if (kDown & KEY_X) {
-        s_zoom_level = (s_zoom_level + 1) % (MAX_ZOOM_LEVEL + 1);
-        LOG_INFO("input", "Zoom level: %d (magnification: %dx)", s_zoom_level, 1 << s_zoom_level);
-    }
-    
-    /* Face buttons: A/B swapped like Switch 
-     * Physical A (right position) = left click
-     * Physical B (bottom position) = right click */
-    if (kDown & KEY_A) {
-        g_lmb_clicked = 1;
-    }
-    if (kDown & KEY_B) {
-        g_rmb_clicked = 1;
-    }
-    
-    /* Shoulder buttons - depends on hand mode
-     * RIGHT-HAND: L=LMB, ZL=RMB, R=Save, ZR=Load
-     * LEFT-HAND:  L=Save, ZL=Load, R=LMB, ZR=RMB */
-    if (s_hand_mode == 0) {
-        /* RIGHT-HAND mode (default) - left triggers for clicks */
-        if (kDown & KEY_L)  g_lmb_clicked = 1;
-        if (kDown & KEY_ZL) g_rmb_clicked = 1;
-        if (kDown & KEY_R)  g_quicksave_request = 1;
-        if (kDown & KEY_ZR) g_quickload_request = 1;
-    } else {
-        /* LEFT-HAND mode - right triggers for clicks */
-        if (kDown & KEY_L)  g_quicksave_request = 1;
-        if (kDown & KEY_ZL) g_quickload_request = 1;
-        if (kDown & KEY_R)  g_lmb_clicked = 1;
-        if (kDown & KEY_ZR) g_rmb_clicked = 1;
-    }
-    
-    /* D-Pad for discrete cursor movement */
-    if (kHeld & KEY_DRIGHT) (*dx)++;
-    if (kHeld & KEY_DLEFT)  (*dx)--;
-    if (kHeld & KEY_DDOWN)  (*dy)++;
-    if (kHeld & KEY_DUP)    (*dy)--;
-    
-    /* Circle Pad for analog cursor movement */
+    u32 keys = hidKeysHeld();
+
+    /* D-Pad movement */
+    if (keys & KEY_DRIGHT) (*dx)++;
+    if (keys & KEY_DLEFT)  (*dx)--;
+    if (keys & KEY_DDOWN)  (*dy)++;
+    if (keys & KEY_DUP)    (*dy)--;
+
+    /* Circle Pad analog movement */
     circlePosition pos;
     hidCircleRead(&pos);
     
-    if (pos.dx > PAD_ANALOG_DEADZONE || pos.dx < -PAD_ANALOG_DEADZONE) {
-        *ax = (float)pos.dx / 156.0f * PAD_ANALOG_MAX_PX;
+    if (pos.dx > ANALOG_DEADZONE || pos.dx < -ANALOG_DEADZONE) {
+        *ax = (float)pos.dx / 156.0f * ANALOG_SPEED;
     }
-    if (pos.dy > PAD_ANALOG_DEADZONE || pos.dy < -PAD_ANALOG_DEADZONE) {
-        *ay = -(float)pos.dy / 156.0f * PAD_ANALOG_MAX_PX;
+    if (pos.dy > ANALOG_DEADZONE || pos.dy < -ANALOG_DEADZONE) {
+        *ay = -(float)pos.dy / 156.0f * ANALOG_SPEED; /* Invert Y */
     }
-    
-    s_prev_keys = kHeld;
+
+    plat_pad_read_extra(ax, ay);
 }
 
 int plat_pad_menu_nav(int *up, int *down, int *confirm)
@@ -135,15 +178,24 @@ int plat_pad_menu_nav(int *up, int *down, int *confirm)
     *up = *down = *confirm = 0;
     
     hidScanInput();
-    u32 kDown = hidKeysDown();
+    u32 keys_down = hidKeysDown();
+    u32 keys_held = hidKeysHeld();
     
-    if (kDown & KEY_DUP)   *up = 1;
-    if (kDown & KEY_DDOWN) *down = 1;
-    if (kDown & KEY_A)     *confirm = 1;  /* A confirms in menus */
+    /* D-Pad or Circle Pad for navigation */
+    circlePosition pos;
+    hidCircleRead(&pos);
     
-    s_prev_keys = hidKeysHeld();
+    int u = (keys_down & KEY_DUP) || (pos.dy > ANALOG_DEADZONE);
+    int d = (keys_down & KEY_DDOWN) || (pos.dy < -ANALOG_DEADZONE);
     
-    return 1;  /* 3DS always has input available */
+    /* Physical A (KEY_B) = confirm */
+    int c = (keys_down & KEY_B);
+    
+    if (u) *up = 1;
+    if (d) *down = 1;
+    if (c) *confirm = 1;
+    
+    return 1;
 }
 
 void plat_input_flush(void)
@@ -151,10 +203,20 @@ void plat_input_flush(void)
     hidScanInput();
     g_lmb_clicked = 0;
     g_rmb_clicked = 0;
+    g_quicksave_request = 0;
+    g_quickload_request = 0;
+    g_pause_menu_request = 0;
 }
 
-/* Export zoom level for video layer */
-int platform_3ds_get_zoom_level(void)
+/* Get current mouse position (for engine) */
+void platform_input_get_mouse_pos(int *x, int *y)
 {
-    return s_zoom_level;
+    *x = g_cursor_x;
+    *y = g_cursor_y;
+}
+
+/* Check if should quit (e.g., HOME button pressed) */
+int platform_input_should_quit(void)
+{
+    return !aptMainLoop();
 }

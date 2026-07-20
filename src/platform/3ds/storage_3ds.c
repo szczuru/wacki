@@ -1,54 +1,100 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/storage_3ds.c — Save/load to SD card for 3DS.
- */
+ * src/platform/3ds/storage_3ds.c — save-image storage HAL, 3DS.
+ *
+ * 3DS requires FSUSER_ControlArchive with ARCHIVE_ACTION_COMMIT_SAVE_DATA
+ * to flush buffered writes to physical SD card. Without it, saves work
+ * in-session but vanish on reboot. */
 
 #include "wacki.h"
-#include "wacki/platform/storage.h"
 #include "wacki/log.h"
+#include "wacki/platform/storage.h"
+#include <3ds.h>
 #include <stdio.h>
-#include <string.h>
 
-#define SAVE_PATH "sdmc:/3ds/wacki/wacki.sav"
-
-int plat_save_read(void *buf, int sz)
+static int commit_sd_card(void)
 {
-    FILE *f = fopen(SAVE_PATH, "rb");
-    if (!f) {
-        LOG_DEBUG("storage", "No save file at %s", SAVE_PATH);
+    FS_Archive sdmcArchive = {
+        .id = ARCHIVE_SDMC,
+        .lowPath = {PATH_EMPTY, 0, NULL}
+    };
+    
+    Result rc = FSUSER_ControlArchive(sdmcArchive, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
+    if (R_FAILED(rc)) {
+        LOG_INFO("save", "FSUSER_ControlArchive(COMMIT) failed: 0x%08lX", rc);
         return -1;
     }
-    
-    size_t rd = fread(buf, 1, sz, f);
-    fclose(f);
-    
-    if (rd != sz) {
-        LOG_WARN("storage", "Save read %zu bytes, expected %zu", rd, sz);
-        return -1;
-    }
-    
-    LOG_INFO("storage", "Loaded save from %s (%zu bytes)", SAVE_PATH, sz);
     return 0;
 }
 
-int plat_save_write(const void *buf, int sz)
+static int atomic_replace(const char *from, const char *to)
 {
-    FILE *f = fopen(SAVE_PATH, "wb");
-    if (!f) {
-        LOG_ERROR("storage", "Failed to open %s for writing", SAVE_PATH);
+    FILE *src = fopen(from, "rb");
+    if (!src) return -1;
+    
+    FILE *dst = fopen(to, "wb");
+    if (!dst) {
+        fclose(src);
         return -1;
     }
-    
-    size_t wr = fwrite(buf, 1, sz, f);
-    fflush(f);
-    fclose(f);
-    
-    if (wr != sz) {
-        LOG_ERROR("storage", "Save write failed: %zu/%zu bytes", wr, sz);
-        return -1;
+
+    char buf[4096];
+    size_t n;
+    int ok = 1;
+    while ((n = fread(buf, 1, sizeof buf, src)) > 0) {
+        if (fwrite(buf, 1, n, dst) != n) {
+            ok = 0;
+            break;
+        }
     }
     
-    LOG_INFO("storage", "Saved to %s (%zu bytes)", SAVE_PATH, sz);
+    fclose(src);
+    fflush(dst);
+    fclose(dst);
+    
+    if (!ok) return -1;
+    remove(from);
+
+    /* Commit to SD card */
+    if (commit_sd_card() != 0) {
+        LOG_INFO("save", "SD commit failed - save may not persist");
+    }
+    
     return 0;
+}
+
+int plat_save_read(void *buf, int size)
+{
+    FILE *fp = fopen(WACKI_SAVE_FILE, "rb");
+    if (!fp) return 0;
+    
+    size_t n = fread(buf, 1, (size_t)size, fp);
+    fclose(fp);
+    return (int)n;
+}
+
+int plat_save_write(const void *buf, int size)
+{
+    const char *tmp = WACKI_SAVE_FILE ".tmp";
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp) return 0;
+
+    size_t written = fwrite(buf, 1, (size_t)size, fp);
+    if (written != (size_t)size) {
+        fclose(fp);
+        remove(tmp);
+        LOG_INFO("save", "short write (%lu/%d)", (unsigned long)written, size);
+        return 0;
+    }
+    
+    fflush(fp);
+    fclose(fp);
+
+    if (atomic_replace(tmp, WACKI_SAVE_FILE) != 0) {
+        LOG_INFO("save", "replace(%s->%s) failed", tmp, WACKI_SAVE_FILE);
+        return 0;
+    }
+    
+    return 1;
 }

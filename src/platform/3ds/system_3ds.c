@@ -1,41 +1,80 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/system_3ds.c — 3DS system hooks.
+ * src/platform/3ds/system_3ds.c — process-lifecycle HAL, Nintendo 3DS.
  *
- * Enables New 3DS CPU speedup (804 MHz) for better performance. */
+ * Initializes 3DS services (gfx, hid, romfs) and sets working directory
+ * to sdmc:/3ds/wacki/ so save files land in a consistent location. */
 
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/system.h"
-
 #include <3ds.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <malloc.h>
 
-void plat_system_init(void)
+/* Called before any other init - setup environment */
+void plat_system_early_init(void)
 {
-    /* Enable New 3DS CPU speedup */
-    bool is_new3ds = false;
-    APT_CheckNew3DS(&is_new3ds);
+    /* Initialize 3DS services */
+    gfxInitDefault();
+    gfxSet3D(false); /* Disable 3D for performance */
     
-    if (is_new3ds) {
-        osSetSpeedupEnable(true);
-        LOG_INFO("3ds-system", "New 3DS detected - CPU speedup enabled (804 MHz)");
+    /* Initialize console for early logging (optional) */
+    consoleInit(GFX_BOTTOM, NULL);
+    
+    /* Create and set working directory */
+    mkdir("sdmc:/3ds", 0777);
+    mkdir("sdmc:/3ds/wacki", 0777);
+    
+    if (chdir("sdmc:/3ds/wacki") == 0) {
+        LOG_INFO("platform", "user dir: sdmc:/3ds/wacki");
     } else {
-        LOG_INFO("3ds-system", "Old 3DS detected - running at 268 MHz");
+        LOG_INFO("platform", "chdir(sdmc:/3ds/wacki) failed");
+    }
+    
+    /* Initialize RomFS if available (for embedded data) */
+    Result rc = romfsInit();
+    if (R_SUCCEEDED(rc)) {
+        LOG_INFO("platform", "RomFS initialized");
     }
 }
 
-void plat_system_shutdown(void)
+/* System initialization (called after video init) */
+int plat_system_init(void)
 {
-    /* Nothing to do */
+    /* Input already initialized via hidScanInput() in gamepad */
+    return 1;
 }
 
-uint32_t plat_system_get_ticks_ms(void)
+/* Clean shutdown */
+void plat_system_exit(int rc)
 {
-    return (uint32_t)(svcGetSystemTick() / CPU_TICKS_PER_MSEC);
+    (void)rc;
+    
+    /* Shutdown RomFS */
+    romfsExit();
+    
+    /* Shutdown graphics */
+    gfxExit();
 }
 
-void plat_system_delay_ms(uint32_t ms)
+/* Platform-specific hooks */
+void plat_dcache_flush(void *p, unsigned int n)
 {
-    svcSleepThread((s64)ms * 1000000LL);
+    if (p && n > 0) {
+        GSPGPU_FlushDataCache(p, n);
+    }
+}
+
+void plat_trace_mark(unsigned int code)
+{
+    (void)code;
+}
+
+/* Check if we should quit (HOME button via aptMainLoop) */
+int plat_should_quit(void)
+{
+    return !aptMainLoop();
 }

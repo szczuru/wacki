@@ -3,7 +3,7 @@ name: 3DS build
 on:
   workflow_dispatch:
   push:
-    branches: [ master, test-3ds ]
+    branches: [ 3ds-ai ]
     paths:
       - 'src/**'
       - 'include/**'
@@ -16,78 +16,26 @@ on:
 jobs:
   build-3ds:
     runs-on: ubuntu-latest
-    container:
-      image: devkitpro/devkitarm:latest
-    
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        
-      - name: Restore WACKI.EXE from secret (optional)
+
+      - name: Przywroc WACKI.EXE z sekretu (opcjonalne)
         env:
           WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
         run: |
           if [ -n "$WACKI_EXE_URL" ]; then
             mkdir -p data
             curl -fsSL "$WACKI_EXE_URL" -o data/WACKI.EXE
-            echo "✓ WACKI.EXE downloaded ($(wc -c < data/WACKI.EXE) bytes)"
+            echo "WACKI.EXE pobrano z URL ($(wc -c < data/WACKI.EXE) bajtow)"
           else
-            echo "⚠ No WACKI_EXE_URL secret - build will use dynamic loading from SD card"
+            echo "Brak sekretu WACKI_EXE_URL - build uzyje dynamicznego ladowania z karty SD"
           fi
 
-      - name: Install picaGL (OpenGL ES 1.1 wrapper for 3DS)
-        run: |
-          echo "📦 Installing picaGL..."
-          cd /tmp
-          git clone https://github.com/masterfeizz/picaGL.git
-          cd picaGL
-          # Fix deprecated flags in Makefile
-          sed -i 's/-DARM11 -D_3DS/-D__3DS__/g' Makefile
-          make
-          make install DEVKITPRO=/opt/devkitpro
-          echo "✓ picaGL installed to /opt/devkitpro/picaGL"
+      - name: Build (tools/build-3ds.sh)
+        run: bash tools/build-3ds.sh
 
-      - name: Setup devkitARM environment
-        run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITARM=$DEVKITPRO/devkitARM
-          echo "DEVKITPRO=$DEVKITPRO" >> $GITHUB_ENV
-          echo "DEVKITARM=$DEVKITARM" >> $GITHUB_ENV
-          echo "$DEVKITARM/bin" >> $GITHUB_PATH
-          echo "$DEVKITPRO/tools/bin" >> $GITHUB_PATH
-
-      - name: Verify devkitARM installation
-        run: |
-          echo "🔍 Checking devkitARM tools..."
-          which arm-none-eabi-gcc || echo "ERROR: arm-none-eabi-gcc not found"
-          which 3dsxtool || echo "ERROR: 3dsxtool not found"
-          which smdhtool || echo "ERROR: smdhtool not found"
-          arm-none-eabi-gcc --version
-          echo "✓ devkitARM tools found"
-
-      - name: Build Wacki for 3DS
-        run: |
-          export DEVKITPRO=/opt/devkitpro
-          export DEVKITARM=$DEVKITPRO/devkitARM
-          echo "🔨 Building Wacki for 3DS..."
-          make TARGET=3ds clean || true
-          make TARGET=3ds -j$(nproc) || {
-            echo "✗ Wacki build failed"
-            exit 1
-          }
-          echo "✓ Wacki built successfully"
-
-      - name: Verify build artifacts
-        run: |
-          echo "📦 Checking build artifacts..."
-          ls -lah dist/
-          if [ ! -f "dist/wacki.3dsx" ]; then
-            echo "✗ ERROR: wacki.3dsx not found!"
-            exit 1
-          fi
-          echo "✓ wacki.3dsx created ($(wc -c < dist/wacki.3dsx) bytes)"
-
-      - name: Upload 3DSX artifact
+      - name: Wgraj artefakt .3dsx
         uses: actions/upload-artifact@v4
         with:
           name: wacki-3ds

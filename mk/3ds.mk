@@ -1,4 +1,4 @@
-# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + citro3d).
+# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + picaGL).
 
 DEVKITPRO ?= /opt/devkitpro
 DEVKITARM ?= $(DEVKITPRO)/devkitARM
@@ -6,62 +6,60 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 CC       := $(DEVKITARM)/bin/arm-none-eabi-gcc
 BIN_NAME := wacki
 
-CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS -DWACKI_VERBOSE \
+CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
+          -DARM11 -D_3DS \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
-          -I src/platform/3ds \
           -I$(DEVKITPRO)/libctru/include \
-          -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I$(DEVKITPRO)/picaGL/include \
-          -Wno-format
+          -I$(DEVKITPRO)/portlibs/3ds/include
 
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
 
-# 3DS libraries: picaGL for OpenGL ES, citro3d/citro2d for graphics, ctru for system
-LIBS_3DS := -lpicaGL -lcitro2d -lcitro3d -lctru -lm
-
-# Link flags: use 3dsx.specs for homebrew, link libraries
-LDFLAGS_STATIC := -specs=3dsx.specs \
-                   -L$(DEVKITPRO)/libctru/lib \
+LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
-                   -L$(DEVKITPRO)/picaGL/lib \
-                   $(LIBS_3DS)
+                   -specs=3dsx.specs
 
-# Jesli data/WACKI.EXE istnieje (CI z sekretem / lokalne budowanie),
-# uzywamy standardowego embed-pe-data. W przeciwnym razie - pusty stub.
+# picaGL + citro3d + libctru
+LIBS_3DS := -lpicaGL -lcitro3d -lctru -lm
+
+# Jesli data/WACKI.EXE istnieje, uzywamy embed-pe-data. W przeciwnym razie - pusty stub.
 ifeq ($(wildcard data/WACKI.EXE),)
     EMBEDDED_PE_SRC := src/platform/3ds/embedded_wacki_pe_stub.c
 endif
 
-# 3DS uses SDL compatibility layer (SDL_compat.c) + custom gamepad.
-# This allows reusing SDL platform code (video_sdl.c, audio_sdl.c, platform_sdl.c)
-# while providing dual-screen rendering and custom controls via the compat layer.
-
-# 3DS uses NovaGL (OpenGL ES 1.1 → citro3d) for rendering.
-# SDL_compat.c provides minimal SDL stubs, video_3ds_gl.c does real rendering.
-
-ENGINE_SRCS += src/platform/3ds/SDL_compat.c \
-               src/platform/3ds/3ds.c \
+# 3DS uzywa wlasnych plikow platformy - BEZ SDL
+ENGINE_SRCS += src/platform/3ds/3ds.c \
+               src/platform/3ds/video_3ds_gl.c \
+               src/platform/3ds/gamepad_3ds.c \
                src/platform/3ds/storage_3ds.c \
                src/platform/3ds/data_root_3ds.c \
-               src/platform/3ds/gamepad_3ds.c \
-               src/platform/3ds/system_3ds.c \
-               src/platform/3ds/video_3ds_gl.c \
-               src/platform/sdl/file_host.c \
-               src/platform/sdl/flic_host.c
+               src/platform/3ds/system_3ds.c
+
+# Audio - dummy stubs (no audio support yet)
+ENGINE_SRCS += src/platform/3ds/audio_3ds_stub.c
 
 # ---- .3dsx packaging ------------------------------------------------------
-N3DS_ICON     := assets/icons/wacki-3ds-48x48.png
-N3DS_3DSX     := $(DIST)/wacki.3dsx
-N3DS_SMDH     := $(DIST)/wacki.smdh
-SMDHTOOL      := $(DEVKITPRO)/tools/bin/smdhtool
-N3DSXTOOL     := $(DEVKITPRO)/tools/bin/3dsxtool
+3DS_ICON     := assets/icons/wacki-3ds.png
+3DS_3DSX     := $(DIST)/wacki.3dsx
+3DS_SMDH     := $(DIST)/wacki.smdh
+SMDHTOOL     := $(DEVKITPRO)/tools/bin/smdhtool
+3DSXTOOL     := $(DEVKITPRO)/tools/bin/3dsxtool
+3DSLINK      := $(DEVKITPRO)/tools/bin/3dslink
 
-all: $(N3DS_3DSX)
+all: $(3DS_3DSX)
 
-$(N3DS_SMDH): | $(DIST)
-	$(SMDHTOOL) --create "Wacki: Kosmiczna rozgrywka" "Wacki game engine - New 3DS port" "mszula" $(N3DS_ICON) $(N3DS_SMDH)
+$(3DS_SMDH): | $(DIST)
+	@if [ -f "$(3DS_ICON)" ]; then \
+		$(SMDHTOOL) --create "Wacki" "Kosmiczna rozgrywka" "mszula/szczuru/AI" $(3DS_ICON) $(3DS_SMDH); \
+	else \
+		$(SMDHTOOL) --create "Wacki" "Kosmiczna rozgrywka" "mszula/szczuru/AI" $(3DS_SMDH); \
+	fi
 
-$(N3DS_3DSX): $(DIST)/$(BIN_NAME)$(EXE) $(N3DS_SMDH)
-	$(N3DSXTOOL) $(DIST)/$(BIN_NAME)$(EXE) $(N3DS_3DSX) --smdh=$(N3DS_SMDH)
+$(3DS_3DSX): $(DIST)/$(BIN_NAME)$(EXE) $(3DS_SMDH)
+	$(3DSXTOOL) $(DIST)/$(BIN_NAME)$(EXE) $(3DS_3DSX) --smdh=$(3DS_SMDH)
+
+# Optional: send to 3DS via 3dslink (requires network connection to console)
+.PHONY: send
+send: $(3DS_3DSX)
+	$(3DSLINK) $(3DS_3DSX)
 

@@ -1,229 +1,265 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/video_3ds_gl.c — 3DS video backend using picaGL.
+ * src/platform/3ds/video_3ds_gl.c — dual-screen video HAL using picaGL.
  *
- * Uses picaGL (OpenGL ES 1.1 → citro3d) for hardware-accelerated rendering.
- * Dual-screen layout:
- * - Top screen (400x240): Main game view
- * - Bottom screen (320x240): Zoomed view around cursor */
+ * TOP SCREEN (400×240):    Main game rendering
+ * BOTTOM SCREEN (320×240): Zoomed view around cursor + touch input
+ *
+ * picaGL provides OpenGL ES 1.1 API mapped to citro3d. We use:
+ *   - pglInit() / pglExit() for initialization
+ *   - pglSelectScreen() to switch between GFX_TOP and GFX_BOTTOM
+ *   - glTexImage2D() for uploading 8-bit indexed textures
+ *   - glDrawArrays() for rendering quads
+ *   - pglSwapBuffers() to present both screens
+ *
+ * Touch input is handled in gamepad_3ds.c and translated to mouse coordinates.
+ * X button cycles zoom level (1x, 2x, 4x). */
 
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/video.h"
-
 #include <3ds.h>
 #include <GL/picaGL.h>
 #include <string.h>
+#include <malloc.h>
 
-#define TOP_SCREEN_W    400
-#define TOP_SCREEN_H    240
-#define BOTTOM_SCREEN_W 320
-#define BOTTOM_SCREEN_H 240
-#define GAME_W          640
-#define GAME_H          480
+#define TOP_WIDTH  400
+#define TOP_HEIGHT 240
+#define BOT_WIDTH  320
+#define BOT_HEIGHT 240
 
-static GLuint s_game_texture = 0;
-static uint32_t s_game_pixels[GAME_W * GAME_H];
+#define GAME_WIDTH  640
+#define GAME_HEIGHT 480
 
-extern int platform_3ds_get_zoom_level(void);
-extern int16_t g_mouse_x, g_mouse_y;
+/* Zoom levels for bottom screen */
+static int g_zoom_level = 0; /* 0=1x, 1=2x, 2=4x */
+static const int ZOOM_LEVELS[] = {1, 2, 4};
+#define NUM_ZOOM_LEVELS 3
 
-unsigned plat_video_sdl_init_flags(void)
+/* Cursor position (set by gamepad_3ds.c) */
+extern int g_cursor_x, g_cursor_y;
+
+/* Game framebuffer (8-bit indexed) */
+static uint8_t *s_shadow = NULL;
+static uint8_t *s_palette = NULL;
+static int s_fb_w = 0, s_fb_h = 0;
+
+/* RGBA textures for OpenGL */
+static uint32_t *s_top_rgba = NULL;
+static uint32_t *s_bot_rgba = NULL;
+static GLuint s_top_tex = 0;
+static GLuint s_bot_tex = 0;
+
+/* Convert 8-bit indexed to RGBA8888 */
+static void indexed_to_rgba(const uint8_t *indexed, const uint8_t *pal,
+                            uint32_t *rgba, int w, int h)
 {
-    return 0;
+    for (int i = 0; i < w * h; ++i) {
+        const uint8_t *e = pal + indexed[i] * 3;
+        rgba[i] = 0xFF000000u | (e[0] << 16) | (e[1] << 8) | e[2];
+    }
+}
+
+/* Extract zoomed region around cursor */
+static void extract_zoom_region(const uint32_t *src, int src_w, int src_h,
+                               uint32_t *dst, int dst_w, int dst_h,
+                               int cx, int cy, int zoom)
+{
+    /* Source region size */
+    int src_region_w = dst_w / zoom;
+    int src_region_h = dst_h / zoom;
+
+    /* Center around cursor */
+    int src_x = cx - src_region_w / 2;
+    int src_y = cy - src_region_h / 2;
+
+    /* Clamp to source bounds */
+    if (src_x < 0) src_x = 0;
+    if (src_y < 0) src_y = 0;
+    if (src_x + src_region_w > src_w) src_x = src_w - src_region_w;
+    if (src_y + src_region_h > src_h) src_y = src_h - src_region_h;
+
+    /* Nearest-neighbor upscale */
+    for (int dy = 0; dy < dst_h; ++dy) {
+        int sy = src_y + dy / zoom;
+        if (sy >= src_h) sy = src_h - 1;
+        for (int dx = 0; dx < dst_w; ++dx) {
+            int sx = src_x + dx / zoom;
+            if (sx >= src_w) sx = src_w - 1;
+            dst[dy * dst_w + dx] = src[sy * src_w + sx];
+        }
+    }
+}
+
+void platform_video_cycle_zoom(void)
+{
+    g_zoom_level = (g_zoom_level + 1) % NUM_ZOOM_LEVELS;
+    LOG_INFO("3ds", "zoom level: %dx", ZOOM_LEVELS[g_zoom_level]);
+}
+
+void platform_video_get_present_state(int *stretch_active,
+                                      int *win_w, int *win_h,
+                                      int *fb_w,  int *fb_h)
+{
+    *stretch_active = 0;
+    *win_w = TOP_WIDTH;
+    *win_h = TOP_HEIGHT;
+    *fb_w = s_fb_w;
+    *fb_h = s_fb_h;
+}
+
+void platform_video_toggle_aspect_mode(void)
+{
+    /* Not applicable on 3DS - fixed screens */
 }
 
 int plat_video_init(int w, int h, const char *title)
 {
     (void)title;
-    
-    LOG_INFO("3ds-video", "Initializing picaGL (OpenGL ES 1.1 → citro3d)");
-    
-    gfxInitDefault();
-    gfxSet3D(false);
-    
-    // picaGL init
+    plat_apply_video_prefs();
+
+    s_fb_w = w;
+    s_fb_h = h;
+
+    /* Allocate buffers */
+    s_shadow = (uint8_t *)linearAlloc(w * h);
+    s_palette = (uint8_t *)linearAlloc(256 * 3);
+    s_top_rgba = (uint32_t *)linearAlloc(TOP_WIDTH * TOP_HEIGHT * 4);
+    s_bot_rgba = (uint32_t *)linearAlloc(BOT_WIDTH * BOT_HEIGHT * 4);
+
+    if (!s_shadow || !s_palette || !s_top_rgba || !s_bot_rgba) {
+        LOG_INFO("3ds", "Failed to allocate video buffers");
+        return 0;
+    }
+
+    memset(s_shadow, 0, w * h);
+    memset(s_palette, 0, 256 * 3);
+
+    /* Initialize picaGL */
     pglInit();
-    
-    LOG_INFO("3ds-video", "picaGL initialized");
-    
-    glEnable(GL_TEXTURE_2D);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_LIGHTING);
-    glDisable(GL_CULL_FACE);
-    
-    glGenTextures(1, &s_game_texture);
-    glBindTexture(GL_TEXTURE_2D, s_game_texture);
+
+    /* Create top screen texture */
+    pglSelectScreen(GFX_TOP, GFX_LEFT);
+    glGenTextures(1, &s_top_tex);
+    glBindTexture(GL_TEXTURE_2D, s_top_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TOP_WIDTH, TOP_HEIGHT, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
+
+    /* Create bottom screen texture */
+    pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
+    glGenTextures(1, &s_bot_tex);
+    glBindTexture(GL_TEXTURE_2D, s_bot_tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-                 GAME_W, GAME_H, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    
-    LOG_INFO("3ds-video", "Created %dx%d game texture (GL tex id: %u)",
-             GAME_W, GAME_H, s_game_texture);
-    
-    return 1;
-}
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, BOT_WIDTH, BOT_HEIGHT, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, s_bot_rgba);
 
-static void draw_textured_quad(float x, float y, float w, float h,
-                               float u0, float v0, float u1, float v1)
-{
-    glBegin(GL_QUADS);
-    glTexCoord2f(u0, v0); glVertex2f(x,     y);
-    glTexCoord2f(u1, v0); glVertex2f(x + w, y);
-    glTexCoord2f(u1, v1); glVertex2f(x + w, y + h);
-    glTexCoord2f(u0, v1); glVertex2f(x,     y + h);
-    glEnd();
-}
-
-static void draw_crosshair(float x, float y)
-{
-    glDisable(GL_TEXTURE_2D);
-    glColor4f(1.0f, 1.0f, 0.0f, 0.8f);
-    
-    float size = 6.0f;
-    float thickness = 2.0f;
-    
-    glBegin(GL_QUADS);
-    glVertex2f(x - size, y - thickness/2);
-    glVertex2f(x + size, y - thickness/2);
-    glVertex2f(x + size, y + thickness/2);
-    glVertex2f(x - size, y + thickness/2);
-    glEnd();
-    
-    glBegin(GL_QUADS);
-    glVertex2f(x - thickness/2, y - size);
-    glVertex2f(x + thickness/2, y - size);
-    glVertex2f(x + thickness/2, y + size);
-    glVertex2f(x - thickness/2, y + size);
-    glEnd();
-    
+    /* Setup OpenGL state */
     glEnable(GL_TEXTURE_2D);
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrthof(0, 1, 0, 1, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    LOG_INFO("3ds", "picaGL initialized: %dx%d game -> top=%dx%d bot=%dx%d",
+             w, h, TOP_WIDTH, TOP_HEIGHT, BOT_WIDTH, BOT_HEIGHT);
+
+    return 1;
 }
 
 void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 {
-    if (!shadow || !pal) return;
-    
-    // Convert paletted image to RGBA
-    for (int y = 0; y < h; ++y) {
-        const uint8_t *src = shadow + y * w;
-        uint32_t *dst = s_game_pixels + y * GAME_W;
-        
-        for (int x = 0; x < w; ++x) {
-            const uint8_t *rgb = pal + src[x] * 3;
-            dst[x] = 0xFF000000u | (rgb[0] << 0) | (rgb[1] << 8) | (rgb[2] << 16);
+    if (!shadow || !pal || !s_top_rgba || !s_bot_rgba) return;
+
+    /* Copy shadow buffer and palette */
+    memcpy(s_shadow, shadow, w * h);
+    memcpy(s_palette, pal, 256 * 3);
+
+    /* Convert full frame to RGBA */
+    static uint32_t *full_rgba = NULL;
+    if (!full_rgba) full_rgba = (uint32_t *)linearAlloc(GAME_WIDTH * GAME_HEIGHT * 4);
+    if (!full_rgba) return;
+
+    indexed_to_rgba(shadow, pal, full_rgba, w, h);
+
+    /* --- TOP SCREEN: Downscaled game (640x480 -> 400x240) --- */
+    /* Simple nearest-neighbor downscale */
+    float x_ratio = (float)w / TOP_WIDTH;
+    float y_ratio = (float)h / TOP_HEIGHT;
+    for (int y = 0; y < TOP_HEIGHT; ++y) {
+        int sy = (int)(y * y_ratio);
+        if (sy >= h) sy = h - 1;
+        for (int x = 0; x < TOP_WIDTH; ++x) {
+            int sx = (int)(x * x_ratio);
+            if (sx >= w) sx = w - 1;
+            s_top_rgba[y * TOP_WIDTH + x] = full_rgba[sy * w + sx];
         }
     }
+
+    /* --- BOTTOM SCREEN: Zoomed region around cursor --- */
+    int zoom = ZOOM_LEVELS[g_zoom_level];
+    int cx = g_cursor_x;
+    int cy = g_cursor_y;
     
-    // Upload texture
-    glBindTexture(GL_TEXTURE_2D, s_game_texture);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GAME_W, GAME_H,
-                    GL_RGBA, GL_UNSIGNED_BYTE, s_game_pixels);
-    
-    // ---- Render to TOP screen ----
+    /* Clamp cursor to game bounds */
+    if (cx < 0) cx = 0;
+    if (cy < 0) cy = 0;
+    if (cx >= w) cx = w - 1;
+    if (cy >= h) cy = h - 1;
+
+    extract_zoom_region(full_rgba, w, h, s_bot_rgba, BOT_WIDTH, BOT_HEIGHT,
+                       cx, cy, zoom);
+
+    /* --- Render TOP screen --- */
     pglSelectScreen(GFX_TOP, GFX_LEFT);
-    
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0, TOP_SCREEN_W, TOP_SCREEN_H, 0, -1, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, s_game_texture);
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    
-    // Scale game 640x480 to fit 400x240 (scale 0.5x, centered)
-    float scale = 0.5f;
-    float dst_w = GAME_W * scale;
-    float dst_h = GAME_H * scale;
-    float offset_x = (TOP_SCREEN_W - dst_w) / 2.0f;
-    
-    draw_textured_quad(offset_x, 0, dst_w, dst_h,
-                      0.0f, 0.0f, 1.0f, 1.0f);
-    
-    // ---- Render to BOTTOM screen (zoomed view) ----
+    glBindTexture(GL_TEXTURE_2D, s_top_tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_WIDTH, TOP_HEIGHT,
+                    GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
+
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f(0, 1);
+    glTexCoord2f(1, 0); glVertex2f(1, 1);
+    glTexCoord2f(1, 1); glVertex2f(1, 0);
+    glTexCoord2f(0, 1); glVertex2f(0, 0);
+    glEnd();
+
+    /* --- Render BOTTOM screen --- */
     pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
-    
     glClear(GL_COLOR_BUFFER_BIT);
-    
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0, BOTTOM_SCREEN_W, BOTTOM_SCREEN_H, 0, -1, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    
-    int zoom = platform_3ds_get_zoom_level();
-    float zoom_factor = 1.0f / (float)(1 << zoom);
-    
-    int view_w = (int)(BOTTOM_SCREEN_W * zoom_factor);
-    int view_h = (int)(BOTTOM_SCREEN_H * zoom_factor);
-    
-    int view_x = g_mouse_x - view_w / 2;
-    int view_y = g_mouse_y - view_h / 2;
-    
-    // Clamp to game bounds
-    if (view_x < 0) view_x = 0;
-    if (view_y < 0) view_y = 0;
-    if (view_x + view_w > GAME_W) view_x = GAME_W - view_w;
-    if (view_y + view_h > GAME_H) view_y = GAME_H - view_h;
-    
-    float u0 = (float)view_x / GAME_W;
-    float v0 = (float)view_y / GAME_H;
-    float u1 = (float)(view_x + view_w) / GAME_W;
-    float v1 = (float)(view_y + view_h) / GAME_H;
-    
-    glEnable(GL_TEXTURE_2D);
-    glBindTexture(GL_TEXTURE_2D, s_game_texture);
-    
-    draw_textured_quad(0, 0, BOTTOM_SCREEN_W, BOTTOM_SCREEN_H,
-                      u0, v0, u1, v1);
-    
-    // Draw crosshair at center
-    draw_crosshair(BOTTOM_SCREEN_W / 2.0f, BOTTOM_SCREEN_H / 2.0f);
-    
-    // Swap buffers
+    glBindTexture(GL_TEXTURE_2D, s_bot_tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BOT_WIDTH, BOT_HEIGHT,
+                    GL_RGBA, GL_UNSIGNED_BYTE, s_bot_rgba);
+
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f(0, 1);
+    glTexCoord2f(1, 0); glVertex2f(1, 1);
+    glTexCoord2f(1, 1); glVertex2f(1, 0);
+    glTexCoord2f(0, 1); glVertex2f(0, 0);
+    glEnd();
+
+    /* Present both screens */
     pglSwapBuffers();
 }
 
 void plat_video_shutdown(void)
 {
-    if (s_game_texture) {
-        glDeleteTextures(1, &s_game_texture);
-        s_game_texture = 0;
-    }
+    if (s_top_tex) glDeleteTextures(1, &s_top_tex);
+    if (s_bot_tex) glDeleteTextures(1, &s_bot_tex);
     
     pglExit();
-    gfxExit();
-    
-    LOG_INFO("3ds-video", "picaGL shutdown complete");
-}
 
-void plat_video_toggle_fullscreen(void) {}
+    if (s_shadow) linearFree(s_shadow);
+    if (s_palette) linearFree(s_palette);
+    if (s_top_rgba) linearFree(s_top_rgba);
+    if (s_bot_rgba) linearFree(s_bot_rgba);
 
-void plat_video_message_box(const char *title, const char *body)
-{
-    LOG_INFO("msgbox", "%s: %s", title, body);
-}
-
-void plat_apply_video_prefs(void) {}
-
-void platform_video_get_present_state(int *stretch, int *win_w, int *win_h,
-                                     int *fb_w, int *fb_h)
-{
-    if (stretch) *stretch = 1;
-    if (win_w)   *win_w = TOP_SCREEN_W;
-    if (win_h)   *win_h = TOP_SCREEN_H;
-    if (fb_w)    *fb_w = GAME_W;
-    if (fb_h)    *fb_h = GAME_H;
+    s_shadow = NULL;
+    s_palette = NULL;
+    s_top_rgba = NULL;
+    s_bot_rgba = NULL;
 }
