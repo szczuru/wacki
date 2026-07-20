@@ -10,17 +10,20 @@ CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
           -DARM11 -D_3DS \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I$(DEVKITPRO)/libctru/include \
-          -I$(DEVKITPRO)/portlibs/3ds/include
+          -I$(DEVKITPRO)/portlibs/3ds/include \
+          -I/opt/devkitpro/picaGL/include \
+          -I src/platform/3ds
 
 CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
 
 LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
+                   -L/opt/devkitpro/picaGL/lib \
                    -specs=3dsx.specs
 
-# picaGL + citro3d + libctru
-LIBS_3DS := -lpicaGL -lcitro3d -lctru -lm
+# picaGL (installed to /opt/devkitpro/picaGL by build-3ds.sh)
+LIBS_3DS := -L/opt/devkitpro/picaGL/lib -lpicaGL -lcitro3d -lctru -lm
 
 # Jesli data/WACKI.EXE istnieje, uzywamy embed-pe-data. W przeciwnym razie - pusty stub.
 ifeq ($(wildcard data/WACKI.EXE),)

@@ -15,11 +15,8 @@
 
 static int commit_sd_card(void)
 {
-    FS_Archive sdmcArchive;
-    sdmcArchive.id = ARCHIVE_SDMC;
-    sdmcArchive.lowPath.type = PATH_EMPTY;
-    sdmcArchive.lowPath.size = 0;
-    sdmcArchive.lowPath.data = NULL;
+    FS_Path emptyPath = fsMakePath(PATH_EMPTY, "");
+    FS_Archive sdmcArchive = {ARCHIVE_SDMC, emptyPath};
     
     Result rc = FSUSER_ControlArchive(sdmcArchive, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
     if (R_FAILED(rc)) {

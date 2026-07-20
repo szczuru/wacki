@@ -9,6 +9,21 @@
 #include "wacki/platform/input.h"
 #include "wacki/platform/video.h"
 
+int plat_should_quit(void)
+{
+    return !aptMainLoop();
+}
+
+int plat_system_init(void)
+{
+    return 1;
+}
+
+void platform_pad_open(void)
+{
+    LOG_INFO("3ds", "Input initialized");
+}
+
 int PlatformShouldQuit(void)
 {
     return plat_should_quit();

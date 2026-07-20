@@ -20,9 +20,12 @@
 #include "wacki/log.h"
 #include "wacki/platform/video.h"
 #include <3ds.h>
-#include <picaGL/gl.h>
-#include <string.h>
 #include <malloc.h>
+#include <string.h>
+
+/* picaGL headers - check actual install location */
+#include <GL/gl.h>
+#include <GL/glu.h>
 
 #define TOP_WIDTH  400
 #define TOP_HEIGHT 240
