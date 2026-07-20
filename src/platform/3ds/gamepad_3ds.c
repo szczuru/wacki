@@ -70,7 +70,6 @@ void platform_pad_handle_buttons(void)
     hidScanInput();
     u32 keys_down = hidKeysDown();
     u32 keys_held = hidKeysHeld();
-    u32 keys_up = hidKeysUp();
 
     /* --- Button presses (edge-triggered) --- */
     
@@ -175,11 +174,9 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
 
 int plat_pad_menu_nav(int *up, int *down, int *confirm)
 {
-    *up = *down = *confirm = 0;
     
     hidScanInput();
     u32 keys_down = hidKeysDown();
-    u32 keys_held = hidKeysHeld();
     
     /* D-Pad or Circle Pad for navigation */
     circlePosition pos;
