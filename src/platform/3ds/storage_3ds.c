@@ -15,14 +15,15 @@
 
 static int commit_sd_card(void)
 {
-    FS_Archive sdmcArchive = {
-        .id = ARCHIVE_SDMC,
-        .lowPath = {PATH_EMPTY, 0, NULL}
-    };
+    FS_Archive sdmcArchive;
+    sdmcArchive.id = ARCHIVE_SDMC;
+    sdmcArchive.lowPath.type = PATH_EMPTY;
+    sdmcArchive.lowPath.size = 0;
+    sdmcArchive.lowPath.data = NULL;
     
     Result rc = FSUSER_ControlArchive(sdmcArchive, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
     if (R_FAILED(rc)) {
-        LOG_INFO("save", "FSUSER_ControlArchive(COMMIT) failed: 0x%08lX", rc);
+        LOG_INFO("save", "FSUSER_ControlArchive(COMMIT) failed: 0x%08lX", (unsigned long)rc);
         return -1;
     }
     return 0;

@@ -27,16 +27,19 @@ ifeq ($(wildcard data/WACKI.EXE),)
     EMBEDDED_PE_SRC := src/platform/3ds/embedded_wacki_pe_stub.c
 endif
 
-# 3DS uzywa wlasnych plikow platformy - BEZ SDL
+# 3DS uzywa wlasnych plikow platformy zamiast SDL
 ENGINE_SRCS += src/platform/3ds/3ds.c \
+               src/platform/3ds/platform_3ds.c \
                src/platform/3ds/video_3ds_gl.c \
                src/platform/3ds/gamepad_3ds.c \
                src/platform/3ds/storage_3ds.c \
                src/platform/3ds/data_root_3ds.c \
-               src/platform/3ds/system_3ds.c
-
-# Audio - dummy stubs (no audio support yet)
-ENGINE_SRCS += src/platform/3ds/audio_3ds_stub.c
+               src/platform/3ds/system_3ds.c \
+               src/platform/3ds/audio_3ds_stub.c \
+               src/platform/sdl/file_host.c \
+               src/platform/sdl/flic_host.c \
+               src/vm/script_obj.c \
+               src/vm/parser.c
 
 # ---- .3dsx packaging ------------------------------------------------------
 3DS_ICON     := assets/icons/wacki-3ds.png

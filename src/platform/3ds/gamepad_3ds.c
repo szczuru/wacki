@@ -89,9 +89,9 @@ void platform_pad_handle_buttons(void)
         platform_video_cycle_zoom();
     }
     
-    /* Physical Y (KEY_X) = toggle aspect mode (no-op on 3DS but kept for consistency) */
+    /* Physical Y (KEY_X) = toggle aspect mode (no-op on 3DS) */
     if (keys_down & KEY_X) {
-        platform_video_toggle_aspect_mode();
+        /* No-op: aspect mode not applicable on 3DS */
     }
     
     /* START = pause menu */

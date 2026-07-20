@@ -11,6 +11,7 @@
 #include <3ds.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 extern int  g_fullscreen;
 extern char g_data_root[260];
