@@ -13,6 +13,7 @@
 #include "wacki/platform/system.h"
 #include "wacki/platform/input.h"
 #include "wacki/platform/video.h"
+#include "gamepad_3ds.h"
 #include <3ds.h>
 
 /* Set by SDL_compat.c's SDL_PushEvent(&quit_event) — main.c's SIGINT

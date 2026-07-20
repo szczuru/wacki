@@ -31,6 +31,7 @@
 #include "wacki/log.h"
 #include "wacki/platform/input.h"
 #include "wacki/platform/video.h"
+#include "gamepad_3ds.h"
 #include <3ds.h>
 
 #define ANALOG_DEADZONE   20
