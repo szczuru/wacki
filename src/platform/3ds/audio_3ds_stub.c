@@ -1,19 +1,38 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła
  *
- * src/platform/3ds/audio_3ds_stub.c — Audio HAL stubs for 3DS.
+ * src/platform/3ds/audio_3ds_stub.c — audio-output HAL, 3DS (silent stub).
  *
- * Audio not yet implemented - silent stubs to allow compilation. */
+ * Implements every entry point in include/wacki/platform/audio.h so the
+ * engine links and runs with no audio hardware backend wired up yet.
+ * plat_audio_open always reports failure (0), so the mixer
+ * (mixer_ensure_open) never marks itself "open" and every audio.c call
+ * gated behind plat_audio_is_open() is skipped — the game runs silent
+ * but never touches uninitialized audio state.
+ *
+ * Swap this file for a real ndsp-backed implementation later without
+ * touching any other 3DS platform file or the engine core. */
 
-#include "wacki.h"
+#include "wacki/platform/audio.h"
 
-void plat_audio_init(int freq, int samples) { (void)freq; (void)samples; }
-void plat_audio_shutdown(void) {}
+int plat_audio_open(int freq, int channels, plat_audio_pull_fn pull)
+{
+    (void)freq; (void)channels; (void)pull;
+    return 0;   /* no channels obtained -> mixer stays "closed" */
+}
+
+void plat_audio_close(void) {}
+int  plat_audio_is_open(void) { return 0; }
 void plat_audio_lock(void) {}
 void plat_audio_unlock(void) {}
-void plat_audio_pause(int on) { (void)on; }
-int  plat_audio_queue_size(void) { return 0; }
-void plat_audio_queue(const void *buf, int len) { (void)buf; (void)len; }
-void plat_audio_mix(void *dst, const void *src, int len, int vol) {
-    (void)dst; (void)src; (void)len; (void)vol;
+
+void plat_avi_audio_begin(int rate, int channels, int bits)
+{
+    (void)rate; (void)channels; (void)bits;
 }
+void plat_avi_audio_push(void *pcm, int len) { (void)pcm; (void)len; }
+void plat_avi_audio_end(void) {}
+int  plat_avi_audio_is_open(void) { return 0; }
+int  plat_avi_audio_below_cushion(unsigned ms) { (void)ms; return 0; }
+void plat_avi_audio_flush(void) {}
+int  plat_avi_audio_needs_pump(void) { return 0; }

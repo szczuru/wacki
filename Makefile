@@ -80,6 +80,16 @@ LDFLAGS_STATIC   :=
 MACOS_FRAMEWORKS :=
 WACKI_RES        :=
 
+# The one file in ENGINE_SRCS that IS platform-specific: the top-level
+# Platform*() entry points (PlatformInit/Present/PumpEvents/ShouldQuit/...,
+# wacki/api.h). Every SDL-family target (desktop, switch, ps2, miyoo,
+# portmaster) shares src/platform/sdl/platform_sdl.c; mk/3ds.mk overrides
+# this to its own src/platform/3ds/platform_3ds.c (no SDL on that target).
+# ENGINE_SRCS below is recursively-expanded (`=`, not `:=`), so this default
+# is safely overridable by mk/$(TGT).mk even though it's included AFTER
+# this line — make resolves PLATFORM_MAIN_SRC's value at USE time, not here.
+PLATFORM_MAIN_SRC := src/platform/sdl/platform_sdl.c
+
 # ---- platform-agnostic engine sources --------------------------------------
 # The core engine — everything that is NOT platform-specific. mk/<target>.mk
 # appends its PLATFORM_SRCS (HAL impls + hooks provider) to this list.
@@ -96,6 +106,7 @@ ENGINE_SRCS = \
 	src/save.c    src/font.c      src/flic.c   src/flic/decoder.c \
 	src/heap.c     src/timer.c     src/stubs.c                    \
 	src/binary_data.c src/pe_loader.c src/log.c                  \
+	$(PLATFORM_MAIN_SRC) src/vm/script_obj.c src/vm/parser.c      \
 	src/util/rng.c                                               \
 	src/hud/panel.c src/hud/inventory.c src/hud/items.c          \
 	src/scene/click_queue.c src/scene/hit_test.c src/scene/mask_list.c \

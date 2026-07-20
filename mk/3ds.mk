@@ -6,8 +6,11 @@ DEVKITARM ?= $(DEVKITPRO)/devkitARM
 CC       := $(DEVKITARM)/bin/arm-none-eabi-gcc
 BIN_NAME := wacki
 
+# -D__3DS__ is libctru's CURRENT platform define (3ds.h #warns and asks
+# for it instead of the old -DARM11 -D_3DS pair — deliberately NOT passed
+# here, only picaGL's OWN build needs that historical fixup, applied by
+# tools/build-3ds.sh via sed on picaGL's Makefile before `make install`).
 CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
-          -DARM11 -D_3DS \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I src/platform/3ds \
           -I$(DEVKITPRO)/libctru/include \
@@ -30,9 +33,18 @@ ifeq ($(wildcard data/WACKI.EXE),)
     EMBEDDED_PE_SRC := src/platform/3ds/embedded_wacki_pe_stub.c
 endif
 
-# 3DS uzywa wlasnych plikow platformy zamiast SDL
+# 3DS ma wlasny platform_3ds.c (bez SDL) zamiast platform_sdl.c — wyzeruj
+# domyslna wartosc z glownego Makefile (PLATFORM_MAIN_SRC), inaczej
+# platform_sdl.c trafiloby do ENGINE_SRCS i #include <SDL.h> szukalby
+# funkcjonalnosci ktorej nasz naglowkowy stub SDL.h nie udostepnia.
+PLATFORM_MAIN_SRC :=
+
+# 3DS uzywa wlasnych plikow platformy zamiast SDL. src/vm/script_obj.c i
+# src/vm/parser.c NIE sa tu duplikowane - sa juz w glownym ENGINE_SRCS
+# (Makefile), ktory dla kazdej platformy woli plat_*/PLATFORM_SRCS.
 ENGINE_SRCS += src/platform/3ds/3ds.c \
                src/platform/3ds/platform_3ds.c \
+               src/platform/3ds/SDL_compat.c \
                src/platform/3ds/video_3ds_gl.c \
                src/platform/3ds/gamepad_3ds.c \
                src/platform/3ds/storage_3ds.c \
@@ -40,12 +52,10 @@ ENGINE_SRCS += src/platform/3ds/3ds.c \
                src/platform/3ds/system_3ds.c \
                src/platform/3ds/audio_3ds_stub.c \
                src/platform/sdl/file_host.c \
-               src/platform/sdl/flic_host.c \
-               src/vm/script_obj.c \
-               src/vm/parser.c
+               src/platform/sdl/flic_host.c
 
 # ---- .3dsx packaging ------------------------------------------------------
-3DS_ICON     := assets/icons/wacki-3ds.png
+3DS_ICON     := assets/icons/wacki-3ds-48x48.png
 3DS_3DSX     := $(DIST)/wacki.3dsx
 3DS_SMDH     := $(DIST)/wacki.smdh
 SMDHTOOL     := $(DEVKITPRO)/tools/bin/smdhtool

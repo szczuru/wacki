@@ -23,9 +23,11 @@
 #include <malloc.h>
 #include <string.h>
 
-/* picaGL headers - check actual install location */
-#include <GL/gl.h>
-#include <GL/glu.h>
+/* picaGL: pglInit/pglExit/pglSwapBuffers/pglSelectScreen + the GL 1.1
+ * entry points used below all come from this single header (it itself
+ * pulls in <GL/gl.h>). Installed to /opt/devkitpro/picaGL/include by
+ * tools/build-3ds.sh; see mk/3ds.mk's -I. */
+#include <GL/picaGL.h>
 
 #define TOP_WIDTH  400
 #define TOP_HEIGHT 240
@@ -40,8 +42,11 @@ static int g_zoom_level = 0; /* 0=1x, 1=2x, 2=4x */
 static const int ZOOM_LEVELS[] = {1, 2, 4};
 #define NUM_ZOOM_LEVELS 3
 
-/* Cursor position (set by gamepad_3ds.c) */
-extern int g_cursor_x, g_cursor_y;
+/* g_mouse_x / g_mouse_y — the shared cursor globals (wacki/globals.h,
+ * pulled in via wacki.h above). gamepad_3ds.c's touch/circle-pad code
+ * writes them; using a private g_cursor_x/y here would desync the
+ * bottom-screen zoom center from where the engine actually thinks the
+ * cursor is. */
 
 /* Game framebuffer (8-bit indexed) */
 static uint8_t *s_shadow = NULL;
@@ -117,6 +122,14 @@ void platform_video_toggle_aspect_mode(void)
     /* Not applicable on 3DS - fixed screens */
 }
 
+/* wacki/platform/video.h HAL entry point — PlatformShowMessageBox routes
+ * here. No native dialog on 3DS; log it (visible over 3dslink's console
+ * relay / Citra's stdout) so a fatal-path message isn't silently lost. */
+void plat_video_message_box(const char *title, const char *body)
+{
+    LOG_INFO("msgbox", "%s: %s", title ? title : "", body ? body : "");
+}
+
 int plat_video_init(int w, int h, const char *title)
 {
     (void)title;
@@ -160,11 +173,12 @@ int plat_video_init(int w, int h, const char *title)
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, BOT_WIDTH, BOT_HEIGHT, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, s_bot_rgba);
 
-    /* Setup OpenGL state */
+    /* Setup OpenGL state. picaGL only ships the double-precision
+     * glOrtho (no GLES-style glOrthof) — see include/GL/gl.h. */
     glEnable(GL_TEXTURE_2D);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrthof(0, 1, 0, 1, -1, 1);
+    glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
@@ -205,9 +219,9 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 
     /* --- BOTTOM SCREEN: Zoomed region around cursor --- */
     int zoom = ZOOM_LEVELS[g_zoom_level];
-    int cx = g_cursor_x;
-    int cy = g_cursor_y;
-    
+    int cx = g_mouse_x;
+    int cy = g_mouse_y;
+
     /* Clamp cursor to game bounds */
     if (cx < 0) cx = 0;
     if (cy < 0) cy = 0;

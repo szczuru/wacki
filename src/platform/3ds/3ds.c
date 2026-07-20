@@ -55,7 +55,6 @@ void plat_apply_video_prefs(void)
     exit(1);
 }
 
-void plat_restore_system_volume(void) {}
-int  plat_handle_platform_key(int sym) { (void)sym; return 0; }
-void plat_pad_read_extra(float *ax, float *ay) { (void)ax; (void)ay; }
-int  plat_input_has_keyboard(void) { return 0; }
+/* plat_restore_system_volume (system_3ds.c), plat_handle_platform_key /
+ * plat_pad_read_extra / plat_input_has_keyboard (gamepad_3ds.c) live in
+ * their respective files — NOT duplicated here. */

@@ -13,12 +13,23 @@
 #include <3ds.h>
 #include <stdio.h>
 
+/* Commit buffered SDMC writes to the physical card. FS_Archive is a
+ * plain `typedef u64` handle (see libctru's fs.h) — NOT a struct — so
+ * it must be opened via FSUSER_OpenArchive before any control call,
+ * and closed afterwards. */
 static int commit_sd_card(void)
 {
-    FS_Path emptyPath = fsMakePath(PATH_EMPTY, "");
-    FS_Archive sdmcArchive = {ARCHIVE_SDMC, emptyPath};
-    
-    Result rc = FSUSER_ControlArchive(sdmcArchive, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
+    FS_Archive sdmc = 0;
+    FS_Path    root = fsMakePath(PATH_EMPTY, "");
+
+    Result rc = FSUSER_OpenArchive(&sdmc, ARCHIVE_SDMC, root);
+    if (R_FAILED(rc)) {
+        LOG_INFO("save", "FSUSER_OpenArchive(SDMC) failed: 0x%08lX", (unsigned long)rc);
+        return -1;
+    }
+
+    rc = FSUSER_ControlArchive(sdmc, ARCHIVE_ACTION_COMMIT_SAVE_DATA, NULL, 0, NULL, 0);
+    FSUSER_CloseArchive(sdmc);
     if (R_FAILED(rc)) {
         LOG_INFO("save", "FSUSER_ControlArchive(COMMIT) failed: 0x%08lX", (unsigned long)rc);
         return -1;

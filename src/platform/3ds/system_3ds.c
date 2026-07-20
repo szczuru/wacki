@@ -17,13 +17,16 @@
 /* Called before any other init - setup environment */
 void plat_system_early_init(void)
 {
-    /* Initialize 3DS services */
+    /* Initialize 3DS services. gfxInitDefault() is called here (not by
+     * picaGL) because we need hid/fs/romfs up before video_3ds_gl.c's
+     * pglInit() runs — picaGL itself only owns the GPU/citro3d side.
+     * NOTE: no consoleInit() — the bottom screen is picaGL's zoom
+     * viewport (video_3ds_gl.c), a text console there would fight it
+     * for the framebuffer. */
     gfxInitDefault();
-    gfxSet3D(false); /* Disable 3D for performance */
-    
-    /* Initialize console for early logging (optional) */
-    consoleInit(GFX_BOTTOM, NULL);
-    
+    gfxSet3D(false); /* Disable stereoscopic 3D — irrelevant for a 2D game,
+                       * and halves the GPU work pglSwapBuffers does. */
+
     /* Create and set working directory */
     mkdir("sdmc:/3ds", 0777);
     mkdir("sdmc:/3ds/wacki", 0777);
@@ -39,13 +42,6 @@ void plat_system_early_init(void)
     if (R_SUCCEEDED(rc)) {
         LOG_INFO("platform", "RomFS initialized");
     }
-}
-
-/* System initialization (called after video init) */
-int plat_system_init(void)
-{
-    /* Input already initialized via hidScanInput() in gamepad */
-    return 1;
 }
 
 /* Clean shutdown */
@@ -73,8 +69,4 @@ void plat_trace_mark(unsigned int code)
     (void)code;
 }
 
-/* Check if we should quit (HOME button via aptMainLoop) */
-int plat_should_quit(void)
-{
-    return !aptMainLoop();
-}
+void plat_restore_system_volume(void) {}
