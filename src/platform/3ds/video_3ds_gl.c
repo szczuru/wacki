@@ -34,6 +34,23 @@
 #define BOT_WIDTH  320
 #define BOT_HEIGHT 240
 
+/* Internal render-buffer / texture resolution for the top screen.
+ * Deliberately HALF of the on-screen TOP_WIDTH/TOP_HEIGHT, same
+ * free-upscale trick as BOT_TEX_WIDTH/HEIGHT below.
+ *
+ * Originally left at full resolution because shrinking the primary
+ * game view would hurt text/hotspot legibility — but per user
+ * feedback, the top screen's text was already unreadable at full
+ * 400x240 on real hardware (the source game's font renders at a size
+ * tuned for a much bigger CRT/monitor, not a 3.53" 400x240 panel), so
+ * there's no legibility left to lose here, and this recovers a
+ * meaningful chunk of the same per-pixel Morton-tiling CPU cost
+ * described in BOT_TEX_WIDTH's comment (200x120 = 24000 px vs.
+ * 400x240 = 96000 px -- another 4x cut, this time on the screen that
+ * was NOT reduced in the previous pass). */
+#define TOP_TEX_WIDTH  200
+#define TOP_TEX_HEIGHT 120
+
 /* Internal render-buffer / texture resolution for the bottom screen.
  * Deliberately HALF of the on-screen BOT_WIDTH/BOT_HEIGHT — the GPU's
  * texture sampler stretches whatever we upload to fill the full quad
@@ -256,7 +273,7 @@ int plat_video_init(int w, int h, const char *title)
     /* Allocate buffers */
     s_shadow = (uint8_t *)linearAlloc(w * h);
     s_palette = (uint8_t *)linearAlloc(256 * 3);
-    s_top_rgba = (uint32_t *)linearAlloc(TOP_WIDTH * TOP_HEIGHT * 4);
+    s_top_rgba = (uint32_t *)linearAlloc(TOP_TEX_WIDTH * TOP_TEX_HEIGHT * 4);
     s_bot_rgba = (uint32_t *)linearAlloc(BOT_TEX_WIDTH * BOT_TEX_HEIGHT * 4);
 
     if (!s_shadow || !s_palette || !s_top_rgba || !s_bot_rgba) {
@@ -274,9 +291,12 @@ int plat_video_init(int w, int h, const char *title)
     pglSelectScreen(GFX_TOP, GFX_LEFT);
     glGenTextures(1, &s_top_tex);
     glBindTexture(GL_TEXTURE_2D, s_top_tex);
+    /* LINEAR softens the GPU's TOP_TEX_WIDTH/HEIGHT -> TOP_WIDTH/
+     * HEIGHT (2x) upscale, same rationale as the bottom screen's
+     * texture below. */
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TOP_WIDTH, TOP_HEIGHT, 0,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TOP_TEX_WIDTH, TOP_TEX_HEIGHT, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
 
     /* Create bottom screen texture */
@@ -322,7 +342,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * This alone removes an entire extra 640x480 palette-lookup pass
      * every frame, which on the 3DS's single ARM11 core at 268MHz was
      * a meaningful fraction of the ~5fps seen. */
-    indexed_to_rgba_scaled(shadow, pal, s_top_rgba, TOP_WIDTH, TOP_HEIGHT, w, h);
+    indexed_to_rgba_scaled(shadow, pal, s_top_rgba, TOP_TEX_WIDTH, TOP_TEX_HEIGHT, w, h);
 
     int zoom = ZOOM_LEVELS[g_zoom_level];
     int cx = g_mouse_x;
@@ -393,7 +413,10 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * screen) for no visible effect was a second real contributor to
      * the ~5fps seen on top of the extra RGBA conversion pass above. */
     glBindTexture(GL_TEXTURE_2D, s_top_tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_WIDTH, TOP_HEIGHT,
+    /* Must match s_top_rgba's actual allocated size (TOP_TEX_WIDTH x
+     * TOP_TEX_HEIGHT), not the physical TOP_WIDTH/HEIGHT — same
+     * overflow hazard as the bottom screen's glTexSubImage2D below. */
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_TEX_WIDTH, TOP_TEX_HEIGHT,
                     GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
 
     glBegin(GL_QUADS);
