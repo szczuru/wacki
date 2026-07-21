@@ -28,6 +28,18 @@ void plat_system_early_init(void)
     gfxSet3D(false); /* Disable stereoscopic 3D — irrelevant for a 2D game,
                        * and halves the GPU work pglSwapBuffers does. */
 
+    /* Enable the New 3DS / New 2DS CPU+L2-cache speedup (268MHz single
+     * ARM11 core -> 804MHz quad-core clock, per 3ds/os.h). Homebrew
+     * launches at the OLD-3DS clock by default regardless of which
+     * console it's actually running on — this call is what actually
+     * unlocks the "New 3DS is much more powerful" headroom the port was
+     * counting on; without it every New 3DS/New 2DS runs exactly as
+     * slow as an original 3DS, which is the real explanation for the
+     * ~5-9fps seen even on New3DS/Citra. Safe to call unconditionally:
+     * it is a documented no-op on original O3DS/O2DS hardware that
+     * lacks the extra clock domain. */
+    osSetSpeedupEnable(true);
+
     /* Create and set working directory */
     mkdir("sdmc:/3ds", 0777);
     mkdir("sdmc:/3ds/wacki", 0777);
