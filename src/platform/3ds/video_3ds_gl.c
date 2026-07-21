@@ -35,21 +35,18 @@
 #define BOT_HEIGHT 240
 
 /* Internal render-buffer / texture resolution for the top screen.
- * Deliberately HALF of the on-screen TOP_WIDTH/TOP_HEIGHT, same
- * free-upscale trick as BOT_TEX_WIDTH/HEIGHT below.
- *
- * Originally left at full resolution because shrinking the primary
- * game view would hurt text/hotspot legibility — but per user
- * feedback, the top screen's text was already unreadable at full
- * 400x240 on real hardware (the source game's font renders at a size
- * tuned for a much bigger CRT/monitor, not a 3.53" 400x240 panel), so
- * there's no legibility left to lose here, and this recovers a
- * meaningful chunk of the same per-pixel Morton-tiling CPU cost
- * described in BOT_TEX_WIDTH's comment (200x120 = 24000 px vs.
- * 400x240 = 96000 px -- another 4x cut, this time on the screen that
- * was NOT reduced in the previous pass). */
-#define TOP_TEX_WIDTH  200
-#define TOP_TEX_HEIGHT 120
+ * Kept at FULL TOP_WIDTH/TOP_HEIGHT (1:1, no GPU upscale) — an earlier
+ * pass tried halving this like BOT_TEX_WIDTH/HEIGHT below, but the
+ * softer/blurrier main game view was a net loss for how the game
+ * actually looks on real hardware. The FPS win that reduction bought
+ * is recovered instead via the dirty-frame skip below, which avoids
+ * ~all of the same per-pixel conversion + Morton-tiling cost on any
+ * frame where the top screen's content didn't actually change (very
+ * common in a point-and-click adventure: dialog waits, static rooms
+ * with the cursor idle, menus) WITHOUT touching image quality at all
+ * on the frames that do need a redraw. */
+#define TOP_TEX_WIDTH  TOP_WIDTH
+#define TOP_TEX_HEIGHT TOP_HEIGHT
 
 /* Internal render-buffer / texture resolution for the bottom screen.
  * Deliberately HALF of the on-screen BOT_WIDTH/BOT_HEIGHT — the GPU's
@@ -105,10 +102,15 @@ static int s_zoom_src_x = 0, s_zoom_src_y = 0, s_zoom_mult = 1;
  * bottom-screen zoom center from where the engine actually thinks the
  * cursor is. */
 
-/* Game framebuffer (8-bit indexed) */
+/* Game framebuffer (8-bit indexed). s_shadow/s_palette double as the
+ * PREVIOUS frame's content — see the dirty-frame check in
+ * plat_video_present below. */
 static uint8_t *s_shadow = NULL;
 static uint8_t *s_palette = NULL;
 static int s_fb_w = 0, s_fb_h = 0;
+static int s_have_prev_frame = 0; /* 0 until the first plat_video_present call */
+static int s_prev_mouse_x = -1, s_prev_mouse_y = -1;
+static int s_prev_zoom_level = -1;
 
 /* RGBA textures for OpenGL */
 static uint32_t *s_top_rgba = NULL;
@@ -291,11 +293,12 @@ int plat_video_init(int w, int h, const char *title)
     pglSelectScreen(GFX_TOP, GFX_LEFT);
     glGenTextures(1, &s_top_tex);
     glBindTexture(GL_TEXTURE_2D, s_top_tex);
-    /* LINEAR softens the GPU's TOP_TEX_WIDTH/HEIGHT -> TOP_WIDTH/
-     * HEIGHT (2x) upscale, same rationale as the bottom screen's
-     * texture below. */
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    /* NEAREST: TOP_TEX_WIDTH/HEIGHT == TOP_WIDTH/HEIGHT (1:1, no GPU
+     * upscale needed), so there's no upscale seam for LINEAR to
+     * soften — NEAREST keeps the game's original pixel-art crispness
+     * intact. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TOP_TEX_WIDTH, TOP_TEX_HEIGHT, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
 
@@ -328,23 +331,84 @@ int plat_video_init(int w, int h, const char *title)
     return 1;
 }
 
+/* Draw the standard full-viewport textured quad + present the
+ * currently-selected screen. Shared by both the top and bottom
+ * screen's "content changed, do the real work" path below. */
+static void draw_fullscreen_quad_and_swap(void)
+{
+    glBegin(GL_QUADS);
+    glTexCoord2f(0, 0); glVertex2f(0, 1);
+    glTexCoord2f(1, 0); glVertex2f(1, 1);
+    glTexCoord2f(1, 1); glVertex2f(1, 0);
+    glTexCoord2f(0, 1); glVertex2f(0, 0);
+    glEnd();
+
+    pglSwapBuffers();
+}
+
 void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 {
     if (!shadow || !pal || !s_top_rgba || !s_bot_rgba) return;
 
-    /* Copy shadow buffer and palette */
-    memcpy(s_shadow, shadow, w * h);
-    memcpy(s_palette, pal, 256 * 3);
-
-    /* Build each screen's RGBA buffer directly from the indexed source
-     * in one pass each (no intermediate 640x480 RGBA buffer, no
-     * separate resize pass — see indexed_to_rgba_scaled/_zoom above).
-     * This alone removes an entire extra 640x480 palette-lookup pass
-     * every frame, which on the 3DS's single ARM11 core at 268MHz was
-     * a meaningful fraction of the ~5fps seen. */
-    indexed_to_rgba_scaled(shadow, pal, s_top_rgba, TOP_TEX_WIDTH, TOP_TEX_HEIGHT, w, h);
+    /* ---- Dirty-frame check --------------------------------------- *
+     *
+     * The engine (src/scene/frame_tick.c/graphics.c) calls this every
+     * single game tick unconditionally -- there's no "did anything
+     * actually change" flag upstream (graphics.c's own comment: "we
+     * redraw the whole shadow each frame"). But in a point-and-click
+     * adventure most ticks genuinely produce IDENTICAL pixels: waiting
+     * on a dialog line, an idle cursor in a static room, sitting in a
+     * menu. picaGL's glTexSubImage2D is expensive (see BOT_TEX_WIDTH's
+     * comment: per-pixel Morton tiling via indirect function-pointer
+     * calls, not a memcpy) -- redoing that plus the palette-lookup
+     * resize pass for a frame that's pixel-for-pixel identical to the
+     * one already on screen is pure waste.
+     *
+     * s_shadow/s_palette already hold a copy of the PREVIOUS frame
+     * (kept for exactly this reason now -- previously copied but never
+     * compared). A plain memcmp against the incoming shadow/pal is
+     * cheap relative to the conversion+tiling work it lets us skip,
+     * and correctly catches cursor movement too: PaintCursor() (called
+     * from frame_tick.c's paint_frame()) draws the cursor sprite
+     * directly INTO the shadow buffer before FlushFrameToPrimary, so a
+     * moved cursor shows up as changed shadow bytes like any other
+     * sprite would.
+     *
+     * If NEITHER screen's content changed, skip everything (no GL
+     * calls at all -- both screens simply keep showing their last
+     * presented frame, which is still correct since we never cleared
+     * either color buffer). If only one screen needs work (e.g. the
+     * bottom screen's zoom crop moved because the cursor moved, but
+     * that same cursor movement means the top screen's shadow ALSO
+     * changed -- see above, so in practice top and bottom are dirty
+     * together whenever the cursor moves) each screen's own dirty flag
+     * still gates its own conversion+upload+draw+swap independently. */
+    int top_dirty = !s_have_prev_frame ||
+                    memcmp(s_shadow, shadow, (size_t)w * h) != 0 ||
+                    memcmp(s_palette, pal, 256 * 3) != 0;
 
     int zoom = ZOOM_LEVELS[g_zoom_level];
+    int bot_dirty = top_dirty ||
+                    g_mouse_x != s_prev_mouse_x ||
+                    g_mouse_y != s_prev_mouse_y ||
+                    g_zoom_level != s_prev_zoom_level;
+
+    if (!top_dirty && !bot_dirty) return;
+
+    /* Copy shadow buffer and palette — becomes "previous frame" for
+     * next call's comparison above. */
+    memcpy(s_shadow, shadow, (size_t)w * h);
+    memcpy(s_palette, pal, 256 * 3);
+    s_have_prev_frame = 1;
+    s_prev_mouse_x = g_mouse_x;
+    s_prev_mouse_y = g_mouse_y;
+    s_prev_zoom_level = g_zoom_level;
+
+    /* Bottom screen's zoom-crop source region is computed unconditionally
+     * (cheap integer math) even when only the top screen is dirty, so
+     * platform_video_touch_to_game always has an up-to-date region to
+     * invert against — touch input must keep working even on frames
+     * where the bottom screen's PIXELS didn't need re-drawing. */
     int cx = g_mouse_x;
     int cy = g_mouse_y;
     if (cx < 0) cx = 0;
@@ -352,12 +416,6 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     if (cx >= w) cx = w - 1;
     if (cy >= h) cy = h - 1;
 
-    /* Clamp the extracted region's top-left corner ONCE here and cache
-     * it (s_zoom_src_x/y/mult) — indexed_to_rgba_zoom below and
-     * platform_video_touch_to_game (called later from gamepad_3ds.c on
-     * the NEXT touch event) both read this same cached corner, so a
-     * touch always maps through the identical region that was actually
-     * drawn to the bottom screen this frame. */
     int src_region_w = BOT_WIDTH / zoom;
     int src_region_h = BOT_HEIGHT / zoom;
     int src_x = cx - src_region_w / 2;
@@ -373,18 +431,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     s_zoom_src_y = src_y;
     s_zoom_mult  = zoom;
 
-    /* Build at BOT_TEX_WIDTH/HEIGHT (the reduced internal resolution),
-     * not the physical BOT_WIDTH/HEIGHT — the GPU upscales the
-     * uploaded texture to fill the full-size quad. Passing
-     * src_region_w/h (sized against BOT_WIDTH/BOT_HEIGHT/zoom, i.e.
-     * the on-screen zoom level) separately from dst_w/dst_h keeps the
-     * perceived zoom identical to what it'd be at full BOT_WIDTH/
-     * HEIGHT texture resolution — only the texel density (and thus
-     * sharpness + CPU cost) drops, not the crop size. */
-    indexed_to_rgba_zoom(shadow, pal, s_bot_rgba, BOT_TEX_WIDTH, BOT_TEX_HEIGHT, w, h,
-                        src_x, src_y, src_region_w, src_region_h);
-
-    /* --- Render + present TOP screen ---
+    /* --- Render + present TOP screen (only if dirty) ---
      * CRITICAL: pglSwapBuffers() only flushes/transfers the buffer for
      * whichever screen was most recently selected via pglSelectScreen()
      * (see picaGL source/misc.c pglSwapBuffers: it branches on
@@ -395,65 +442,76 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * read back a stale/offset region of the shared color buffer
      * (the "zoom" garbage). Each screen's render + swap must be fully
      * completed before switching to the other screen. */
-    pglSelectScreen(GFX_TOP, GFX_LEFT);
-    /* picaGL's default viewport (set once, at pglInit time, in
-     * _stateDefault) is hardcoded to 400x240 for whichever screen was
-     * selected THEN. It is NOT re-derived per pglSelectScreen call, so
-     * the bottom screen (320px wide) must explicitly reassert its own
-     * viewport/scissor every frame or picaGL renders it using the top
-     * screen's 400-wide viewport, producing exactly the kind of
-     * horizontal squeeze/garbage distortion seen on real hardware. */
-    glViewport(0, 0, TOP_WIDTH, TOP_HEIGHT);
-    glScissor(0, 0, TOP_WIDTH, TOP_HEIGHT);
-    /* No glClear() here: the quad below covers the entire viewport
-     * with opaque texels every frame, so clearing first is pure wasted
-     * GPU work — picaGL's glClear (source/misc.c) is a full draw call
-     * with a shader swap (clearShader in, basicShader back out), not
-     * a cheap register write, and doing that twice per frame (once per
-     * screen) for no visible effect was a second real contributor to
-     * the ~5fps seen on top of the extra RGBA conversion pass above. */
-    glBindTexture(GL_TEXTURE_2D, s_top_tex);
-    /* Must match s_top_rgba's actual allocated size (TOP_TEX_WIDTH x
-     * TOP_TEX_HEIGHT), not the physical TOP_WIDTH/HEIGHT — same
-     * overflow hazard as the bottom screen's glTexSubImage2D below. */
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_TEX_WIDTH, TOP_TEX_HEIGHT,
-                    GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
+    if (top_dirty) {
+        /* Build the RGBA buffer directly from the indexed source in one
+         * pass (no intermediate 640x480 RGBA buffer, no separate resize
+         * pass — see indexed_to_rgba_scaled above). This alone removes
+         * an entire extra 640x480 palette-lookup pass every frame, which
+         * on the 3DS's single ARM11 core at 268MHz was a meaningful
+         * fraction of the ~5fps originally seen. */
+        indexed_to_rgba_scaled(shadow, pal, s_top_rgba, TOP_TEX_WIDTH, TOP_TEX_HEIGHT, w, h);
 
-    glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex2f(0, 1);
-    glTexCoord2f(1, 0); glVertex2f(1, 1);
-    glTexCoord2f(1, 1); glVertex2f(1, 0);
-    glTexCoord2f(0, 1); glVertex2f(0, 0);
-    glEnd();
+        pglSelectScreen(GFX_TOP, GFX_LEFT);
+        /* picaGL's default viewport (set once, at pglInit time, in
+         * _stateDefault) is hardcoded to 400x240 for whichever screen
+         * was selected THEN. It is NOT re-derived per pglSelectScreen
+         * call, so the bottom screen (320px wide) must explicitly
+         * reassert its own viewport/scissor every frame or picaGL
+         * renders it using the top screen's 400-wide viewport, producing
+         * exactly the kind of horizontal squeeze/garbage distortion seen
+         * on real hardware. */
+        glViewport(0, 0, TOP_WIDTH, TOP_HEIGHT);
+        glScissor(0, 0, TOP_WIDTH, TOP_HEIGHT);
+        /* No glClear() here: the quad below covers the entire viewport
+         * with opaque texels every frame, so clearing first is pure
+         * wasted GPU work — picaGL's glClear (source/misc.c) is a full
+         * draw call with a shader swap (clearShader in, basicShader
+         * back out), not a cheap register write, and doing that twice
+         * per frame (once per screen) for no visible effect was a
+         * second real contributor to the ~5fps originally seen. */
+        glBindTexture(GL_TEXTURE_2D, s_top_tex);
+        /* Must match s_top_rgba's actual allocated size (TOP_TEX_WIDTH x
+         * TOP_TEX_HEIGHT), not the physical TOP_WIDTH/HEIGHT — same
+         * overflow hazard as the bottom screen's glTexSubImage2D below. */
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_TEX_WIDTH, TOP_TEX_HEIGHT,
+                        GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
 
-    pglSwapBuffers();
+        draw_fullscreen_quad_and_swap();
+    }
 
-    /* --- Render + present BOTTOM screen --- */
-    pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
-    /* Viewport/scissor stay at the PHYSICAL screen size (BOT_WIDTH x
-     * BOT_HEIGHT) — that's the actual display area the quad below
-     * covers, unrelated to the reduced BOT_TEX_WIDTH/HEIGHT texture
-     * resolution being uploaded into it (the GPU's texture sampler
-     * upscales to fill whatever viewport is active, per glTexCoord's
-     * 0..1 span). */
-    glViewport(0, 0, BOT_WIDTH, BOT_HEIGHT);
-    glScissor(0, 0, BOT_WIDTH, BOT_HEIGHT);
-    glBindTexture(GL_TEXTURE_2D, s_bot_tex);
-    /* Must match s_bot_rgba's actual allocated size (BOT_TEX_WIDTH x
-     * BOT_TEX_HEIGHT) — passing BOT_WIDTH/BOT_HEIGHT here would have
-     * picaGL's _textureTile read past the end of a buffer that's only
-     * 160x120 texels, corrupting heap memory every frame. */
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BOT_TEX_WIDTH, BOT_TEX_HEIGHT,
-                    GL_RGBA, GL_UNSIGNED_BYTE, s_bot_rgba);
+    /* --- Render + present BOTTOM screen (only if dirty) --- */
+    if (bot_dirty) {
+        /* Build at BOT_TEX_WIDTH/HEIGHT (the reduced internal
+         * resolution), not the physical BOT_WIDTH/HEIGHT — the GPU
+         * upscales the uploaded texture to fill the full-size quad.
+         * Passing src_region_w/h (sized against BOT_WIDTH/BOT_HEIGHT/
+         * zoom, i.e. the on-screen zoom level) separately from dst_w/
+         * dst_h keeps the perceived zoom identical to what it'd be at
+         * full BOT_WIDTH/HEIGHT texture resolution — only the texel
+         * density (and thus sharpness + CPU cost) drops, not the crop
+         * size. */
+        indexed_to_rgba_zoom(shadow, pal, s_bot_rgba, BOT_TEX_WIDTH, BOT_TEX_HEIGHT, w, h,
+                            src_x, src_y, src_region_w, src_region_h);
 
-    glBegin(GL_QUADS);
-    glTexCoord2f(0, 0); glVertex2f(0, 1);
-    glTexCoord2f(1, 0); glVertex2f(1, 1);
-    glTexCoord2f(1, 1); glVertex2f(1, 0);
-    glTexCoord2f(0, 1); glVertex2f(0, 0);
-    glEnd();
+        pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
+        /* Viewport/scissor stay at the PHYSICAL screen size (BOT_WIDTH x
+         * BOT_HEIGHT) — that's the actual display area the quad below
+         * covers, unrelated to the reduced BOT_TEX_WIDTH/HEIGHT texture
+         * resolution being uploaded into it (the GPU's texture sampler
+         * upscales to fill whatever viewport is active, per glTexCoord's
+         * 0..1 span). */
+        glViewport(0, 0, BOT_WIDTH, BOT_HEIGHT);
+        glScissor(0, 0, BOT_WIDTH, BOT_HEIGHT);
+        glBindTexture(GL_TEXTURE_2D, s_bot_tex);
+        /* Must match s_bot_rgba's actual allocated size (BOT_TEX_WIDTH x
+         * BOT_TEX_HEIGHT) — passing BOT_WIDTH/BOT_HEIGHT here would have
+         * picaGL's _textureTile read past the end of a buffer that's
+         * only 160x120 texels, corrupting heap memory every frame. */
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BOT_TEX_WIDTH, BOT_TEX_HEIGHT,
+                        GL_RGBA, GL_UNSIGNED_BYTE, s_bot_rgba);
 
-    pglSwapBuffers();
+        draw_fullscreen_quad_and_swap();
+    }
 }
 
 void plat_video_shutdown(void)
