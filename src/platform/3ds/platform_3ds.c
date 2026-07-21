@@ -59,6 +59,22 @@ static void poll_virtual_cursor(void)
         s_vcur_initialized = 1;
         g_mouse_x = (int16_t)s_vcur_x;
         g_mouse_y = (int16_t)s_vcur_y;
+    } else {
+        /* Resync from g_mouse_x/y every frame BEFORE applying D-pad/
+         * circle-pad motion. Needed because platform_pad_handle_buttons()
+         * (called earlier this same PlatformPumpEvents tick — see below)
+         * writes a touch tap's position straight into g_mouse_x/y, but
+         * this function's OWN idea of the cursor position (s_vcur_x/y)
+         * previously only synced from g_mouse_x/y once, at startup. Without
+         * this resync, a touch tap would move g_mouse_x/y for exactly one
+         * frame, and the very next D-pad/circle-pad nudge would silently
+         * snap the cursor back to wherever s_vcur_x/y was BEFORE the touch
+         * (stale) — the touch tap and analog cursor fought over ownership
+         * of the same globals. In frames with no touch this is a no-op:
+         * g_mouse_x/y is always exactly what the PREVIOUS call to this
+         * function wrote from s_vcur_x/y. */
+        s_vcur_x = g_mouse_x;
+        s_vcur_y = g_mouse_y;
     }
 
     int dx = 0, dy = 0;

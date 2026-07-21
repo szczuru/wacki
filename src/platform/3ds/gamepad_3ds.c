@@ -23,9 +23,15 @@
  * (g_mouse_x/g_mouse_y — the SAME globals every other platform's
  * gamepad/mouse code writes; there is no separate 3DS-only cursor
  * variable). Touching the bottom screen jumps the cursor straight to
- * the touched point (mapped from the 320x240 touch panel to the
- * 640x480 game surface) and fires a left click, mirroring "tap where
- * you want to click" on the zoomed view video_3ds_gl.c draws there. */
+ * the touched point and fires a left click, mirroring "tap where you
+ * want to click" on the zoomed view video_3ds_gl.c draws there.
+ *
+ * The bottom screen shows a `zoom`-times magnified CROP around the
+ * cursor, not a flat-scaled whole image — so the touch point must be
+ * mapped through platform_video_touch_to_game(), which inverts the
+ * exact region video_3ds_gl.c's indexed_to_rgba_zoom() drew that
+ * frame (see its own comment for why a locally-recomputed clamp here
+ * would drift out of sync with what's actually on screen). */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -46,20 +52,13 @@ static HandMode s_hand_mode = HAND_MODE_LEFT;
 
 static int s_touch_was_down = 0;
 
-/* video_3ds_gl.c reads this to center the bottom-screen zoom view. */
+/* video_3ds_gl.c: cycles the bottom-screen zoom level (X button). */
 extern void platform_video_cycle_zoom(void);
-
-static void touch_to_game_coords(int tx, int ty, int *gx, int *gy)
-{
-    /* Bottom screen panel is 320x240; the game surface is 640x480 —
-     * a flat 2x scale in both axes. */
-    *gx = tx * 2;
-    *gy = ty * 2;
-    if (*gx < 0) *gx = 0;
-    if (*gy < 0) *gy = 0;
-    if (*gx > WACKI_SCREEN_W - 1) *gx = WACKI_SCREEN_W - 1;
-    if (*gy > WACKI_SCREEN_H - 1) *gy = WACKI_SCREEN_H - 1;
-}
+/* video_3ds_gl.c: inverts the exact zoom-crop region last drawn to the
+ * bottom screen — see this file's touch-handling comment above and
+ * video_3ds_gl.c's own comment on indexed_to_rgba_zoom for why the
+ * mapping can't be recomputed independently here. */
+extern void platform_video_touch_to_game(int tx, int ty, int *gx, int *gy);
 
 /* ---- HAL entry points ------------------------------------------------ */
 
@@ -110,7 +109,7 @@ void platform_pad_handle_buttons(void)
         touchPosition touch;
         hidTouchRead(&touch);
         int gx, gy;
-        touch_to_game_coords(touch.px, touch.py, &gx, &gy);
+        platform_video_touch_to_game(touch.px, touch.py, &gx, &gy);
         g_mouse_x = (int16_t)gx;
         g_mouse_y = (int16_t)gy;
         if (!s_touch_was_down) {
