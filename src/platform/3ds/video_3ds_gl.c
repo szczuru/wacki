@@ -231,8 +231,27 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     extract_zoom_region(full_rgba, w, h, s_bot_rgba, BOT_WIDTH, BOT_HEIGHT,
                        cx, cy, zoom);
 
-    /* --- Render TOP screen --- */
+    /* --- Render + present TOP screen ---
+     * CRITICAL: pglSwapBuffers() only flushes/transfers the buffer for
+     * whichever screen was most recently selected via pglSelectScreen()
+     * (see picaGL source/misc.c pglSwapBuffers: it branches on
+     * pglState->display and does a SINGLE GX_DisplayTransfer for that
+     * one screen only — it is NOT a "present both screens" call).
+     * Calling it once at the very end (after selecting BOTTOM last)
+     * meant TOP never got transferred (blank top screen) and BOTTOM
+     * read back a stale/offset region of the shared color buffer
+     * (the "zoom" garbage). Each screen's render + swap must be fully
+     * completed before switching to the other screen. */
     pglSelectScreen(GFX_TOP, GFX_LEFT);
+    /* picaGL's default viewport (set once, at pglInit time, in
+     * _stateDefault) is hardcoded to 400x240 for whichever screen was
+     * selected THEN. It is NOT re-derived per pglSelectScreen call, so
+     * the bottom screen (320px wide) must explicitly reassert its own
+     * viewport/scissor every frame or picaGL renders it using the top
+     * screen's 400-wide viewport, producing exactly the kind of
+     * horizontal squeeze/garbage distortion seen on real hardware. */
+    glViewport(0, 0, TOP_WIDTH, TOP_HEIGHT);
+    glScissor(0, 0, TOP_WIDTH, TOP_HEIGHT);
     glClear(GL_COLOR_BUFFER_BIT);
     glBindTexture(GL_TEXTURE_2D, s_top_tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_WIDTH, TOP_HEIGHT,
@@ -245,8 +264,12 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     glTexCoord2f(0, 1); glVertex2f(0, 0);
     glEnd();
 
-    /* --- Render BOTTOM screen --- */
+    pglSwapBuffers();
+
+    /* --- Render + present BOTTOM screen --- */
     pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
+    glViewport(0, 0, BOT_WIDTH, BOT_HEIGHT);
+    glScissor(0, 0, BOT_WIDTH, BOT_HEIGHT);
     glClear(GL_COLOR_BUFFER_BIT);
     glBindTexture(GL_TEXTURE_2D, s_bot_tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BOT_WIDTH, BOT_HEIGHT,
@@ -259,7 +282,6 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     glTexCoord2f(0, 1); glVertex2f(0, 0);
     glEnd();
 
-    /* Present both screens */
     pglSwapBuffers();
 }
 

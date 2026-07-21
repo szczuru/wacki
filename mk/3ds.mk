@@ -58,7 +58,7 @@ ENGINE_SRCS += src/platform/3ds/3ds.c \
                src/platform/3ds/storage_3ds.c \
                src/platform/3ds/data_root_3ds.c \
                src/platform/3ds/system_3ds.c \
-               src/platform/3ds/audio_3ds_stub.c \
+               src/platform/3ds/audio_3ds_ndsp.c \
                src/platform/sdl/file_host.c \
                src/platform/sdl/flic_host.c
 

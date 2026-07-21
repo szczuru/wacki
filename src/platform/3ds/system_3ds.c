@@ -9,6 +9,7 @@
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/system.h"
+#include "audio_3ds.h"
 #include <3ds.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -48,7 +49,13 @@ void plat_system_early_init(void)
 void plat_system_exit(int rc)
 {
     (void)rc;
-    
+
+    /* Shutdown ndsp only if it was ever brought up (audio_3ds_ndsp.c
+     * sets g_ndsp_ready lazily on first plat_audio_open / _begin call —
+     * a --headless run, or one that crashes before touching audio,
+     * never calls ndspInit and must not call ndspExit either). */
+    if (g_ndsp_ready) ndspExit();
+
     /* Shutdown RomFS */
     romfsExit();
     

@@ -14,6 +14,7 @@
 #include "wacki/platform/input.h"
 #include "wacki/platform/video.h"
 #include "gamepad_3ds.h"
+#include "audio_3ds.h"
 #include <3ds.h>
 
 /* Set by SDL_compat.c's SDL_PushEvent(&quit_event) — main.c's SIGINT
@@ -56,6 +57,10 @@ void PlatformPresent(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 void PlatformPumpEvents(void)
 {
     platform_pad_handle_buttons();
+    /* Refills any ndsp wave buffer that finished since last frame — see
+     * audio_3ds.h / audio_3ds_ndsp.c for why this is polled here rather
+     * than serviced from a dedicated audio thread. */
+    plat_audio_3ds_poll();
 }
 
 int PlatformShouldQuit(void)
