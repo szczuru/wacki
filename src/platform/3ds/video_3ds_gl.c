@@ -59,43 +59,76 @@ static uint32_t *s_bot_rgba = NULL;
 static GLuint s_top_tex = 0;
 static GLuint s_bot_tex = 0;
 
-/* Convert 8-bit indexed to RGBA8888 */
-static void indexed_to_rgba(const uint8_t *indexed, const uint8_t *pal,
-                            uint32_t *rgba, int w, int h)
+/* Pack one indexed pixel to the byte order picaGL's glTexImage2D(GL_RGBA,
+ * GL_UNSIGNED_BYTE) actually expects.
+ *
+ * Confirmed against picaGL's real source (source/texture_conv.inc):
+ * _readRGBA8() does a bare `*(uint32_t*)data` (no byte reordering at
+ * all), and _writeRGBA4() then reads that same value back through
+ * `uint8_t *clr = (uint8_t*)&color` and treats clr[0] as R, clr[1] as
+ * G, clr[2] as B, clr[3] as A. On little-endian ARM, clr[0] is the
+ * LEAST-significant byte of the uint32_t — so the value must be built
+ * as R | (G<<8) | (B<<16) | (A<<24), i.e. memory byte order R,G,B,A.
+ * The previous code built A<<24 | R<<16 | G<<8 | B (memory order
+ * B,G,R,A) — R and B ended up swapped in every pixel, which is exactly
+ * the "colors look like a negative" symptom reported. */
+static inline uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b)
 {
-    for (int i = 0; i < w * h; ++i) {
-        const uint8_t *e = pal + indexed[i] * 3;
-        rgba[i] = 0xFF000000u | (e[0] << 16) | (e[1] << 8) | e[2];
+    return (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16) | (0xFFu << 24);
+}
+
+/* Convert + downscale the full indexed game frame directly into a
+ * dst_w x dst_h RGBA buffer (nearest-neighbor). Folding the palette
+ * lookup and the resize into one pass — instead of building a full
+ * 640x480 RGBA intermediate and resizing THAT — cuts out a whole
+ * 640x480 pass of per-pixel work every frame. */
+static void indexed_to_rgba_scaled(const uint8_t *indexed, const uint8_t *pal,
+                                   uint32_t *dst, int dst_w, int dst_h,
+                                   int src_w, int src_h)
+{
+    float x_ratio = (float)src_w / dst_w;
+    float y_ratio = (float)src_h / dst_h;
+    for (int dy = 0; dy < dst_h; ++dy) {
+        int sy = (int)(dy * y_ratio);
+        if (sy >= src_h) sy = src_h - 1;
+        const uint8_t *row = indexed + (size_t)sy * src_w;
+        for (int dx = 0; dx < dst_w; ++dx) {
+            int sx = (int)(dx * x_ratio);
+            if (sx >= src_w) sx = src_w - 1;
+            const uint8_t *e = pal + row[sx] * 3;
+            dst[dy * dst_w + dx] = pack_rgba(e[0], e[1], e[2]);
+        }
     }
 }
 
-/* Extract zoomed region around cursor */
-static void extract_zoom_region(const uint32_t *src, int src_w, int src_h,
-                               uint32_t *dst, int dst_w, int dst_h,
-                               int cx, int cy, int zoom)
+/* Convert + extract the zoomed region around the cursor directly into
+ * a dst_w x dst_h RGBA buffer — same fold-palette-lookup-into-the-
+ * resize-pass rationale as indexed_to_rgba_scaled above. */
+static void indexed_to_rgba_zoom(const uint8_t *indexed, const uint8_t *pal,
+                                 uint32_t *dst, int dst_w, int dst_h,
+                                 int src_w, int src_h,
+                                 int cx, int cy, int zoom)
 {
-    /* Source region size */
     int src_region_w = dst_w / zoom;
     int src_region_h = dst_h / zoom;
 
-    /* Center around cursor */
     int src_x = cx - src_region_w / 2;
     int src_y = cy - src_region_h / 2;
 
-    /* Clamp to source bounds */
     if (src_x < 0) src_x = 0;
     if (src_y < 0) src_y = 0;
     if (src_x + src_region_w > src_w) src_x = src_w - src_region_w;
     if (src_y + src_region_h > src_h) src_y = src_h - src_region_h;
 
-    /* Nearest-neighbor upscale */
     for (int dy = 0; dy < dst_h; ++dy) {
         int sy = src_y + dy / zoom;
         if (sy >= src_h) sy = src_h - 1;
+        const uint8_t *row = indexed + (size_t)sy * src_w;
         for (int dx = 0; dx < dst_w; ++dx) {
             int sx = src_x + dx / zoom;
             if (sx >= src_w) sx = src_w - 1;
-            dst[dy * dst_w + dx] = src[sy * src_w + sx];
+            const uint8_t *e = pal + row[sx] * 3;
+            dst[dy * dst_w + dx] = pack_rgba(e[0], e[1], e[2]);
         }
     }
 }
@@ -196,40 +229,23 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     memcpy(s_shadow, shadow, w * h);
     memcpy(s_palette, pal, 256 * 3);
 
-    /* Convert full frame to RGBA */
-    static uint32_t *full_rgba = NULL;
-    if (!full_rgba) full_rgba = (uint32_t *)linearAlloc(GAME_WIDTH * GAME_HEIGHT * 4);
-    if (!full_rgba) return;
+    /* Build each screen's RGBA buffer directly from the indexed source
+     * in one pass each (no intermediate 640x480 RGBA buffer, no
+     * separate resize pass — see indexed_to_rgba_scaled/_zoom above).
+     * This alone removes an entire extra 640x480 palette-lookup pass
+     * every frame, which on the 3DS's single ARM11 core at 268MHz was
+     * a meaningful fraction of the ~5fps seen. */
+    indexed_to_rgba_scaled(shadow, pal, s_top_rgba, TOP_WIDTH, TOP_HEIGHT, w, h);
 
-    indexed_to_rgba(shadow, pal, full_rgba, w, h);
-
-    /* --- TOP SCREEN: Downscaled game (640x480 -> 400x240) --- */
-    /* Simple nearest-neighbor downscale */
-    float x_ratio = (float)w / TOP_WIDTH;
-    float y_ratio = (float)h / TOP_HEIGHT;
-    for (int y = 0; y < TOP_HEIGHT; ++y) {
-        int sy = (int)(y * y_ratio);
-        if (sy >= h) sy = h - 1;
-        for (int x = 0; x < TOP_WIDTH; ++x) {
-            int sx = (int)(x * x_ratio);
-            if (sx >= w) sx = w - 1;
-            s_top_rgba[y * TOP_WIDTH + x] = full_rgba[sy * w + sx];
-        }
-    }
-
-    /* --- BOTTOM SCREEN: Zoomed region around cursor --- */
     int zoom = ZOOM_LEVELS[g_zoom_level];
     int cx = g_mouse_x;
     int cy = g_mouse_y;
-
-    /* Clamp cursor to game bounds */
     if (cx < 0) cx = 0;
     if (cy < 0) cy = 0;
     if (cx >= w) cx = w - 1;
     if (cy >= h) cy = h - 1;
-
-    extract_zoom_region(full_rgba, w, h, s_bot_rgba, BOT_WIDTH, BOT_HEIGHT,
-                       cx, cy, zoom);
+    indexed_to_rgba_zoom(shadow, pal, s_bot_rgba, BOT_WIDTH, BOT_HEIGHT, w, h,
+                        cx, cy, zoom);
 
     /* --- Render + present TOP screen ---
      * CRITICAL: pglSwapBuffers() only flushes/transfers the buffer for
@@ -252,7 +268,13 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * horizontal squeeze/garbage distortion seen on real hardware. */
     glViewport(0, 0, TOP_WIDTH, TOP_HEIGHT);
     glScissor(0, 0, TOP_WIDTH, TOP_HEIGHT);
-    glClear(GL_COLOR_BUFFER_BIT);
+    /* No glClear() here: the quad below covers the entire viewport
+     * with opaque texels every frame, so clearing first is pure wasted
+     * GPU work — picaGL's glClear (source/misc.c) is a full draw call
+     * with a shader swap (clearShader in, basicShader back out), not
+     * a cheap register write, and doing that twice per frame (once per
+     * screen) for no visible effect was a second real contributor to
+     * the ~5fps seen on top of the extra RGBA conversion pass above. */
     glBindTexture(GL_TEXTURE_2D, s_top_tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TOP_WIDTH, TOP_HEIGHT,
                     GL_RGBA, GL_UNSIGNED_BYTE, s_top_rgba);
@@ -270,7 +292,6 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     pglSelectScreen(GFX_BOTTOM, GFX_LEFT);
     glViewport(0, 0, BOT_WIDTH, BOT_HEIGHT);
     glScissor(0, 0, BOT_WIDTH, BOT_HEIGHT);
-    glClear(GL_COLOR_BUFFER_BIT);
     glBindTexture(GL_TEXTURE_2D, s_bot_tex);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, BOT_WIDTH, BOT_HEIGHT,
                     GL_RGBA, GL_UNSIGNED_BYTE, s_bot_rgba);
