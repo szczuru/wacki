@@ -18,7 +18,7 @@
  *
  * Both channels are serviced by plat_audio_3ds_poll(), called once per
  * frame from PlatformPumpEvents (platform_3ds.c) on the main thread —
- * the same thread that calls every plat_audio_*/plat_avi_audio_* entry
+ * the same thread that calls every plat_audio_ and plat_avi_audio_ entry
  * point, so plat_audio_lock/unlock can be true no-ops (ctrulib's own
  * audio/streaming example uses this exact main-loop-polls-wavebuf-status
  * pattern instead of a dedicated audio thread). */
