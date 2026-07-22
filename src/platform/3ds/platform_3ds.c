@@ -169,23 +169,109 @@ void PlatformShowMessageBox(const char *title, const char *body)
     plat_video_message_box(title, body);
 }
 
-/* Inline text-entry (save-slot rename). 3DS ships a software keyboard
- * applet (swkbd) but wiring the full applet flow is out of scope for
- * this port pass; the typed-char queue simply stays empty, so the
- * rename UI is present but produces no characters yet — no worse than
- * not having the feature, and the queue plumbing is already correct
- * for a future swkbdInputText() hookup. */
-void PlatformSetTextInput(int on)
-{
-    (void)on;
-}
+/* ---- Inline text-entry (save-slot rename) -----------------------------
+ *
+ * src/menu/slot_picker.c's SAVE-menu inline editor is written against
+ * an SDL-shaped contract: PlatformSetTextInput(1) opens text entry,
+ * then PlatformPollTypedChar() is polled every frame (0x08=Backspace,
+ * 0x0D=Enter, else a printable ASCII byte) until it returns 0, and
+ * PlatformSetTextInput(0) closes it. On desktop that maps directly to
+ * SDL_StartTextInput()/SDL_TEXTINPUT events arriving incrementally
+ * across many frames.
+ *
+ * The 3DS has no incremental per-keystroke text events — its software
+ * keyboard (swkbdInputText, 3ds/applets/swkbd.h) is a MODAL applet:
+ * calling it blocks this thread, takes over both screens, and only
+ * returns once the user has finished typing (confirmed or cancelled).
+ * There's no way to "poll" it one keystroke at a time.
+ *
+ * To satisfy slot_picker.c's polling contract without changing that
+ * shared file, PlatformSetTextInput(1) below runs the ENTIRE modal
+ * keyboard synchronously right there, then pushes the whole resulting
+ * string into the same typed-char ring buffer other platforms fill
+ * one keystroke at a time — followed by a synthetic Enter (0x0D) so
+ * slot_picker.c's process_typed_chars() commits immediately once it
+ * drains the queue, exactly as if the user had typed the name and
+ * pressed Enter on a real keyboard. PlatformSetTextInput(0) (called
+ * right after commit) is a no-op since the applet already closed.
+ *
+ * This does mean the game's own frame loop is paused for the duration
+ * of typing (matches how every other modal system dialog on this
+ * console behaves — there is no non-modal alternative), but the
+ * moment the user confirms, the typed name is already fully queued. */
+#define TYPED_QUEUE_SZ  40
+#define ASCII_BACKSPACE 0x08
+#define ASCII_ENTER     0x0D
+#define SWKBD_BUF_SZ    32   /* matches EDIT_NAME_MAX_CHARS_3DS + margin */
+/* Mirrors src/menu/slot_picker.c's own (private, non-exported)
+ * EDIT_NAME_MAX_CHARS — kept as a separate local constant rather than
+ * an #include of that file's internals, same "duplicate the constant
+ * at the boundary" approach the rest of this port uses for HAL
+ * contracts it doesn't own. */
+#define EDIT_NAME_MAX_CHARS_3DS 20
 
-uint8_t PlatformPollTypedChar(void)
+static uint8_t s_typed_q[TYPED_QUEUE_SZ];
+static int     s_typed_head = 0, s_typed_tail = 0;
+
+static void typed_queue_push(uint8_t c)
 {
-    return 0;
+    int next = (s_typed_head + 1) % TYPED_QUEUE_SZ;
+    if (next == s_typed_tail) return; /* full — drop, matches sdl_internal.h's ring */
+    s_typed_q[s_typed_head] = c;
+    s_typed_head = next;
 }
 
 void PlatformPushTypedChar(uint8_t c)
 {
-    (void)c;
+    typed_queue_push(c);
+}
+
+uint8_t PlatformPollTypedChar(void)
+{
+    if (s_typed_head == s_typed_tail) return 0;
+    uint8_t c = s_typed_q[s_typed_tail];
+    s_typed_tail = (s_typed_tail + 1) % TYPED_QUEUE_SZ;
+    return c;
+}
+
+void PlatformSetTextInput(int on)
+{
+    if (!on) return; /* closing: nothing to do, applet already returned below */
+
+    s_typed_head = s_typed_tail = 0;
+
+    static SwkbdState swkbd;
+    char buf[SWKBD_BUF_SZ];
+    buf[0] = '\0';
+
+    /* SWKBD_TYPE_WESTERN: plain Latin keyboard (no Japanese kana/
+     * kanji pages) — matches the Latin-only save-name field
+     * (EDIT_NAME_MAX_CHARS=20 in slot_picker.c). 2 buttons = Cancel +
+     * OK; SWKBD_ANYTHING accepts an empty name (slot_picker.c already
+     * falls back to an auto-generated "etap N kM" name when nothing
+     * was typed). */
+    swkbdInit(&swkbd, SWKBD_TYPE_WESTERN, 2, EDIT_NAME_MAX_CHARS_3DS);
+    swkbdSetValidation(&swkbd, SWKBD_ANYTHING, 0, 0);
+    swkbdSetHintText(&swkbd, "Nazwa zapisu");
+
+    SwkbdButton button = swkbdInputText(&swkbd, buf, sizeof buf);
+
+    if (button != SWKBD_BUTTON_NONE && button != SWKBD_BUTTON_LEFT) {
+        /* Right/confirm button: queue the typed string one byte at a
+         * time (mirrors handle_textinput() in platform_sdl.c pushing
+         * each SDL_TEXTINPUT byte individually), then a synthetic
+         * Enter so slot_picker.c's process_typed_chars() commits as
+         * soon as it drains these bytes. */
+        for (const char *p = buf; *p; ++p) {
+            uint8_t c = (uint8_t)*p;
+            if (c < 0x80) typed_queue_push(c); /* ASCII only — matches
+                                                 * platform_sdl.c's own
+                                                 * UTF8_MULTIBYTE_MARK
+                                                 * filter */
+        }
+        typed_queue_push(ASCII_ENTER);
+    }
+    /* Cancel (SWKBD_BUTTON_LEFT) or any other outcome: leave the queue
+     * empty — slot_picker.c's edit buffer is untouched, matching
+     * "player backed out without typing anything" on desktop. */
 }

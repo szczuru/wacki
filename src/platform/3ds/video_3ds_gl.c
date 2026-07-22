@@ -125,32 +125,64 @@ static inline uint32_t fb_pixel_index(int x, int y)
     return (uint32_t)x * PHYS_ROW_LEN + (uint32_t)(PHYS_ROW_LEN - 1 - y);
 }
 
+/* 256-entry indexed-color -> RGB565 lookup table. Built ONCE per
+ * plat_video_present call (see its call to build_palette_lut, shared
+ * by both screens) — not per pixel, and not per-screen either. Both
+ * blit functions below then do a single array read per pixel
+ * (palette_lut[row[sx]]) instead of re-deriving pack_rgb565(e[0],e[1],
+ * e[2]) — 3 loads + 2 shifts + 2 masks + an OR — from scratch for
+ * EVERY one of the ~96000 (top) + ~76800 (bottom) pixels drawn each
+ * frame. The palette only has 256 possible colors, so precomputing
+ * this once and reusing it for every pixel is a straight win: it
+ * turns the color-conversion cost from O(pixels) expensive-work into
+ * O(pixels) cheap-array-lookup + O(256) expensive-work. */
+static uint16_t s_palette_lut[256];
+
+static void build_palette_lut(const uint8_t *pal)
+{
+    for (int i = 0; i < 256; ++i) {
+        const uint8_t *e = pal + i * 3;
+        s_palette_lut[i] = pack_rgb565(e[0], e[1], e[2]);
+    }
+}
+
 /* Convert + downscale the full indexed game frame directly into the
- * top screen's live framebuffer (nearest-neighbor), one pixel at a
- * time: palette lookup -> RGB565 pack -> rotated-offset write. No
- * intermediate buffer, no GPU texture upload — see this file's top
- * comment for why this is so much cheaper than the picaGL path it
- * replaces. */
+ * top screen's live framebuffer (nearest-neighbor): palette-LUT
+ * lookup -> rotated-offset write. No intermediate buffer, no GPU
+ * texture upload — see this file's top comment for why this is so
+ * much cheaper than the picaGL path it replaces.
+ *
+ * The per-column source-x mapping (sx for each dx) is identical for
+ * every row (it only depends on x_ratio, not dy), so it's precomputed
+ * ONCE into src_x_lut before the row loop instead of being
+ * recalculated (a float multiply + int truncation + clamp) for every
+ * single one of the TOP_HEIGHT*TOP_WIDTH pixels — cuts that part of
+ * the per-pixel cost to a plain array read. */
 static void blit_top_screen(const uint8_t *indexed, const uint8_t *pal,
                             uint16_t *fb, int src_w, int src_h)
 {
+    (void)pal; /* palette LUT built by the caller — see plat_video_present */
+
+    static int src_x_lut[TOP_WIDTH];
     float x_ratio = (float)src_w / TOP_WIDTH;
     float y_ratio = (float)src_h / TOP_HEIGHT;
+    for (int dx = 0; dx < TOP_WIDTH; ++dx) {
+        int sx = (int)(dx * x_ratio);
+        src_x_lut[dx] = (sx >= src_w) ? src_w - 1 : sx;
+    }
+
     for (int dy = 0; dy < TOP_HEIGHT; ++dy) {
         int sy = (int)(dy * y_ratio);
         if (sy >= src_h) sy = src_h - 1;
         const uint8_t *row = indexed + (size_t)sy * src_w;
         uint32_t base = fb_pixel_index(0, dy);
         for (int dx = 0; dx < TOP_WIDTH; ++dx) {
-            int sx = (int)(dx * x_ratio);
-            if (sx >= src_w) sx = src_w - 1;
-            const uint8_t *e = pal + row[sx] * 3;
             /* fb_pixel_index(dx, dy) - fb_pixel_index(0, dy) == dx * PHYS_ROW_LEN
              * exactly (the y-dependent term is constant across dx), so
              * this is the same index fb_pixel_index(dx, dy) would give,
              * computed incrementally instead of re-deriving it every
              * pixel. */
-            fb[base + (uint32_t)dx * PHYS_ROW_LEN] = pack_rgb565(e[0], e[1], e[2]);
+            fb[base + (uint32_t)dx * PHYS_ROW_LEN] = s_palette_lut[row[src_x_lut[dx]]];
         }
     }
 }
@@ -158,24 +190,31 @@ static void blit_top_screen(const uint8_t *indexed, const uint8_t *pal,
 /* Same idea as blit_top_screen, but samples a `zoom`-times magnified
  * crop of the source (src_x/src_y top-left corner, src_region_w/h
  * span) instead of the whole image — the bottom screen's "magnifier"
- * view around the cursor. */
+ * view around the cursor. Shares the same palette-LUT (built once by
+ * blit_top_screen right before this runs — see plat_video_present's
+ * call order) and the same per-column source-x precompute trick. */
 static void blit_bottom_screen_zoom(const uint8_t *indexed, const uint8_t *pal,
                                     uint16_t *fb, int src_w, int src_h,
                                     int src_x, int src_y,
                                     int src_region_w, int src_region_h)
 {
+    (void)pal; /* palette LUT already built (see call site) */
+
+    static int src_x_lut[BOT_WIDTH];
     float x_ratio = (float)src_region_w / BOT_WIDTH;
     float y_ratio = (float)src_region_h / BOT_HEIGHT;
+    for (int dx = 0; dx < BOT_WIDTH; ++dx) {
+        int sx = src_x + (int)(dx * x_ratio);
+        src_x_lut[dx] = (sx >= src_w) ? src_w - 1 : sx;
+    }
+
     for (int dy = 0; dy < BOT_HEIGHT; ++dy) {
         int sy = src_y + (int)(dy * y_ratio);
         if (sy >= src_h) sy = src_h - 1;
         const uint8_t *row = indexed + (size_t)sy * src_w;
         uint32_t base = fb_pixel_index(0, dy);
         for (int dx = 0; dx < BOT_WIDTH; ++dx) {
-            int sx = src_x + (int)(dx * x_ratio);
-            if (sx >= src_w) sx = src_w - 1;
-            const uint8_t *e = pal + row[sx] * 3;
-            fb[base + (uint32_t)dx * PHYS_ROW_LEN] = pack_rgb565(e[0], e[1], e[2]);
+            fb[base + (uint32_t)dx * PHYS_ROW_LEN] = s_palette_lut[row[src_x_lut[dx]]];
         }
     }
 }
@@ -334,6 +373,15 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     s_zoom_src_x = src_x;
     s_zoom_src_y = src_y;
     s_zoom_mult  = zoom;
+
+    /* Built once here (not inside either blit_* function) and shared by
+     * both screens: whichever combination of top_dirty/bot_dirty holds,
+     * the LUT must exist and be current before EITHER blit function
+     * runs — building it inside just one of them (e.g. blit_top_screen)
+     * would leave the bottom screen reading a stale/uninitialized LUT
+     * on a frame where only the cursor moved (top_dirty false, bot_dirty
+     * true). */
+    if (top_dirty || bot_dirty) build_palette_lut(pal);
 
     if (top_dirty) {
         uint16_t *topfb = (uint16_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
