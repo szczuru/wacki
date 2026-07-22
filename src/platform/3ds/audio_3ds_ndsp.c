@@ -139,7 +139,26 @@ void plat_audio_unlock(void) {}
 #define AVI_CHUNK_BYTES  8192          /* generous vs. one video-frame's
                                          * worth of PCM at any supported
                                          * rate/format */
-#define AVI_CHUNK_COUNT  6              /* ~ up to 6 chunks in flight */
+/* Sized so the WHOLE pool (AVI_CHUNK_COUNT * AVI_CHUNK_BYTES) comfortably
+ * exceeds AUDIO_CUSHION_MS (src/flic.c, currently 750ms) worth of audio at
+ * the most demanding realistic format these AVIs use (stereo 16-bit —
+ * 4 bytes/frame — up to 44100 Hz): 750ms * 44100 * 4 bytes ≈ 132 KB, so
+ * 20 chunks * 8192 B = 160 KB clears that with headroom. This used to be
+ * 6 (48 KB — well under the cushion target even at the LOWER rates these
+ * AVIs actually ship at), which meant plat_avi_audio_below_cushion()
+ * effectively could never be satisfied: flic.c's cushion-topping loop
+ * would keep calling stream_pump_one() (which can burst through up to
+ * VIDEO_RING_MAX=32 movi chunks in one pass, with NO intervening ndsp
+ * poll — plat_audio_3ds_poll only runs once per shown video frame, AFTER
+ * that whole burst) until the ring filled up, exhausting all 6 slots
+ * mid-burst. Once exhausted, plat_avi_audio_push's "find a free slot"
+ * search failed and SILENTLY DROPPED the remainder of that audio chunk —
+ * an audible micro-stutter every time a burst happened to catch the pool
+ * full, i.e. every few seconds. Widening the pool alone helps, but see
+ * avi_reclaim_done() below for the other half of the fix (freeing slots
+ * as ndsp finishes them, not just once per video frame). 192 KB total
+ * (worst case) is trivial on New3DS/New2DS's much larger FCRAM budget. */
+#define AVI_CHUNK_COUNT  20
 
 typedef struct {
     void       *buf;         /* linearAlloc'd, AVI_CHUNK_BYTES, reused */
@@ -215,6 +234,34 @@ void plat_avi_audio_begin(int rate, int channels, int bits)
              rate, channels, bits);
 }
 
+/* Reclaim any chunk slots ndsp has finished playing — mirrors the
+ * per-slot check in plat_audio_3ds_poll below, but callable mid-push
+ * instead of only once per shown video frame.
+ *
+ * WHY THIS IS NEEDED HERE TOO: flic.c's cushion-topping loop
+ * ("while (!s.eof && cushion_low(&s) ...) stream_pump_one(&s);") can
+ * call plat_avi_audio_push() many times in a row — up to
+ * VIDEO_RING_MAX (32) movi chunks — in a single burst, ALL before
+ * control ever returns to the main loop where plat_audio_3ds_poll()
+ * runs (that only happens once per displayed video frame). Without
+ * reclaiming inside the push path, a long burst can exhaust the whole
+ * pool even though ndsp already finished several of the earlier
+ * chunks — the exact scenario that caused audible micro-stutters
+ * every few seconds (see AVI_CHUNK_COUNT's comment above for the
+ * full explanation). */
+static void avi_reclaim_done(void)
+{
+    for (int i = 0; i < AVI_CHUNK_COUNT; ++i) {
+        if (s_avi_chunk[i].active && s_avi_chunk[i].wave.status == NDSP_WBUF_DONE) {
+            s_avi_chunk[i].active = 0;
+            if (s_avi_queued_frames >= s_avi_chunk[i].frames)
+                s_avi_queued_frames -= s_avi_chunk[i].frames;
+            else
+                s_avi_queued_frames = 0;
+        }
+    }
+}
+
 void plat_avi_audio_push(void *pcm, int len)
 {
     if (!s_avi_open || len <= 0) return;
@@ -223,13 +270,21 @@ void plat_avi_audio_push(void *pcm, int len)
     while (len > 0) {
         int take = (len > AVI_CHUNK_BYTES) ? AVI_CHUNK_BYTES : len;
 
-        /* Find a free slot. If the whole pool is backed up (shouldn't
-         * happen — the cushion check in flic.c throttles the decoder
-         * well before this many chunks could queue), drop the
-         * remainder rather than block or overwrite a playing buffer. */
+        /* Find a free slot. Reclaim any ndsp has already finished
+         * first (see avi_reclaim_done's comment) — only fall back to
+         * dropping the remainder if the pool is genuinely still full
+         * after that, which now means audio is truly ~1s+ backed up
+         * (20 slots * 8192 B), a real overload rather than this
+         * function simply running ahead of the once-per-frame poll. */
         int slot = -1;
         for (int i = 0; i < AVI_CHUNK_COUNT; ++i) {
             if (!s_avi_chunk[i].active) { slot = i; break; }
+        }
+        if (slot < 0) {
+            avi_reclaim_done();
+            for (int i = 0; i < AVI_CHUNK_COUNT; ++i) {
+                if (!s_avi_chunk[i].active) { slot = i; break; }
+            }
         }
         if (slot < 0) return;
 
@@ -297,15 +352,8 @@ void plat_audio_3ds_poll(void)
         }
     }
 
-    if (s_avi_open) {
-        for (int i = 0; i < AVI_CHUNK_COUNT; ++i) {
-            if (s_avi_chunk[i].active && s_avi_chunk[i].wave.status == NDSP_WBUF_DONE) {
-                s_avi_chunk[i].active = 0;
-                if (s_avi_queued_frames >= s_avi_chunk[i].frames)
-                    s_avi_queued_frames -= s_avi_chunk[i].frames;
-                else
-                    s_avi_queued_frames = 0;
-            }
-        }
-    }
+    /* Same reclaim as avi_reclaim_done() (used mid-burst by
+     * plat_avi_audio_push above) — kept as one shared call so both
+     * paths can never drift out of sync with each other. */
+    if (s_avi_open) avi_reclaim_done();
 }
