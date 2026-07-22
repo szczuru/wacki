@@ -90,6 +90,14 @@ static const int ZOOM_LEVELS[] = {1, 2, 4};
  * clamp math. */
 static int s_zoom_src_x = 0, s_zoom_src_y = 0, s_zoom_mult = 1;
 
+/* Set by gamepad_3ds.c every frame via platform_video_set_touch_active()
+ * — true for every frame a touch is currently held down. When true,
+ * plat_video_present below SKIPS recentering the zoom crop on
+ * g_mouse_x/y and reuses the frozen s_zoom_src_x/y from the frame the
+ * touch started on. See platform_video_set_touch_active's own comment
+ * for why continuously recentering while touched causes runaway drift. */
+static int s_touch_active = 0;
+
 /* g_mouse_x / g_mouse_y — the shared cursor globals (wacki/globals.h,
  * pulled in via wacki.h above). gamepad_3ds.c's touch/circle-pad code
  * writes them; using a private g_cursor_x/y here would desync the
@@ -227,6 +235,34 @@ void platform_video_cycle_zoom(void)
 {
     g_zoom_level = (g_zoom_level + 1) % NUM_ZOOM_LEVELS;
     LOG_INFO("3ds", "zoom level: %dx", ZOOM_LEVELS[g_zoom_level]);
+}
+
+/* Called once per frame from gamepad_3ds.c's platform_pad_handle_buttons
+ * — `active` is true for every frame a touch is currently held down,
+ * false the instant it's released.
+ *
+ * WHY THIS EXISTS (fixes reported "cursor jumps/drifts fast" bug): the
+ * bottom-screen crop recenters on g_mouse_x/y every frame it's redrawn.
+ * A touch tap writes g_mouse_x/y by inverting THAT SAME crop
+ * (platform_video_touch_to_game). If the crop were allowed to recenter
+ * on the newly-written g_mouse_x/y again next frame WHILE THE SAME
+ * TOUCH IS STILL HELD, the two feed off each other: touching a fixed
+ * panel point tx away from center shifts the cursor by a constant
+ * k = (tx - panel_center)/zoom EVERY frame, relative to wherever the
+ * cursor ended up the previous frame — a runaway constant-velocity
+ * drift for as long as the finger stays down anywhere off-center. That
+ * matches "im dłużej trzymam, tym szybciej ucieka" exactly.
+ *
+ * Freezing the crop for the whole duration a touch is held (only
+ * recentering again once the finger lifts) breaks the loop: every
+ * frame of a single touch-and-drag now maps through the IDENTICAL
+ * region, so a held finger at a fixed panel point always resolves to
+ * the same game-surface point — sliding the finger still drags the
+ * cursor smoothly (each new tx/ty maps through that one frozen crop),
+ * it just stops re-centering the magnifier out from under itself. */
+void platform_video_set_touch_active(int active)
+{
+    s_touch_active = active;
 }
 
 /* Map a touch-panel tap (tx,ty in the 320x240 BOT_WIDTH/BOT_HEIGHT
@@ -381,24 +417,40 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * (cheap integer math) even when only the top screen is dirty, so
      * platform_video_touch_to_game always has an up-to-date region to
      * invert against — touch input must keep working even on frames
-     * where the bottom screen's PIXELS didn't need re-drawing. */
-    int cx = g_mouse_x;
-    int cy = g_mouse_y;
-    if (cx < 0) cx = 0;
-    if (cy < 0) cy = 0;
-    if (cx >= w) cx = w - 1;
-    if (cy >= h) cy = h - 1;
-
+     * where the bottom screen's PIXELS didn't need re-drawing.
+     *
+     * EXCEPT while a touch is actively held (s_touch_active, set by
+     * gamepad_3ds.c) — see platform_video_set_touch_active's comment
+     * above for why recentering on every frame of a held touch causes
+     * runaway drift. While frozen, s_zoom_src_x/y simply keep whatever
+     * value they had from the frame the touch started (or from normal
+     * cursor-follow recentering before that) — src_region_w/h are
+     * still recomputed every frame since the ZOOM LEVEL can still
+     * change (X button) while a touch is held. */
     int src_region_w = BOT_WIDTH / zoom;
     int src_region_h = BOT_HEIGHT / zoom;
-    int src_x = cx - src_region_w / 2;
-    int src_y = cy - src_region_h / 2;
-    if (src_x < 0) src_x = 0;
-    if (src_y < 0) src_y = 0;
-    if (src_x + src_region_w > w) src_x = w - src_region_w;
-    if (src_y + src_region_h > h) src_y = h - src_region_h;
-    if (src_x < 0) src_x = 0; /* region wider than source (zoom<1 edge case) */
-    if (src_y < 0) src_y = 0;
+    int src_x, src_y;
+
+    if (s_touch_active) {
+        src_x = s_zoom_src_x;
+        src_y = s_zoom_src_y;
+    } else {
+        int cx = g_mouse_x;
+        int cy = g_mouse_y;
+        if (cx < 0) cx = 0;
+        if (cy < 0) cy = 0;
+        if (cx >= w) cx = w - 1;
+        if (cy >= h) cy = h - 1;
+
+        src_x = cx - src_region_w / 2;
+        src_y = cy - src_region_h / 2;
+        if (src_x < 0) src_x = 0;
+        if (src_y < 0) src_y = 0;
+        if (src_x + src_region_w > w) src_x = w - src_region_w;
+        if (src_y + src_region_h > h) src_y = h - src_region_h;
+        if (src_x < 0) src_x = 0; /* region wider than source (zoom<1 edge case) */
+        if (src_y < 0) src_y = 0;
+    }
 
     s_zoom_src_x = src_x;
     s_zoom_src_y = src_y;

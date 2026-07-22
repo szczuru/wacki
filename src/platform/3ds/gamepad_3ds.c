@@ -3,17 +3,32 @@
  *
  * src/platform/3ds/gamepad_3ds.c — 3DS button + touch + circle-pad input.
  *
- * BUTTON MAPPING (Nintendo A/B swapped to match the "A = confirm/left-
- * click" convention the engine expects, same rationale as the Switch
- * port — ctrulib's KEY_A/KEY_B follow the physical button silkscreen,
- * which is mirrored vs. an Xbox-layout pad):
- *   Physical A (east)  → left click   (KEY_B in ctrulib)
- *   Physical B (south) → right click  (KEY_A in ctrulib)
- *   Physical X (north) → cycle bottom-screen zoom level (1x/2x/4x)
- *   Physical Y (west)  → (reserved; no-op — no aspect-mode concept on
- *                         a fixed dual-screen console)
- *   START              → pause menu
- *   SELECT             → toggle shoulder hand-mode (left/right)
+ * BUTTON MAPPING — NO relabeling needed here, unlike the Switch port:
+ *
+ * The Switch port (src/platform/switch/gamepad_switch.c) swaps SDL_A/
+ * SDL_B because SDL_GameController names buttons by POSITION in the
+ * Xbox diamond (SDL_A=south, SDL_B=east), while Nintendo's physical
+ * silkscreen labels are the opposite (south=B, east=A) — so on Switch,
+ * "physical A" is read via the SDL_B enum value.
+ *
+ * ctrulib's HID API works completely differently: KEY_A/KEY_B/KEY_X/
+ * KEY_Y (3ds/services/hid.h) are defined directly against the
+ * PHYSICAL button labels — there is no position-based abstraction
+ * layer to compensate for. KEY_A *is* the physical A button. Blindly
+ * porting the Switch port's "swap A/B, swap X/Y" compensation here
+ * (an earlier version of this file did exactly that) double-flips
+ * the mapping: pressing physical A fired a right-click and physical B
+ * fired a left-click — the exact "A i B są zamienione" bug reported
+ * after testing. Fixed by mapping each ctrulib KEY_* directly to its
+ * own physical button, with no swap:
+ *
+ *   Physical A → left click
+ *   Physical B → right click
+ *   Physical X → cycle bottom-screen zoom level (1x/2x/4x)
+ *   Physical Y → (reserved; no-op — no aspect-mode concept on a fixed
+ *                 dual-screen console)
+ *   START      → pause menu
+ *   SELECT     → toggle shoulder hand-mode (left/right)
  *
  * SHOULDER HAND MODES (SELECT toggles):
  *   left  (default): L/ZL = left/right click,  R/ZR = quicksave/quickload
@@ -29,9 +44,22 @@
  * The bottom screen shows a `zoom`-times magnified CROP around the
  * cursor, not a flat-scaled whole image — so the touch point must be
  * mapped through platform_video_touch_to_game(), which inverts the
- * exact region video_3ds_gl.c's indexed_to_rgba_zoom() drew that
+ * exact region video_3ds_gl.c's blit_bottom_screen_zoom() drew that
  * frame (see its own comment for why a locally-recomputed clamp here
- * would drift out of sync with what's actually on screen). */
+ * would drift out of sync with what's actually on screen).
+ *
+ * TOUCH-HOLD FREEZE (fixes reported "cursor jumps/drifts fast" bug):
+ * the crop's center follows g_mouse_x/y every frame it's redrawn. If
+ * the crop were allowed to recenter WHILE a touch is held, each frame
+ * would feed back into the next: touching a fixed point tx away from
+ * the panel's center shifts the cursor by a constant amount every
+ * single frame (k = (tx - panel_center) / zoom), i.e. a runaway
+ * constant-velocity drift for as long as the finger stays down off-
+ * center — exactly the "przeskakuje strasznie szybko" symptom. Fixed
+ * by telling video_3ds_gl.c to freeze the crop (platform_video_
+ * set_touch_active) for the whole duration a touch is held, only
+ * letting it recenter again after release — see that function's own
+ * comment in video_3ds_gl.c for the frozen-crop bookkeeping. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -59,6 +87,9 @@ extern void platform_video_cycle_zoom(void);
  * video_3ds_gl.c's own comment on indexed_to_rgba_zoom for why the
  * mapping can't be recomputed independently here. */
 extern void platform_video_touch_to_game(int tx, int ty, int *gx, int *gy);
+/* video_3ds_gl.c: freezes/unfreezes the zoom-crop recenter — see this
+ * file's top comment ("TOUCH-HOLD FREEZE") for why this is needed. */
+extern void platform_video_set_touch_active(int active);
 
 /* ---- HAL entry points ------------------------------------------------ */
 
@@ -76,13 +107,14 @@ void platform_pad_handle_buttons(void)
     u32 down = hidKeysDown();
     u32 held = hidKeysHeld();
 
-    /* Physical A (ctrulib KEY_B) = left click. */
-    if (down & KEY_B) g_lmb_clicked = 1;
-    /* Physical B (ctrulib KEY_A) = right click. */
-    if (down & KEY_A) g_rmb_clicked = 1;
-    /* Physical X (ctrulib KEY_Y) = cycle bottom-screen zoom. */
-    if (down & KEY_Y) platform_video_cycle_zoom();
-    /* Physical Y (ctrulib KEY_X): reserved, intentionally no-op. */
+    /* Physical A = left click. No swap — see this file's top comment
+     * for why the Switch port's A/B compensation doesn't apply here. */
+    if (down & KEY_A) g_lmb_clicked = 1;
+    /* Physical B = right click. */
+    if (down & KEY_B) g_rmb_clicked = 1;
+    /* Physical X = cycle bottom-screen zoom. */
+    if (down & KEY_X) platform_video_cycle_zoom();
+    /* Physical Y: reserved, intentionally no-op. */
 
     if (down & KEY_START)  g_pause_menu_request = 1;
     if (down & KEY_SELECT) {
@@ -106,6 +138,13 @@ void platform_pad_handle_buttons(void)
      * on touch-down (not every held frame — a drag shouldn't spam
      * clicks). */
     if (held & KEY_TOUCH) {
+        /* Freeze the zoom crop's recenter BEFORE reading/mapping this
+         * touch — platform_video_touch_to_game (called right below)
+         * must invert through the region video_3ds_gl.c is about to
+         * treat as frozen for this frame, not one it might still
+         * recenter afterward. */
+        platform_video_set_touch_active(1);
+
         touchPosition touch;
         hidTouchRead(&touch);
         int gx, gy;
@@ -117,6 +156,12 @@ void platform_pad_handle_buttons(void)
             s_touch_was_down = 1;
         }
     } else {
+        if (s_touch_was_down) {
+            /* Just released: unfreeze so the crop resumes following
+             * the cursor (now driven by D-pad/circle-pad again) from
+             * next frame on. */
+            platform_video_set_touch_active(0);
+        }
         s_touch_was_down = 0;
     }
 }

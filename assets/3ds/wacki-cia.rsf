@@ -1,0 +1,205 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Mateusz Szuła
+#
+# assets/3ds/wacki-cia.rsf — makerom Rom Specification File for the
+# installable .cia build.
+#
+# Base template adapted from jakcron's widely-used sample RSF
+# (https://gist.github.com/jakcron/9f9f02ffd94d98a72632, referenced
+# directly from makerom's own README.md) — that sample is itself the
+# de-facto standard starting point for homebrew CIAs (used by
+# ButtonSwap3DS, Universal-Updater, and most GBAtemp CIA-conversion
+# guides). Fields changed from that base are commented with WHY below;
+# everything else (SystemCallAccess, most ServiceAccessControl,
+# Dependency) is left as-is since Wacki's needs are a strict SUBSET of
+# what that template already grants.
+
+BasicInfo:
+  Title                   : Wacki
+  CompanyCode             : "00"
+  ProductCode             : CTR-P-WACKI
+  ContentType             : Application
+  Logo                    : Homebrew # unsigned homebrew - no retail Nintendo logo license
+
+TitleInfo:
+  # Arbitrary-but-fixed 20-bit UniqueId so repeated CIA builds/installs
+  # of THIS game always overwrite the same HOME Menu slot instead of
+  # piling up duplicates every time the version changes. Chosen from
+  # makerom's homebrew-safe range; not registered with Nintendo (this
+  # is unsigned homebrew, not a real title-id allocation).
+  UniqueId                : 0x0AC4E
+  Category                : Application
+
+Option:
+  UseOnSD                 : true  # install to SD, not NAND
+  FreeProductCode         : true  # ProductCode above isn't a real Nintendo-issued code
+  MediaFootPadding        : false
+  EnableCrypt             : false # unsigned/unencrypted - matches "Logo: Homebrew"
+  EnableCompress          : true  # compress ExeFS .code (smaller .cia, no runtime cost)
+
+AccessControlInfo:
+  # ---- Filesystem access -----------------------------------------
+  # See src/platform/3ds/system_3ds.c (chdir("sdmc:/3ds/wacki")) and
+  # src/platform/3ds/storage_3ds.c (FSUSER_OpenArchive(ARCHIVE_SDMC,...)
+  # to commit save writes) — the game reads its data files AND writes
+  # Wacki.sav directly on the SD card via the sdmc: devoptab, in a
+  # normal directory (not extdata/savedata). A LAUNCHED-VIA-HOMEBREW-
+  # LAUNCHER .3dsx gets broad SD access for free from the loader that
+  # started it; an INSTALLED .cia does not — its exheader must request
+  # SD access explicitly, or FSUSER_OpenArchive(ARCHIVE_SDMC) fails
+  # with a permission error on real hardware/CFW the moment the game
+  # tries to read data/ or write a save. DirectSdmc = read, 
+  # DirectSdmcWrite = write; both are required.
+  FileSystemAccess:
+   - DirectSdmc
+   - DirectSdmcWrite
+
+  IdealProcessor                : 0
+  AffinityMask                  : 1
+  Priority                      : 16
+  MaxCpu                        : 0 # let system decide
+  HandleTableSize                : 0x200
+  DisableDebug                  : false
+  EnableForceDebug              : false
+  CanWriteSharedPage            : true
+  CanUsePrivilegedPriority      : false
+  CanUseNonAlphabetAndNumber    : true
+  PermitMainFunctionArgument    : true
+  CanShareDeviceMemory          : true
+  RunnableOnSleep               : false
+  SpecialMemoryArrange          : true
+
+  CoreVersion                   : 2
+  DescVersion                   : 2
+  ReleaseKernelMajor            : "02"
+  ReleaseKernelMinor            : "33"
+
+  UseExtSaveData                : false
+
+  MemoryType                    : Application
+  SystemMode                    : 64MB # Old3DS/2DS memory mode (default)
+
+  # ---- New3DS/New2DS CPU speedup -----------------------------------
+  # Mirrors src/platform/3ds/system_3ds.c's own osSetSpeedupEnable(true)
+  # call at the API level: that runtime call requests the faster
+  # clock, but the exheader's DECLARED CpuSpeed/SystemModeExt/
+  # EnableL2Cache are what the loader/kernel actually uses to size the
+  # process's available New3DS-only resources up front. 804MHz +
+  # L2 cache enabled matches osSetSpeedupEnable's effect; 124MB
+  # SystemModeExt is the standard "give a New3DS app the extra RAM"
+  # value used by every sample RSF, harmless on Old3DS/2DS (this
+  # setting is New3DS-only and simply doesn't apply there).
+  SystemModeExt                  : 124MB
+  CpuSpeed                       : 804MHz
+  EnableL2Cache                  : true
+  CanAccessCore2                 : true
+
+  IORegisterMapping:
+   - 1ff00000-1ff7ffff   # DSP memory (ndsp audio — audio_3ds_ndsp.c)
+  MemoryMapping:
+   - 1f000000-1f5fffff:r # VRAM
+
+  SystemCallAccess:
+    ArbitrateAddress: 34
+    Break: 60
+    CancelTimer: 28
+    ClearEvent: 25
+    ClearTimer: 29
+    CloseHandle: 35
+    ConnectToPort: 45
+    ControlMemory: 1
+    CreateAddressArbiter: 33
+    CreateEvent: 23
+    CreateMemoryBlock: 30
+    CreateMutex: 19
+    CreateSemaphore: 21
+    CreateThread: 8
+    CreateTimer: 26
+    DuplicateHandle: 39
+    ExitProcess: 3
+    ExitThread: 9
+    GetCurrentProcessorNumber: 17
+    GetHandleInfo: 41
+    GetProcessId: 53
+    GetProcessIdOfThread: 54
+    GetProcessIdealProcessor: 6
+    GetProcessInfo: 43
+    GetResourceLimit: 56
+    GetResourceLimitCurrentValues: 58
+    GetResourceLimitLimitValues: 57
+    GetSystemInfo: 42
+    GetSystemTick: 40
+    GetThreadContext: 59
+    GetThreadId: 55
+    GetThreadIdealProcessor: 15
+    GetThreadInfo: 44
+    GetThreadPriority: 11
+    MapMemoryBlock: 31
+    OutputDebugString: 61
+    QueryMemory: 2
+    ReleaseMutex: 20
+    ReleaseSemaphore: 22
+    SendSyncRequest1: 46
+    SendSyncRequest2: 47
+    SendSyncRequest3: 48
+    SendSyncRequest4: 49
+    SendSyncRequest: 50
+    SetThreadPriority: 12
+    SetTimer: 27
+    SignalEvent: 24
+    SleepThread: 10
+    UnmapMemoryBlock: 32
+    WaitSynchronization1: 36
+    WaitSynchronizationN: 37
+    Backdoor: 123
+
+  # Services actually touched by this port:
+  #   fs:USER   — sdmc: file I/O (data files + Wacki.sav), FSUSER_*
+  #   gsp::Gpu  — gfxInitDefault / direct-framebuffer writes (video_3ds_gl.c)
+  #   hid:USER  — buttons/circle-pad/touch (gamepad_3ds.c)
+  #   cfg:u     — osSetSpeedupEnable / system config (system_3ds.c)
+  #   ndm:u     — required alongside gsp/hid on most homebrew (network
+  #               device manager arbitration; harmless if unused)
+  #   csnd:SND / ndsp — audio (audio_3ds_ndsp.c uses ndsp, listed via
+  #               its dependency below; csnd:SND kept for compatibility)
+  #   ptm:u     — osSetSpeedupEnable talks to PTM under the hood
+  #   APT:U     — applet/home-menu transitions (required by every app)
+  #   ac:u      — Wifi status only touched transitively by some
+  #               libctru init paths; kept from the base template
+  #               rather than risk an under-specified ACL
+  ServiceAccessControl:
+   - APT:U
+   - ac:u
+   - fs:USER
+   - gsp::Gpu
+   - hid:USER
+   - ndm:u
+   - cfg:u
+   - csnd:SND
+   - ptm:u
+   - y2r:u
+
+SystemControlInfo:
+  SaveDataSize: 0K # no NAND SaveData archive - Wacki.sav lives on raw sdmc:
+  RemasterVersion: 0
+  StackSize: 0x40000
+
+  Dependency:
+    ac: 0x0004013000002402
+    am: 0x0004013000001502
+    cfg: 0x0004013000001702
+    codec: 0x0004013000001802
+    csnd: 0x0004013000002702
+    dsp: 0x0004013000001a02
+    gpio: 0x0004013000001b02
+    gsp: 0x0004013000001c02
+    hid: 0x0004013000001d02
+    i2c: 0x0004013000001e02
+    mcu: 0x0004013000001f02
+    mic: 0x0004013000002002
+    ndm: 0x0004013000002b02
+    nwm: 0x0004013000002d02
+    pdn: 0x0004013000002102
+    ps: 0x0004013000003102
+    ptm: 0x0004013000002202
+    spi: 0x0004013000002302

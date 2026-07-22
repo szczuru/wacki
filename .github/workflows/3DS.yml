@@ -41,3 +41,20 @@ jobs:
           name: wacki-3ds
           path: dist/wacki.3dsx
           if-no-files-found: error
+
+      # Runs on the GHA runner HOST (ubuntu-latest = Ubuntu 24.04, glibc
+      # 2.39), NOT inside the devkitpro/devkitarm container above — makerom
+      # and bannertool's prebuilt Linux binaries require glibc >= 2.38,
+      # which the devkitarm image's older Debian base does not provide.
+      # tools/build-3ds.sh already produced dist/wacki (the ELF) and
+      # dist/wacki.3dsx in the previous step; this step only PACKAGES that
+      # ELF into an installable .cia, no engine recompilation happens here.
+      - name: Build CIA (tools/build-3ds-cia.sh)
+        run: bash tools/build-3ds-cia.sh
+
+      - name: Wgraj artefakt .cia
+        uses: actions/upload-artifact@v4
+        with:
+          name: wacki-3ds-cia
+          path: dist/wacki.cia
+          if-no-files-found: error
