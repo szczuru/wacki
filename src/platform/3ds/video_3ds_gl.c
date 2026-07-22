@@ -75,20 +75,33 @@
 #define GAME_WIDTH  640
 #define GAME_HEIGHT 480
 
-/* Zoom levels for bottom screen */
-static int g_zoom_level = 0; /* 0=1x, 1=2x, 2=4x */
-static const int ZOOM_LEVELS[] = {1, 2, 4};
-#define NUM_ZOOM_LEVELS 3
+/* Zoom levels for bottom screen. 0 is a sentinel meaning "no zoom" —
+ * show the WHOLE game surface (640x480) scaled down to fit the bottom
+ * screen, like a miniature of the top screen, instead of a magnified
+ * crop around the cursor. Placed LAST in the cycle (not first) so the
+ * default g_zoom_level=0 index keeps its original behavior (1x crop)
+ * rather than silently changing what a fresh boot shows; X still
+ * reaches it, just one more press away: 1x -> 2x -> 4x -> no-zoom -> 1x. */
+static int g_zoom_level = 0; /* index into ZOOM_LEVELS, 0=1x by default */
+static const int ZOOM_LEVELS[] = {1, 2, 4, 0};
+#define NUM_ZOOM_LEVELS 4
 
-/* The exact source-image region the LAST bottom-screen (zoomed) frame
- * was extracted from — the top-left corner (s_zoom_src_x/y, in game-
- * surface pixels) and the zoom multiplier. Cached here (written once
- * per frame by plat_video_present, right before the bottom-screen
- * pixel loop runs) so platform_video_touch_to_game() can map a touch-
- * panel tap back through the SAME region instead of re-deriving its
- * own (potentially stale, or differently-clamped) copy of the center/
- * clamp math. */
-static int s_zoom_src_x = 0, s_zoom_src_y = 0, s_zoom_mult = 1;
+/* The exact source-image region the LAST bottom-screen frame was
+ * extracted from — the top-left corner (s_zoom_src_x/y, in game-
+ * surface pixels) and its width/height (s_zoom_region_w/h, also in
+ * game-surface pixels). Cached here (written once per frame by
+ * plat_video_present, right before the bottom-screen pixel loop runs)
+ * so platform_video_touch_to_game() can map a touch-panel tap back
+ * through the SAME region instead of re-deriving its own (potentially
+ * stale, or differently-clamped) copy of the center/clamp math.
+ *
+ * Tracked as a region SIZE (not an integer "zoom multiplier") so the
+ * same inverse-mapping math in platform_video_touch_to_game works
+ * uniformly for every case, including the "no zoom" full-view mode
+ * (region size == the whole w x h source, which has no single integer
+ * zoom factor relative to BOT_WIDTH/BOT_HEIGHT in general). */
+static int s_zoom_src_x = 0, s_zoom_src_y = 0;
+static int s_zoom_region_w = BOT_WIDTH, s_zoom_region_h = BOT_HEIGHT;
 
 /* Set by gamepad_3ds.c every frame via platform_video_set_touch_active()
  * — true for every frame a touch is currently held down. When true,
@@ -234,7 +247,11 @@ static void blit_bottom_screen_zoom(const uint8_t *indexed, const uint8_t *pal,
 void platform_video_cycle_zoom(void)
 {
     g_zoom_level = (g_zoom_level + 1) % NUM_ZOOM_LEVELS;
-    LOG_INFO("3ds", "zoom level: %dx", ZOOM_LEVELS[g_zoom_level]);
+    int zoom = ZOOM_LEVELS[g_zoom_level];
+    if (zoom == 0)
+        LOG_INFO("3ds", "zoom level: no zoom (full view)");
+    else
+        LOG_INFO("3ds", "zoom level: %dx", zoom);
 }
 
 /* Called once per frame from gamepad_3ds.c's platform_pad_handle_buttons
@@ -268,18 +285,24 @@ void platform_video_set_touch_active(int active)
 /* Map a touch-panel tap (tx,ty in the 320x240 BOT_WIDTH/BOT_HEIGHT
  * panel space) to game-surface coordinates, by inverting the EXACT
  * region blit_bottom_screen_zoom drew into the bottom screen on the
- * most recent plat_video_present call (cached in s_zoom_src_x/y/mult).
+ * most recent plat_video_present call (cached in s_zoom_src_x/y +
+ * s_zoom_region_w/h).
  *
- * A tap at panel pixel (tx,ty) maps to
- * (src_x + tx/zoom, src_y + ty/zoom) — the same forward transform
- * blit_bottom_screen_zoom used, run backwards. */
+ * Uses the same ratio-based math as blit_bottom_screen_zoom's forward
+ * transform (src_region_w/dst_w, src_region_h/dst_h), inverted — NOT
+ * a simple tx/zoom divide. An integer "zoom multiplier" only exists
+ * for the magnified-crop levels (1x/2x/4x); the "no zoom" full-view
+ * level's region is the whole w x h source, which isn't an integer
+ * multiple of BOT_WIDTH/BOT_HEIGHT in general (640/320=2x exactly by
+ * coincidence for the width, but 480/240=2x too — still, computing it
+ * as a ratio here means this keeps working correctly even if
+ * GAME_WIDTH/HEIGHT or BOT_WIDTH/HEIGHT ever change independently). */
 void platform_video_touch_to_game(int tx, int ty, int *gx, int *gy)
 {
-    int zoom = s_zoom_mult > 0 ? s_zoom_mult : 1;
-    int rx = tx / zoom;
-    int ry = ty / zoom;
-    int x = s_zoom_src_x + rx;
-    int y = s_zoom_src_y + ry;
+    float x_ratio = (float)s_zoom_region_w / BOT_WIDTH;
+    float y_ratio = (float)s_zoom_region_h / BOT_HEIGHT;
+    int x = s_zoom_src_x + (int)(tx * x_ratio);
+    int y = s_zoom_src_y + (int)(ty * y_ratio);
 
     if (x < 0) x = 0;
     if (y < 0) y = 0;
@@ -398,7 +421,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
                     memcmp(s_shadow, shadow, (size_t)w * h) != 0 ||
                     memcmp(s_palette, pal, 256 * 3) != 0;
 
-    int zoom = ZOOM_LEVELS[g_zoom_level];
+    int zoom = ZOOM_LEVELS[g_zoom_level]; /* 0 = sentinel for "no zoom" (full view) */
     int bot_dirty = top_dirty ||
                     g_mouse_x != s_prev_mouse_x ||
                     g_mouse_y != s_prev_mouse_y ||
@@ -427,34 +450,48 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * cursor-follow recentering before that) — src_region_w/h are
      * still recomputed every frame since the ZOOM LEVEL can still
      * change (X button) while a touch is held. */
-    int src_region_w = BOT_WIDTH / zoom;
-    int src_region_h = BOT_HEIGHT / zoom;
-    int src_x, src_y;
+    int src_region_w, src_region_h, src_x, src_y;
 
-    if (s_touch_active) {
-        src_x = s_zoom_src_x;
-        src_y = s_zoom_src_y;
+    if (zoom == 0) {
+        /* "No zoom": show the ENTIRE game surface, same as the top
+         * screen, just scaled to BOT_WIDTH/BOT_HEIGHT instead of
+         * TOP_WIDTH/TOP_HEIGHT — no cursor-following crop at all, so
+         * touch-hold freezing is irrelevant here (the region never
+         * moves regardless of s_touch_active). */
+        src_region_w = w;
+        src_region_h = h;
+        src_x = 0;
+        src_y = 0;
     } else {
-        int cx = g_mouse_x;
-        int cy = g_mouse_y;
-        if (cx < 0) cx = 0;
-        if (cy < 0) cy = 0;
-        if (cx >= w) cx = w - 1;
-        if (cy >= h) cy = h - 1;
+        src_region_w = BOT_WIDTH / zoom;
+        src_region_h = BOT_HEIGHT / zoom;
 
-        src_x = cx - src_region_w / 2;
-        src_y = cy - src_region_h / 2;
-        if (src_x < 0) src_x = 0;
-        if (src_y < 0) src_y = 0;
-        if (src_x + src_region_w > w) src_x = w - src_region_w;
-        if (src_y + src_region_h > h) src_y = h - src_region_h;
-        if (src_x < 0) src_x = 0; /* region wider than source (zoom<1 edge case) */
-        if (src_y < 0) src_y = 0;
+        if (s_touch_active) {
+            src_x = s_zoom_src_x;
+            src_y = s_zoom_src_y;
+        } else {
+            int cx = g_mouse_x;
+            int cy = g_mouse_y;
+            if (cx < 0) cx = 0;
+            if (cy < 0) cy = 0;
+            if (cx >= w) cx = w - 1;
+            if (cy >= h) cy = h - 1;
+
+            src_x = cx - src_region_w / 2;
+            src_y = cy - src_region_h / 2;
+            if (src_x < 0) src_x = 0;
+            if (src_y < 0) src_y = 0;
+            if (src_x + src_region_w > w) src_x = w - src_region_w;
+            if (src_y + src_region_h > h) src_y = h - src_region_h;
+            if (src_x < 0) src_x = 0; /* region wider than source (zoom<1 edge case) */
+            if (src_y < 0) src_y = 0;
+        }
     }
 
     s_zoom_src_x = src_x;
     s_zoom_src_y = src_y;
-    s_zoom_mult  = zoom;
+    s_zoom_region_w = src_region_w;
+    s_zoom_region_h = src_region_h;
 
     /* Built once here (not inside either blit_* function) and shared by
      * both screens: whichever combination of top_dirty/bot_dirty holds,
