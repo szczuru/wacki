@@ -17,7 +17,20 @@ CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
           -I$(DEVKITPRO)/portlibs/3ds/include \
           -I/opt/devkitpro/picaGL/include
 
-CFLAGS_SIZE  := -Os -ffunction-sections -fdata-sections
+# -O2 (NOT -Os): the base Makefile's CFLAGS already sets -O2, but the
+# engine-link recipe passes CFLAGS then CFLAGS_SIZE on the SAME command
+# line ($(CC) $(CFLAGS) $(CFLAGS_SIZE) ...) — when a compiler sees two
+# conflicting -O flags, the LAST one wins, so this var (originally -Os,
+# "optimize for size") was silently overriding -O2 and building the
+# ENTIRE engine — the VM interpreter, actor walking, rendering, not just
+# video_3ds_gl.c — for binary size instead of speed. That mattered on
+# space-constrained targets, but the 3DS loads its .3dsx from an SD card
+# with no meaningful size limit, so there's no upside to -Os here, only
+# the (measured) downside of a slower interpreter loop on top of
+# everything else. -ffunction-sections/-fdata-sections + the linker's
+# --gc-sections (LDFLAGS_SIZE below) are UNRELATED to the -O level (they
+# just let the linker drop unused functions/data) and are kept as-is.
+CFLAGS_SIZE  := -O2 -ffunction-sections -fdata-sections
 LDFLAGS_SIZE := -Wl,--gc-sections
 
 LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \

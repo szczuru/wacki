@@ -175,14 +175,16 @@ static void blit_top_screen(const uint8_t *indexed, const uint8_t *pal,
         int sy = (int)(dy * y_ratio);
         if (sy >= src_h) sy = src_h - 1;
         const uint8_t *row = indexed + (size_t)sy * src_w;
-        uint32_t base = fb_pixel_index(0, dy);
+        /* fb_pixel_index(dx, dy) - fb_pixel_index(0, dy) == dx * PHYS_ROW_LEN
+         * exactly (the y-dependent term is constant across dx). Walking
+         * this offset with a running += PHYS_ROW_LEN instead of
+         * recomputing dx * PHYS_ROW_LEN for every pixel replaces a
+         * multiply (several cycles on the 3DS's ARM11) with a single
+         * add per pixel. */
+        uint16_t *dst = fb + fb_pixel_index(0, dy);
         for (int dx = 0; dx < TOP_WIDTH; ++dx) {
-            /* fb_pixel_index(dx, dy) - fb_pixel_index(0, dy) == dx * PHYS_ROW_LEN
-             * exactly (the y-dependent term is constant across dx), so
-             * this is the same index fb_pixel_index(dx, dy) would give,
-             * computed incrementally instead of re-deriving it every
-             * pixel. */
-            fb[base + (uint32_t)dx * PHYS_ROW_LEN] = s_palette_lut[row[src_x_lut[dx]]];
+            *dst = s_palette_lut[row[src_x_lut[dx]]];
+            dst += PHYS_ROW_LEN;
         }
     }
 }
@@ -212,9 +214,11 @@ static void blit_bottom_screen_zoom(const uint8_t *indexed, const uint8_t *pal,
         int sy = src_y + (int)(dy * y_ratio);
         if (sy >= src_h) sy = src_h - 1;
         const uint8_t *row = indexed + (size_t)sy * src_w;
-        uint32_t base = fb_pixel_index(0, dy);
+        /* Same running-offset trick as blit_top_screen above. */
+        uint16_t *dst = fb + fb_pixel_index(0, dy);
         for (int dx = 0; dx < BOT_WIDTH; ++dx) {
-            fb[base + (uint32_t)dx * PHYS_ROW_LEN] = s_palette_lut[row[src_x_lut[dx]]];
+            *dst = s_palette_lut[row[src_x_lut[dx]]];
+            dst += PHYS_ROW_LEN;
         }
     }
 }
@@ -302,11 +306,37 @@ int plat_video_init(int w, int h, const char *title)
      * the GPU's 3D pipeline. */
     gfxSetScreenFormat(GFX_TOP, GSP_RGB565_OES);
     gfxSetScreenFormat(GFX_BOTTOM, GSP_RGB565_OES);
-    /* Double buffering stays enabled (gfxInitDefault's default) so we
-     * always write into the buffer NOT currently being scanned out to
-     * the LCD — gfxGetFramebuffer returns that back buffer's address,
-     * and gfxSwapBuffers() (called at the end of plat_video_present)
-     * flips it in at the next VBlank. */
+
+    /* Double buffering DISABLED (libctru's default is enabled) —
+     * deliberately, to avoid a real bug interacting with the dirty-
+     * frame skip in plat_video_present. With double buffering on,
+     * gfxGetFramebuffer always returns the currently-HIDDEN buffer to
+     * write into, and gfxSwapBuffers() flips which buffer is shown.
+     * On a tick where a screen is skipped (not dirty, so we never
+     * call gfxGetFramebuffer/write anything for it), calling
+     * gfxSwapBuffers() at the end still flips ITS buffers too —
+     * displaying whatever stale content is sitting in the OTHER
+     * (not-just-written) buffer, which could be from several frames
+     * ago. In practice this game's frames are almost never truly
+     * identical (see this file's top comment) so skip runs are rare
+     * and short, which is likely why this wasn't visibly caught in
+     * testing — but it's a real latent bug that WOULD show as
+     * flicker on a genuinely static screen (paused dialog, idle
+     * menu) — precisely the case the dirty-skip targets.
+     *
+     * With double buffering off, gfxGetFramebuffer always returns the
+     * SAME single buffer (the one currently on screen), so writing
+     * into it and "swapping" (a harmless no-op re-present) can never
+     * show stale content — matches the pattern used by devkitPro's
+     * own simple 2D examples (graphics/bitmap/24bit-color explicitly
+     * disables double buffering for exactly this "we're not
+     * continuously re-rendering a 3D scene" use case). The tradeoff
+     * (writing into a buffer while it's mid-scanout can in theory
+     * show a tear line) is the same one every one of those examples
+     * accepts, and is far less noticeable than periodic full-frame
+     * flicker would be. */
+    gfxSetDoubleBuffering(GFX_TOP, false);
+    gfxSetDoubleBuffering(GFX_BOTTOM, false);
 
     LOG_INFO("3ds", "direct-framebuffer video initialized: %dx%d game -> top=%dx%d bot=%dx%d",
              w, h, TOP_WIDTH, TOP_HEIGHT, BOT_WIDTH, BOT_HEIGHT);
