@@ -20,7 +20,7 @@ void platform_pad_open(void);
  * into the shared globals. Called once per frame from PlatformPumpEvents. */
 void platform_pad_handle_buttons(void);
 
-/* D-pad discrete dx/dy (accumulated into *dx/*dy, one tick each way max)
+/* D-pad discrete dx/dy (accumulated into *dx / *dy, one tick each way max)
  * + circle-pad proportional ax/ay (px/tick), used by platform_3ds.c's
  * poll_virtual_cursor() to drive g_mouse_x/g_mouse_y every frame. Mirrors
  * every other platform's platform_pad_read_motion contract (see

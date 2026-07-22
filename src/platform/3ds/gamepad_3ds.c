@@ -25,12 +25,15 @@
  *   Physical A → left click
  *   Physical B → right click
  *   Physical X → cycle bottom-screen zoom level (1x/2x/4x)
- *   Physical Y → (reserved; no-op — no aspect-mode concept on a fixed
- *                 dual-screen console)
+ *   Physical Y → toggle shoulder hand-mode (left/right) — swaps what
+ *                 L/ZL vs. R/ZR do (see SHOULDER HAND MODES below)
  *   START      → pause menu
- *   SELECT     → toggle shoulder hand-mode (left/right)
+ *   SELECT     → toggle shoulder hand-mode (left/right) — same action
+ *                 as Y, kept as a second trigger for it (originally
+ *                 the only one; Y was added per user request without
+ *                 removing this one, since nothing else used SELECT)
  *
- * SHOULDER HAND MODES (SELECT toggles):
+ * SHOULDER HAND MODES (Y or SELECT toggles):
  *   left  (default): L/ZL = left/right click,  R/ZR = quicksave/quickload
  *   right           : L/ZL = quicksave/quickload,  R/ZR = left/right click
  *
@@ -114,10 +117,15 @@ void platform_pad_handle_buttons(void)
     if (down & KEY_B) g_rmb_clicked = 1;
     /* Physical X = cycle bottom-screen zoom. */
     if (down & KEY_X) platform_video_cycle_zoom();
-    /* Physical Y: reserved, intentionally no-op. */
 
-    if (down & KEY_START)  g_pause_menu_request = 1;
-    if (down & KEY_SELECT) {
+    if (down & KEY_START) g_pause_menu_request = 1;
+    /* Physical Y and SELECT both toggle the shoulder hand-mode — swaps
+     * which pair (L/ZL vs. R/ZR) does mouse clicks vs. quicksave/load.
+     * Y was added per explicit user request ("klawisz Y miał zmieniać
+     * miejscami L1/L2 z R1/R2"); SELECT is kept working too since it
+     * was the original (and, until now, only) trigger for this and
+     * nothing else claims that button. */
+    if ((down & KEY_Y) || (down & KEY_SELECT)) {
         s_hand_mode = (s_hand_mode == HAND_MODE_LEFT) ? HAND_MODE_RIGHT : HAND_MODE_LEFT;
         LOG_INFO("3ds", "hand_mode=%s", s_hand_mode == HAND_MODE_LEFT ? "left" : "right");
     }
