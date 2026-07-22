@@ -42,6 +42,22 @@ jobs:
           path: dist/wacki.3dsx
           if-no-files-found: error
 
+      # tools/build-3ds.sh's `docker run` has no --user flag, so the build
+      # inside the devkitpro/devkitarm container runs as root; since dist/
+      # is a bind-mounted host directory (-v "$PWD:/wacki"), every file it
+      # creates there (dist/wacki, dist/wacki.3dsx, dist/wacki.smdh) ends up
+      # OWNED BY ROOT on the runner's own filesystem too. The next step
+      # runs as the normal unprivileged `runner` user directly on the
+      # runner host (see its own comment for why), which can't write into
+      # a root-owned dist/ -- exactly the "mkdir: cannot create directory
+      # 'dist/cia-work': Permission denied" failure hit on the first CI
+      # run of this workflow. Reclaiming ownership here (rather than
+      # adding --user to the docker run call) avoids any risk of that
+      # flag breaking the container's own `make install` step, which
+      # writes into /opt/devkitpro and may expect to run as root.
+      - name: Popraw wlasciciela dist/ (po buildzie w kontenerze jako root)
+        run: sudo chown -R "$(id -u):$(id -g)" dist/
+
       # Runs on the GHA runner HOST (ubuntu-latest = Ubuntu 24.04, glibc
       # 2.39), NOT inside the devkitpro/devkitarm container above — makerom
       # and bannertool's prebuilt Linux binaries require glibc >= 2.38,
