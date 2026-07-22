@@ -427,6 +427,23 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
                     g_mouse_y != s_prev_mouse_y ||
                     g_zoom_level != s_prev_zoom_level;
 
+    /* During cutscene AVI playback (see wacki/globals.h for the full
+     * rationale), the bottom-screen magnifier is pure wasted per-frame
+     * cost: the point-and-click cursor it exists to magnify isn't
+     * shown/usable while a cutscene plays anyway (PlayFlicAviFile owns
+     * the frame loop, not the normal input/render tick), so there is
+     * nothing meaningful to show there. Forcing bot_dirty off frees up
+     * a full BOT_WIDTH*BOT_HEIGHT (320x240) blit's worth of per-frame
+     * budget for cutscene decode+blit+audio-pump instead — directly
+     * addresses the user's own suggested fix for reported audio/video
+     * drift during longer cutscenes (stutter -> compounding desync,
+     * now ALSO fixed at the root cause in src/flic.c's pacing loop;
+     * this is a complementary "spend the freed budget wisely" change
+     * on top of that fix, not a substitute for it). The screen simply
+     * keeps showing whatever it last had (stale, but no one is meant
+     * to be looking at it or touching it during a cutscene). */
+    if (g_cutscene_playing) bot_dirty = 0;
+
     if (!top_dirty && !bot_dirty) return;
 
     memcpy(s_shadow, shadow, (size_t)w * h);

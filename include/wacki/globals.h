@@ -128,6 +128,19 @@ extern int          g_scale_factor;   /* --scale N: window = 640×480 × N */
 extern const char  *g_scale_mode;     /* --scaler: nearest|linear|best */
 extern int          g_fullscreen;     /* --fullscreen / F11 */
 
+/* Set for the duration of src/flic.c's PlayFlicAviFile loop (cutscene
+ * AVI playback — intro, death, per-stage transitions), cleared right
+ * after. Platform video backends MAY use this to skip work that's
+ * wasted or actively harmful during a cutscene — e.g. the 3DS backend
+ * (src/platform/3ds/video_3ds_gl.c) skips its bottom-screen zoom/touch
+ * view entirely while this is set: that view exists to magnify the
+ * point-and-click cursor, which isn't shown/usable during a cutscene
+ * anyway, so rendering it is pure wasted per-frame cost that (per user
+ * report) could push a frame over its pacing budget and contribute to
+ * audio/video drift. Every other platform ignores this flag (it's a
+ * pure opt-in optimization hook, not a behavior change they need). */
+extern int          g_cutscene_playing;
+
 /* ---- audio gates ------------------------------------------------- *
  *
  * Options-menu toggles. When music or the global sound flag flips

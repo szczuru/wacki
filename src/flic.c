@@ -50,6 +50,10 @@
 extern uint8_t *g_back_shadow;
 extern uint8_t  g_palette_rgb[256*3];
 
+/* Declared here (this is the only writer) — see wacki/globals.h for
+ * the full rationale and which platform backend consumes it. */
+int g_cutscene_playing = 0;
+
 /* T43b — AVI chunk headers aren't guaranteed 4-byte aligned (chunks
  * are byte-aligned in the container). Use memcpy to avoid UBSan
  * misaligned-load complaints (also required on strict-alignment ARM). */
@@ -415,6 +419,12 @@ int PlayFlicAviFile(const char *path)
 {
     AviStream s = {0};
     if (!avi_open_stream(&s, path)) return 0;
+
+    /* Set for the WHOLE duration of this call (cleared in every exit
+     * path below) — see wacki/globals.h for what platform backends may
+     * do with it. Set only after avi_open_stream succeeds so a failed
+     * open (bad path, no audio device) never leaves it stuck on. */
+    g_cutscene_playing = 1;
     if (!g_back_shadow) {
         g_back_shadow = (uint8_t *)xmalloc(640 * 480);
         if (g_back_shadow) memset(g_back_shadow, 0, 640 * 480);
@@ -424,6 +434,46 @@ int PlayFlicAviFile(const char *path)
     uint32_t frame_us    = s.fps_us ? s.fps_us : 100000;
     int      frame_count = 0;          /* T29 — batch-test coverage report */
     int      skipped     = 0;          /* user aborted via click/key */
+
+    /* CUMULATIVE deadline scheduling (fixes reported audio/video drift
+     * on slower hardware — a 3DS handheld report, but the bug is here,
+     * not platform-specific, so every port benefits).
+     *
+     * The pacing used to be PER-FRAME: t0 = SDL_GetTicks() at the top of
+     * each loop iteration, then sleep until (t0 + target_ms). That's
+     * fine as long as every single frame finishes decode+present under
+     * budget — but it does NOT catch up when one doesn't. Audio plays
+     * in true real time on its own device/thread/DSP channel, entirely
+     * decoupled from this loop; if frame N's decode+blit overruns its
+     * ~100ms (10fps) budget by even a few ms, that frame's t0..now
+     * window is simply lost — frame N+1's t0 starts fresh from "now",
+     * so the overrun is never repaid. Every stutter permanently shifts
+     * video later relative to audio, and stutters accumulate over a
+     * multi-minute cutscene into a growing, increasingly noticeable
+     * desync — exactly "po kilku chwilach rozjeżdza się audio z video".
+     *
+     * Fixed by scheduling against a single fixed origin (play_start_ms)
+     * plus an absolute per-frame deadline that only ever ADVANCES by
+     * frame_us worth of time, regardless of how any individual frame
+     * performed: deadline_ms = play_start_ms + frame_count*target_ms.
+     * A frame that ran long simply sleeps 0 (deadline already passed)
+     * instead of resetting the clock — so a single slow frame costs
+     * exactly its own overrun, and does not compound into every frame
+     * after it the way the old per-frame t0 did.
+     *
+     * CATCH-UP CAP: if the loop falls far behind (e.g. a multi-second
+     * hitch from a save-file flush, or the very first frame after a
+     * slow disk seek), the naive version of this scheme would try to
+     * blast through every "late" frame back-to-back with zero delay
+     * until it caught up to the deadline — a visible fast-forward
+     * flicker. MAX_CATCHUP_MS caps how far in the past the deadline is
+     * allowed to drift before it gets silently re-anchored to "now",
+     * trading perfect resync for avoiding that flicker; a resync of a
+     * few hundred ms is imperceptible mid-cutscene, unlike a burst of
+     * skipped frames would be. */
+    uint32_t play_start_ms = SDL_GetTicks();
+    uint32_t next_deadline_ms = play_start_ms;
+    #define MAX_CATCHUP_MS 500u
 
     /* Consume input latched BEFORE playback began so it can't abort the
      * cutscene on frame 0. The per-stage "transition" AVI (Dane_22 / 32 /
@@ -453,7 +503,6 @@ int PlayFlicAviFile(const char *path)
         VidFrame vf;
         if (!ring_pop(&s, &vf)) break;     /* EOF — nothing left to show */
 
-        uint32_t t0 = SDL_GetTicks();
         flic_decode_frame(vf.data, vf.size, s.width, s.height);
         free(vf.data);
         ++frame_count;
@@ -475,6 +524,18 @@ int PlayFlicAviFile(const char *path)
 
         if (!g_no_pacing) {
             uint32_t target_ms = frame_us / 1000;
+            /* Advance the deadline by exactly one frame interval — NOT
+             * "now + target_ms" — so a slow frame's overrun is never
+             * un-done; see this function's setup comment above. */
+            next_deadline_ms += target_ms;
+
+            uint32_t now_ms = SDL_GetTicks();
+            /* Fell too far behind (see MAX_CATCHUP_MS comment above) —
+             * re-anchor rather than let a long burst of already-late
+             * deadlines flush through with zero delay each. */
+            if (now_ms > next_deadline_ms + MAX_CATCHUP_MS)
+                next_deadline_ms = now_ms;
+
             /* Where the audio device can't buffer a whole frame interval
              * (PS2 audsrv's ring is ~53 ms), spend the inter-frame wait
              * PUMPING — each chunk is fed to the device (which self-paces by
@@ -482,14 +543,14 @@ int PlayFlicAviFile(const char *path)
              * ahead (cap keeps audio from outrunning the picture). Otherwise
              * the device FIFO already holds the cushion, so just sleep. */
             if (plat_avi_audio_needs_pump()) {
-                while (SDL_GetTicks() - t0 < target_ms) {
+                while (SDL_GetTicks() < next_deadline_ms) {
                     if (!s.eof && s.r_count < 3) stream_pump_one(&s);
                     else SDL_Delay(1);
                 }
             } else {
-                uint32_t elapsed_ms = SDL_GetTicks() - t0;
-                if (elapsed_ms < target_ms)
-                    SDL_Delay(target_ms - elapsed_ms);
+                now_ms = SDL_GetTicks();
+                if (now_ms < next_deadline_ms)
+                    SDL_Delay(next_deadline_ms - now_ms);
             }
         }
     }
@@ -498,5 +559,6 @@ int PlayFlicAviFile(const char *path)
               skipped ? " (skipped)" : "");
     avi_close(&s);
     plat_avi_audio_end();
+    g_cutscene_playing = 0;
     return 1;
 }
