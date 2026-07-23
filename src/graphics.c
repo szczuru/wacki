@@ -29,6 +29,39 @@ uint16_t  g_screen_h = WACKI_SCREEN_H;
 uint16_t  g_screen_w_dim = WACKI_SCREEN_W;
 uint16_t  g_screen_h_dim = WACKI_SCREEN_H;
 
+/* ---- stereo-3D background/foreground snapshot (3DS-only) --------- *
+ * See wacki/globals.h for the full design rationale. Storage lives
+ * here (not video_3ds_gl.c) because it's a snapshot OF g_back_shadow,
+ * the same buffer this file owns — every other platform's linker just
+ * never references g_bg_layer_shadow, so it costs them nothing beyond
+ * these three words of .bss (g_stereo3d_bg_layer_wanted stays 0, so
+ * SnapshotBgLayerIfWanted below is always a single branch-and-return
+ * on any platform/config that didn't ask for it). */
+int       g_stereo3d_bg_layer_wanted = 0;
+int       g_bg_layer_valid = 0;
+uint8_t  *g_bg_layer_shadow = NULL;
+
+/* Called by src/scene/frame_tick.c immediately after the room
+ * background is painted into g_back_shadow, but BEFORE entities/HUD/
+ * cursor are drawn on top of it this frame. A plain memcpy — the
+ * cheapest possible way to capture "what depth-0 looks like this
+ * frame" without touching a single blit call site elsewhere in the
+ * engine (see wacki/globals.h's comment on why a full per-object depth
+ * tag isn't worth it here). No-ops entirely (one int compare) unless
+ * g_stereo3d_bg_layer_wanted is set, i.e. unless the 3DS backend has
+ * detected the physical 3D slider is actually open this frame. */
+void SnapshotBgLayerIfWanted(void)
+{
+    if (!g_stereo3d_bg_layer_wanted || !g_back_shadow) { g_bg_layer_valid = 0; return; }
+
+    size_t n = (size_t)g_screen_w * g_screen_h;
+    if (!g_bg_layer_shadow) g_bg_layer_shadow = (uint8_t *)xmalloc((uint32_t)n);
+    if (!g_bg_layer_shadow) { g_bg_layer_valid = 0; return; }
+
+    memcpy(g_bg_layer_shadow, g_back_shadow, n);
+    g_bg_layer_valid = 1;
+}
+
 /* ---- persistent one-shot-BG bake layer ----------------------------- *
  *
  * Entities flagged EFLAG_FADE_OR_BG | EFLAG_ONESHOT_BG_PEND (flag-0x60

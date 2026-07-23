@@ -94,6 +94,12 @@ void SaveSceneBgAtlas(int16_t dx, int16_t dy,
 void PaintSceneBgAtlasIfAny(void);
 void FreeSceneBgAtlas(void);
 
+/* Stereo-3D background/foreground snapshot (3DS-only experiment,
+ * branch 3ds-stereo3d-experiment) — see wacki/globals.h for the
+ * design. Copies the just-painted background-only g_back_shadow into
+ * g_bg_layer_shadow; no-op unless g_stereo3d_bg_layer_wanted is set. */
+void SnapshotBgLayerIfWanted(void);
+
 void InstallPalette(const uint8_t *rgb, uint16_t first);
 
 /* Decompress one RLE-encoded "rich" ANIM frame (asset kind=3) into a
