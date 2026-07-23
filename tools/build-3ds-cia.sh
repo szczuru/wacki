@@ -36,6 +36,15 @@ BANNER_PNG="assets/icons/wacki-3ds-banner.png"
 SILENT_WAV="assets/3ds/wacki-silent.wav"
 RSF="assets/3ds/wacki-cia.rsf"
 
+# Optional pre-built banner override — drop a ready-made CBMD banner binary
+# here (the exact format bannertool's own `makebanner` outputs, and the
+# exact format makerom's -banner flag consumes directly — NOT a PNG/WAV
+# pair) to skip this script's makebanner step entirely and package your
+# own banner byte-for-byte instead. Not present by default: the repo can't
+# ship one on your behalf, and every existing user keeps getting the
+# PNG+WAV-built banner below with zero change in behaviour.
+CUSTOM_BANNER_BIN="assets/3ds/wacki-banner.bin"
+
 WORK="dist/cia-work"
 CIA_OUT="dist/wacki.cia"
 
@@ -88,15 +97,26 @@ bannertool makesmdh \
     -f visible,new3ds
 
 # ---- Build banner (top-screen HOME Menu banner) ----------------------------
+# If a pre-built banner binary is present (CUSTOM_BANNER_BIN — see its own
+# comment above), use it AS-IS and skip makebanner entirely: it's already
+# in the exact format makerom's -banner flag wants. Otherwise, fall back to
+# building one from the PNG+WAV pair, same as before this override existed.
+#
 # bannertool's makebanner REQUIRES an audio track argument even for a
 # static (non-CGFX-animated) banner — see this script's top comment on
 # where wacki-silent.wav comes from; there is no "-a none" escape hatch
 # in the tool itself (confirmed against its actual source).
-echo "Building banner..."
-bannertool makebanner \
-    -i "$BANNER_PNG" \
-    -a "$SILENT_WAV" \
-    -o "$WORK/banner.bnr"
+BANNER_BIN="$WORK/banner.bnr"
+if [ -f "$CUSTOM_BANNER_BIN" ]; then
+    echo "Using custom banner: $CUSTOM_BANNER_BIN"
+    cp "$CUSTOM_BANNER_BIN" "$BANNER_BIN"
+else
+    echo "Building banner..."
+    bannertool makebanner \
+        -i "$BANNER_PNG" \
+        -a "$SILENT_WAV" \
+        -o "$BANNER_BIN"
+fi
 
 # ---- Build the .cia itself --------------------------------------------------
 # -target t = "test" keychain, the correct target for unsigned homebrew (see
@@ -111,7 +131,7 @@ makerom \
     -elf "$ELF" \
     -rsf "$RSF" \
     -icon "$WORK/icon.icn" \
-    -banner "$WORK/banner.bnr" \
+    -banner "$BANNER_BIN" \
     -major 1 -minor 0 -micro 0
 
 echo "Gotowe: $CIA_OUT"
