@@ -141,6 +141,60 @@ extern int          g_fullscreen;     /* --fullscreen / F11 */
  * pure opt-in optimization hook, not a behavior change they need). */
 extern int          g_cutscene_playing;
 
+/* ---- stereoscopic 3D background/foreground split (3DS-only) ------ *
+ *
+ * EXPERIMENTAL — lives on branch 3ds-stereo3d-experiment. Lets the 3DS
+ * video backend (src/platform/3ds/video_3ds_gl.c) render the top screen
+ * with the New3DS/3DS's real autostereoscopic display: the room
+ * BACKGROUND stays flat (depth 0, "on the glass"), while every other
+ * painted pixel this frame — actors, held/scene items, the HUD panel,
+ * the cursor — is treated as foreground and rendered with a small
+ * per-eye horizontal disparity so it visually pops out toward the
+ * viewer. This is a BINARY split (bg vs. fg), not per-object depth
+ * levels — the engine has no notion of "distance" for a sprite once it
+ * reaches src/graphics.c's flat 8bpp shadow buffer (every blit call
+ * site just writes palette-index bytes into one shared surface), so
+ * there is no cheap way to recover finer-grained depth without
+ * threading a depth tag through every BlitSpriteToBackbuffer /
+ * PaintImageToBackbuffer call site across the whole engine. The 3-way
+ * split the user actually wants (background always flat, everything
+ * else may pop out) needs only bg-vs-not-bg, which this gets for free
+ * by diffing two snapshots of the SAME shadow buffer — no changes to
+ * any blit function or call site required.
+ *
+ * g_stereo3d_bg_layer_wanted — written EVERY FRAME by video_3ds_gl.c,
+ * from the physical 3D slider position (osGet3DSliderState() > 0).
+ * Defaults to 0 and is NEVER written by any other platform, or even by
+ * the 3DS backend when the slider is centered/off (including every
+ * Old/New 2DS model, which has no slider or stereo screen at all) — so
+ * the extra work below costs literally nothing unless the player has
+ * physically enabled 3D on real 3DS/New3DS hardware. Read by
+ * src/scene/frame_tick.c (shared code — the only place in the engine
+ * that reliably runs once per displayed gameplay frame, right after
+ * the background is painted and right before entities/HUD/cursor are)
+ * to decide whether to pay for the one-time background snapshot this
+ * frame; a plain global rather than a HAL function so no stub is
+ * needed in any of the other seven platform directories. */
+extern int          g_stereo3d_bg_layer_wanted;
+
+/* g_bg_layer_valid / g_bg_layer_shadow — the actual snapshot mechanism.
+ * frame_tick.c's repaint_scene_background() sets g_bg_layer_valid = 0,
+ * then — only if g_stereo3d_bg_layer_wanted — copies the just-painted
+ * (background-only) g_back_shadow into g_bg_layer_shadow and sets
+ * g_bg_layer_valid = 1. video_3ds_gl.c's plat_video_present consumes
+ * (reads then clears) g_bg_layer_valid once per present call: if still
+ * valid, it diffs g_bg_layer_shadow against the just-finished, fully
+ * composited frame it was handed to build a per-pixel foreground mask
+ * for the stereo blit; if not valid (e.g. this presented frame came
+ * from a menu screen that never runs frame_tick.c's per-frame hook at
+ * all — see src/menu/main_menu.c, which paints + presents directly),
+ * it safely falls back to flat/non-stereo for that one frame rather
+ * than reusing a stale, mismatched snapshot. This "set 0, maybe set 1,
+ * consumed-and-cleared by the reader" pattern needs no shared frame
+ * counter or extra bookkeeping in graphics.c. */
+extern int          g_bg_layer_valid;
+extern uint8_t     *g_bg_layer_shadow;   /* lazily allocated, g_screen_w × g_screen_h */
+
 /* ---- audio gates ------------------------------------------------- *
  *
  * Options-menu toggles. When music or the global sound flag flips

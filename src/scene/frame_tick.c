@@ -109,6 +109,16 @@ static void repaint_scene_background(void)
     if (!g_current_scene) return;
     if (g_scene_bg_raw) paint_rawb_pic(g_scene_bg_raw, g_scene_bg_size, 0);
     PaintSceneBgAtlasIfAny();
+
+    /* Stereo-3D experiment (branch 3ds-stereo3d-experiment): snapshot
+     * g_back_shadow RIGHT HERE — background (+ its one-shot atlas
+     * overlay) is now fully painted, but paint_frame() below hasn't
+     * yet drawn entities/HUD/cursor on top of it. This is the ONE
+     * point in the whole per-frame tick where "background only" is
+     * observable without touching any blit call site. No-op (single
+     * int compare) when g_stereo3d_bg_layer_wanted is 0 — see
+     * wacki/globals.h and SnapshotBgLayerIfWanted's own comment. */
+    SnapshotBgLayerIfWanted();
 }
 
 /* Run the per-frame hit-tests that feed g_hover_panel_verb /

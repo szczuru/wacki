@@ -210,6 +210,76 @@ static void blit_top_screen(const uint8_t *indexed, const uint8_t *pal,
     }
 }
 
+/* ---- stereoscopic 3D (top screen, right eye) — EXPERIMENTAL --------- *
+ *
+ * Branch 3ds-stereo3d-experiment. See wacki/globals.h for the full
+ * background/foreground split rationale. Renders the RIGHT eye's
+ * image for the top screen: the background layer (bg_indexed —
+ * g_bg_layer_shadow, captured pixel-clean and BEFORE any entity/HUD/
+ * cursor paint by SnapshotBgLayerIfWanted) is drawn unshifted — depth
+ * 0, "on the glass", identical to what the left eye already shows —
+ * while every pixel that the CURRENT composite (indexed) disagrees
+ * with the background on (i.e. an entity/HUD/cursor pixel painted
+ * this frame) is instead sampled from a horizontally-shifted source
+ * position, making it visually pop toward the viewer once combined
+ * with the left eye's unshifted copy.
+ *
+ * This works as a hole-free "cardboard cutout" compositing trick
+ * *because* we have the real, unoccluded background pixels on hand
+ * from the snapshot: shifting foreground content always reveals
+ * genuine background at the vacated spot, never garbage — unlike
+ * naively shifting the WHOLE flat composite, which would smear
+ * background pixels that happen to be adjacent to a foreground
+ * silhouette into a shape they were never part of.
+ *
+ * disparity_px is in SOURCE (640×480 game surface) pixels, already
+ * scaled by the physical 3D slider position — see
+ * platform_video_poll_3d_slider(). Shares blit_top_screen's x/y_ratio
+ * math (same crop is shown on both eyes, only foreground content
+ * differs), so this must be called with the exact same src_w/src_h
+ * blit_top_screen was just called with this frame. */
+static void blit_top_screen_stereo_right(const uint8_t *indexed,
+                                         const uint8_t *bg_indexed,
+                                         uint16_t *fb, int src_w, int src_h,
+                                         int disparity_px)
+{
+    static int src_x_lut[TOP_WIDTH];
+    float x_ratio = (float)src_w / TOP_WIDTH;
+    float y_ratio = (float)src_h / TOP_HEIGHT;
+    for (int dx = 0; dx < TOP_WIDTH; ++dx) {
+        int sx = (int)(dx * x_ratio);
+        src_x_lut[dx] = (sx >= src_w) ? src_w - 1 : sx;
+    }
+
+    for (int dy = 0; dy < TOP_HEIGHT; ++dy) {
+        int sy = (int)(dy * y_ratio);
+        if (sy >= src_h) sy = src_h - 1;
+        const uint8_t *row    = indexed    + (size_t)sy * src_w;
+        const uint8_t *bg_row = bg_indexed  + (size_t)sy * src_w;
+        uint16_t *dst = fb + fb_pixel_index(0, dy);
+        for (int dx = 0; dx < TOP_WIDTH; ++dx) {
+            int sx = src_x_lut[dx];
+            int shifted = sx - disparity_px;
+            uint8_t v;
+            if (shifted >= 0 && shifted < src_w &&
+                row[shifted] != bg_row[shifted]) {
+                /* The shifted source position is foreground (this
+                 * frame's composite disagrees with the clean bg
+                 * snapshot there) — show that shifted foreground
+                 * pixel, achieving the eye-to-eye disparity. */
+                v = row[shifted];
+            } else {
+                /* Either off the shifted-lookup edge or genuinely
+                 * background there — show the UNSHIFTED background
+                 * pixel (depth 0, matches the left eye exactly). */
+                v = bg_row[sx];
+            }
+            *dst = s_palette_lut[v];
+            dst += PHYS_ROW_LEN;
+        }
+    }
+}
+
 /* Same idea as blit_top_screen, but samples a `zoom`-times magnified
  * crop of the source (src_x/src_y top-left corner, src_region_w/h
  * span) instead of the whole image — the bottom screen's "magnifier"
@@ -329,6 +399,25 @@ void platform_video_toggle_aspect_mode(void)
     /* Not applicable on 3DS - fixed screens */
 }
 
+/* ---- stereoscopic 3D state (EXPERIMENTAL) --------------------------- *
+ *
+ * Branch 3ds-stereo3d-experiment. See wacki/globals.h and
+ * blit_top_screen_stereo_right's comment above for the full design.
+ *
+ * Disparity is expressed in SOURCE (640-wide game-surface) pixels, so
+ * it scales correctly regardless of the top screen's own visual width
+ * (400). Kept small deliberately: this cutout-compositing technique has
+ * no anti-aliasing at the foreground/background boundary (a straight
+ * per-pixel "is this shifted position foreground?" test — see
+ * blit_top_screen_stereo_right), so a large disparity would make
+ * jagged silhouette edges more visible/distracting. 6 px out of 640
+ * (~1%) at full slider is a modest, comfortable pop — this is the
+ * first knob to retune if real-hardware testing wants more/less depth. */
+#define STEREO_MAX_DISPARITY_SRC_PX  6
+
+static int s_prev_stereo_enabled = -1;   /* -1 = force dirty on first frame */
+static int s_prev_disparity_px   = -1;
+
 /* wacki/platform/video.h HAL entry point — PlatformShowMessageBox routes
  * here. No native dialog on 3DS; log it (visible over 3dslink's console
  * relay / Citra's stdout) so a fatal-path message isn't silently lost. */
@@ -444,6 +533,54 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * to be looking at it or touching it during a cutscene). */
     if (g_cutscene_playing) bot_dirty = 0;
 
+    /* ---- Stereoscopic 3D top screen (EXPERIMENTAL) ---------------- *
+     *
+     * Branch 3ds-stereo3d-experiment. Poll the PHYSICAL 3D slider
+     * every frame (osGet3DSliderState(), 0.0 = fully closed) — this is
+     * the ONLY place in the whole engine that decides whether the
+     * extra-eye render further down runs at all. Reading it here (not
+     * once at startup, and BEFORE the dirty-frame early-return just
+     * below) means the effect turns on/off live as the player moves
+     * the slider — including while gameplay content is static (a
+     * paused dialog, an idle menu) — exactly like every commercial
+     * 3DS game, instead of only updating depth whenever something else
+     * happens to change first.
+     *
+     * COST GUARANTEE: when the slider reads 0 (closed — the default,
+     * and the ONLY possible state on every Old/New 2DS model, which
+     * has no slider or autostereoscopic screen at all), stereo_enabled
+     * is false, g_stereo3d_bg_layer_wanted is left at 0 (so
+     * frame_tick.c's SnapshotBgLayerIfWanted stays a single no-op
+     * branch too), gfxSet3D(false) matches the engine's pre-existing
+     * default, and disparity_px_now == s_prev_disparity_px (both 0)
+     * forever — so this poll can NEVER flip top_dirty on for anyone
+     * who hasn't physically opened the slider, and the dirty-frame
+     * early-return below behaves exactly as it did before this
+     * feature existed. */
+    float slider = osGet3DSliderState();
+    int stereo_enabled = slider > 0.0f;
+    int disparity_px_now = (int)(slider * STEREO_MAX_DISPARITY_SRC_PX + 0.5f);
+    g_stereo3d_bg_layer_wanted = stereo_enabled;
+    gfxSet3D(stereo_enabled);
+
+    if (stereo_enabled != s_prev_stereo_enabled) {
+        /* %d not %f: devkitARM's default newlib printf doesn't reliably
+         * support float formatting without extra linker flags this
+         * port doesn't otherwise need — slider*100 as an int (0..100)
+         * says the same thing without that risk. */
+        LOG_INFO("3ds", "stereo 3D %s (slider=%d%%)",
+                 stereo_enabled ? "enabled" : "disabled", (int)(slider * 100.0f));
+        s_prev_stereo_enabled = stereo_enabled;
+        top_dirty = 1;   /* force a repaint of both eyes on the toggle edge */
+    }
+    /* Slider moved (gradually, mid-drag) while on-screen CONTENT stayed
+     * static: still force a repaint so nudging the slider feels live
+     * instead of only updating depth the next time something else
+     * changes. Only reachable when stereo_enabled (slider > 0), so this
+     * can't fire at all with the slider closed. */
+    if (stereo_enabled && disparity_px_now != s_prev_disparity_px)
+        top_dirty = 1;
+
     if (!top_dirty && !bot_dirty) return;
 
     memcpy(s_shadow, shadow, (size_t)w * h);
@@ -522,6 +659,32 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     if (top_dirty) {
         uint16_t *topfb = (uint16_t *)gfxGetFramebuffer(GFX_TOP, GFX_LEFT, NULL, NULL);
         blit_top_screen(shadow, pal, topfb, w, h);
+
+        if (stereo_enabled && g_bg_layer_valid) {
+            /* Right eye: reuse this frame's background snapshot (see
+             * SnapshotBgLayerIfWanted / blit_top_screen_stereo_right's
+             * comment) to pop foreground content toward the viewer.
+             * g_bg_layer_valid is deliberately checked, not assumed —
+             * a frame presented from outside the normal gameplay tick
+             * (e.g. a menu screen that paints + presents directly, see
+             * src/menu/main_menu.c) never ran frame_tick.c's snapshot
+             * hook, so there is no clean bg layer to diff against this
+             * frame; falling back to a flat (both-eyes-identical) image
+             * for exactly those frames is a graceful degrade, not a bug —
+             * menus have no gameplay depth to show anyway. */
+            uint16_t *topfb_r = (uint16_t *)gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL);
+            blit_top_screen_stereo_right(shadow, g_bg_layer_shadow, topfb_r,
+                                         w, h, disparity_px_now);
+        } else if (stereo_enabled) {
+            /* Slider open but no valid bg snapshot this frame (menu /
+             * cutscene path) — duplicate the left eye so both eyes at
+             * least show a consistent flat image instead of the RIGHT
+             * framebuffer's stale leftover content from whenever
+             * stereo was last actually painted. */
+            uint16_t *topfb_r = (uint16_t *)gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, NULL, NULL);
+            blit_top_screen(shadow, pal, topfb_r, w, h);
+        }
+        s_prev_disparity_px = disparity_px_now;
     }
 
     if (bot_dirty) {
