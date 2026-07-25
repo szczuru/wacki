@@ -43,7 +43,7 @@ RSF="assets/3ds/wacki-cia.rsf"
 # own banner byte-for-byte instead. Not present by default: the repo can't
 # ship one on your behalf, and every existing user keeps getting the
 # PNG+WAV-built banner below with zero change in behaviour.
-CUSTOM_BANNER_BIN="assets/3ds/wacki-banner.bin"
+CUSTOM_BANNER_BIN="assets/3ds/banner.bin"
 
 WORK="dist/cia-work"
 CIA_OUT="dist/wacki.cia"
