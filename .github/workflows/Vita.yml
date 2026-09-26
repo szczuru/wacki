@@ -3,7 +3,7 @@ name: Vita build
 on:
   workflow_dispatch:
   push:
-    branches: [ port-vita, master ]
+    branches: [ port-vita, master, port-switch ]
     paths:
       - 'src/**'
       - 'include/**'
@@ -29,13 +29,13 @@ jobs:
             curl -fsSL "$WACKI_EXE_URL" -o data/WACKI.EXE
             echo "WACKI.EXE pobrano ($(wc -c < data/WACKI.EXE) bajtow)"
           else
-            echo "Brak sekretu WACKI_EXE_URL – build uzyje dynamicznego ladowania z ux0"
+            echo "Brak sekretu — build ze stubem (ladowanie z ux0 w runtime)"
           fi
 
-      - name: Build (tools/build-vita.sh)
+      - name: Build
         run: bash tools/build-vita.sh
 
-      - name: Wgraj artefakt .vpk
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: wacki-vita
