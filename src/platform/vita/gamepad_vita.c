@@ -1,17 +1,14 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła / szczuru
  *
- * src/platform/vita/gamepad_vita.c — Vita DualShock / Vita controls.
+ * src/platform/vita/gamepad_vita.c — Vita controls.
  *
- * Mapowanie (fizyczne przyciski Vita):
- *   Cross (south / SDL A)  → lewy klik
- *   Circle (east  / SDL B) → prawy klik
- *   Triangle (north)       → toggle aspect
- *   Square                 → cycle touch mode
- *   START                  → menu pauzy
- *   SELECT                 → (opcjonalnie)
- *   L / R                  → quickload / quicksave
- *   D-pad + lewy analog    → kursor
+ * Cross (SDL A)  → LMB
+ * Circle (SDL B) → RMB
+ * Triangle       → aspect
+ * Square         → touch mode cycle
+ * START          → pause
+ * L / R          → quickload / quicksave
  */
 
 #include "wacki.h"
@@ -31,13 +28,16 @@ void platform_pad_open(void)
         LOG_INFO("platform", "SDL_INIT_GAMECONTROLLER: %s", SDL_GetError());
         return;
     }
-    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
-        if (SDL_IsGameController(i)) {
-            s_pad = SDL_GameControllerOpen(i);
-            if (s_pad) {
-                LOG_INFO("platform", "controller: %s",
-                         SDL_GameControllerName(s_pad));
-                return;
+    {
+        int i;
+        for (i = 0; i < SDL_NumJoysticks(); ++i) {
+            if (SDL_IsGameController(i)) {
+                s_pad = SDL_GameControllerOpen(i);
+                if (s_pad) {
+                    LOG_INFO("platform", "controller: %s",
+                             SDL_GameControllerName(s_pad));
+                    return;
+                }
             }
         }
     }
@@ -48,13 +48,13 @@ int platform_pad_handle_event(const SDL_Event *ev)
     switch (ev->type) {
     case SDL_CONTROLLERBUTTONDOWN:
         switch (ev->cbutton.button) {
-        case SDL_CONTROLLER_BUTTON_A:             /* Cross */  g_lmb_clicked        = 1; break;
-        case SDL_CONTROLLER_BUTTON_B:             /* Circle */ g_rmb_clicked        = 1; break;
-        case SDL_CONTROLLER_BUTTON_Y:             /* Triangle */ platform_video_toggle_aspect_mode(); break;
-        case SDL_CONTROLLER_BUTTON_X:             /* Square */   platform_touch_cycle_mode();         break;
-        case SDL_CONTROLLER_BUTTON_START:                        g_pause_menu_request = 1; break;
-        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:                 g_quickload_request  = 1; break;
-        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:                g_quicksave_request  = 1; break;
+        case SDL_CONTROLLER_BUTTON_A:             g_lmb_clicked        = 1; break;
+        case SDL_CONTROLLER_BUTTON_B:             g_rmb_clicked        = 1; break;
+        case SDL_CONTROLLER_BUTTON_Y:             platform_video_toggle_aspect_mode(); break;
+        case SDL_CONTROLLER_BUTTON_X:             platform_touch_cycle_mode();         break;
+        case SDL_CONTROLLER_BUTTON_START:         g_pause_menu_request = 1; break;
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  g_quickload_request  = 1; break;
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: g_quicksave_request  = 1; break;
         default: return 0;
         }
         return 1;
@@ -85,13 +85,14 @@ void platform_pad_read_motion(int *dx, int *dy, float *ax, float *ay)
     *dy += SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)
          - SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_UP);
 
-    int sx = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTX);
-    int sy = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTY);
-    if (sx > PAD_ANALOG_DEADZONE || sx < -PAD_ANALOG_DEADZONE)
-        *ax = (float)sx / 32767.0f * PAD_ANALOG_MAX_PX;
-    if (sy > PAD_ANALOG_DEADZONE || sy < -PAD_ANALOG_DEADZONE)
-        *ay = (float)sy / 32767.0f * PAD_ANALOG_MAX_PX;
-
+    {
+        int sx = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTX);
+        int sy = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTY);
+        if (sx > PAD_ANALOG_DEADZONE || sx < -PAD_ANALOG_DEADZONE)
+            *ax = (float)sx / 32767.0f * (float)PAD_ANALOG_MAX_PX;
+        if (sy > PAD_ANALOG_DEADZONE || sy < -PAD_ANALOG_DEADZONE)
+            *ay = (float)sy / 32767.0f * (float)PAD_ANALOG_MAX_PX;
+    }
     plat_pad_read_extra(ax, ay);
 }
 
@@ -100,15 +101,19 @@ int plat_pad_menu_nav(int *up, int *down, int *confirm)
     *up = *down = *confirm = 0;
     if (!s_pad) return 0;
     SDL_GameControllerUpdate();
-    int sy = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTY);
-    int u = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_UP)   || sy < -PAD_ANALOG_DEADZONE;
-    int d = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN) || sy >  PAD_ANALOG_DEADZONE;
-    int c = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_A); /* Cross = confirm */
-    static int pu = 0, pd = 0, pc = 0;
-    if (u && !pu) *up = 1;
-    if (d && !pd) *down = 1;
-    if (c && !pc) *confirm = 1;
-    pu = u; pd = d; pc = c;
+    {
+        int sy = SDL_GameControllerGetAxis(s_pad, SDL_CONTROLLER_AXIS_LEFTY);
+        int u = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_UP)
+             || sy < -PAD_ANALOG_DEADZONE;
+        int d = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_DPAD_DOWN)
+             || sy >  PAD_ANALOG_DEADZONE;
+        int c = SDL_GameControllerGetButton(s_pad, SDL_CONTROLLER_BUTTON_A);
+        static int pu = 0, pd = 0, pc = 0;
+        if (u && !pu) *up = 1;
+        if (d && !pd) *down = 1;
+        if (c && !pc) *confirm = 1;
+        pu = u; pd = d; pc = c;
+    }
     return 1;
 }
 
