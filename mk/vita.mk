@@ -6,6 +6,8 @@ ifeq ($(VITASDK),)
 endif
 
 CC       := $(VITASDK)/bin/arm-vita-eabi-gcc
+# Kompilacja C zostaje na gcc; link finalny przez g++ (ciągnie libstdc++ automatycznie)
+LD := $(VITASDK)/bin/arm-vita-eabi-g++
 BIN_NAME := wacki
 
 CFLAGS += -D__VITA__ -DWACKI_HANDHELD -DWACKI_VITA \
