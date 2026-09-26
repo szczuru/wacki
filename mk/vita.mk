@@ -30,7 +30,7 @@ SDL_CFG := -I$(VITASDK)/arm-vita-eabi/include/SDL2
 SDL_LIB := -L$(VITASDK)/arm-vita-eabi/lib \
            -lSDL2 -lSDL2_mixer \
            -lvitaGL -lvitashark -lmathneon \
-           -lSceShaccCg_stub -lSceShaccCgExt_stub \
+           -lSceShaccCg_stub \
            -lSceGxm_stub -lSceDisplay_stub -lSceCtrl_stub \
            -lSceTouch_stub -lSceHid_stub -lSceMotion_stub \
            -lSceAudio_stub -lSceAudioIn_stub \
