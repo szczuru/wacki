@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła / szczuru
  *
- * src/platform/vita/vita.c — PlayStation Vita homebrew platform hooks. */
+ * src/platform/vita/vita.c — PlayStation Vita platform hooks. */
 
 #include "wacki.h"
 #include "wacki/log.h"
@@ -10,6 +10,8 @@
 #include "wacki/platform/video.h"
 #include <SDL.h>
 #include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 extern int  g_fullscreen;
 extern char g_data_root[260];
@@ -25,22 +27,24 @@ static int load_wacki_exe_dynamic(void)
         snprintf(path, sizeof path, "%s/wacki.exe", g_data_root);
         if (PeLoaderInit(path)) return 1;
     }
-    static const char *const fb[] = {
-        "ux0:/data/wacki/WACKI.EXE",
-        "ux0:/data/wacki/wacki.exe",
-        "ux0:/data/wacki/data/WACKI.EXE",
-        "ux0:/data/wacki/data/wacki.exe",
-        "ux0:/app/WACKI00001/WACKI.EXE",   /* fallback jeśli dane w VPK */
-    };
-    for (size_t i = 0; i < sizeof fb / sizeof fb[0]; ++i)
-        if (PeLoaderInit(fb[i])) return 1;
+    {
+        static const char *const fb[] = {
+            "ux0:/data/wacki/WACKI.EXE",
+            "ux0:/data/wacki/wacki.exe",
+            "ux0:/data/wacki/data/WACKI.EXE",
+            "ux0:/data/wacki/data/wacki.exe",
+            "ux0:/app/WACKI00001/WACKI.EXE",
+        };
+        size_t i;
+        for (i = 0; i < sizeof fb / sizeof fb[0]; ++i)
+            if (PeLoaderInit(fb[i])) return 1;
+    }
     return 0;
 }
 
 void plat_apply_video_prefs(void)
 {
     g_fullscreen = 1;
-    /* Vita: wyłącz generowanie myszy z touch (mamy własny touch + pad) */
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 
     if (g_wacki_pe_slice_count > 0) {
