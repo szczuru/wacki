@@ -3,11 +3,12 @@
  *
  * src/platform/sdl/platform_sdl.c — portable platform layer (SDL2).
  *
- * Portable platform layer (SDL2) with Switch enhancements:
+ * Portable platform layer (SDL2) with Switch / Vita enhancements:
  *   - g_touch_mode ("absolute"/"relative"/"off") — touch screen mode
- *   - SDL_FINGER* event handling for touchscreens (Switch, future ports)
- *   - platform_touch_cycle_mode() — called from gamepad_switch.c (MINUS button)
+ *   - SDL_FINGER* event handling for touchscreens (Switch, Vita, …)
+ *   - platform_touch_cycle_mode() — called from gamepad_*.c
  *   - WACKI_SWITCH: manual coordinate scaling in stretch mode
+ *   - WACKI_VITA: front = LMB tap, rear = RMB tap (via vita_touch_handle)
  *
  * Public API (declared in wacki.h):
  *   PlatformInit / PlatformShutdown
@@ -54,6 +55,11 @@ static float s_vcur_rem_x = 0, s_vcur_rem_y = 0;
 /* Defined in src/config.c */
 extern char g_touch_mode[16];
 
+#ifdef WACKI_VITA
+/* Implemented in src/platform/vita/touch_vita.c */
+void vita_touch_handle(const SDL_Event *ev);
+#endif
+
 /* ---- typed-char ring -------------------------------------------------- */
 
 void PlatformPushTypedChar(uint8_t c)
@@ -88,6 +94,11 @@ int PlatformInit(int w, int h, const char *title)
 #endif
 #ifdef __ANDROID__
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+#elif defined(WACKI_VITA)
+    /* Front/rear touch obsługujemy sami w vita_touch_handle. */
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+    /* Tylny panel włączony (domyślnie SDL może go wyłączyć). */
+    SDL_setenv("VITA_DISABLE_TOUCH_BACK", "0", 1);
 #else
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,
                 g_touch_mode[0] == 'a' ? "1" : "0");
@@ -218,7 +229,7 @@ static void handle_mouse_button_down(const SDL_Event *ev)
 }
 
 /* ---- touch (absolute: two-finger tap = RMB; relative: touchpad) ------- */
-#ifndef __ANDROID__
+#if !defined(__ANDROID__)
 static int          s_touch_fingers = 0, s_touch_peak = 0;
 static int          s_touch_rel_active = 0;
 static SDL_FingerID s_touch_rel_id = 0;
@@ -285,124 +296,4 @@ static void poll_virtual_cursor(void)
     if (dx != 0 || dy != 0) {
         if (dx >  1) dx =  1; if (dx < -1) dx = -1;
         if (dy >  1) dy =  1; if (dy < -1) dy = -1;
-        int spd = VCUR_BASE_PIXELS_PER_TICK +
-            (s_vcur_hold_ticks * (VCUR_MAX_PIXELS_PER_TICK - VCUR_BASE_PIXELS_PER_TICK))
-            / VCUR_ACCEL_TICKS;
-        if (spd > VCUR_MAX_PIXELS_PER_TICK) spd = VCUR_MAX_PIXELS_PER_TICK;
-        s_vcur_x += dx * spd; s_vcur_y += dy * spd;
-        ++s_vcur_hold_ticks;
-    } else {
-        s_vcur_hold_ticks = 0;
-    }
-
-    /* Analog stick: proportional, carrying the sub-pixel remainder so a
-     * gentle push still creeps the cursor for fine aiming. */
-    s_vcur_rem_x += ax;
-    s_vcur_rem_y += ay;
-    int mvx = (int)s_vcur_rem_x; s_vcur_rem_x -= (float)mvx; s_vcur_x += mvx;
-    int mvy = (int)s_vcur_rem_y; s_vcur_rem_y -= (float)mvy; s_vcur_y += mvy;
-
-    if (s_vcur_x < 0)        s_vcur_x = 0;
-    if (s_vcur_y < 0)        s_vcur_y = 0;
-    if (s_vcur_x >= s_w)     s_vcur_x = s_w - 1;
-    if (s_vcur_y >= s_h)     s_vcur_y = s_h - 1;
-
-    g_mouse_x = (int16_t)s_vcur_x;
-    g_mouse_y = (int16_t)s_vcur_y;
-    /* NOTE: s_vcur_hold_ticks is advanced ONLY in the d-pad-held branch
-     * above (and reset to 0 on release). A second unconditional ++ here
-     * double-counted while the d-pad was held, so the acceleration ramp
-     * hit VCUR_MAX in ~half of VCUR_ACCEL_TICKS — a twitchier cursor than
-     * tuned — and also crept the counter up during analog-only motion. */
-}
-
-/* ---- event pump ------------------------------------------------------- */
-
-void PlatformPumpEvents(void)
-{
-    if (!g_headless) SDL_ShowCursor(SDL_DISABLE);
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-        switch (ev.type) {
-        case SDL_QUIT: s_quit = 1; break;
-        case SDL_WINDOWEVENT:
-            if (ev.window.event == SDL_WINDOWEVENT_CLOSE) s_quit = 1;
-            else if (ev.window.event == SDL_WINDOWEVENT_RESIZED &&
-                     !g_fullscreen && s_w > 0) {
-                int sc = (ev.window.data1 + s_w / 2) / s_w;
-                if (sc < 1) sc = 1; if (sc > 8) sc = 8;
-                if (sc != g_scale_factor) {
-                    g_scale_factor = sc;
-                    extern void ConfigSave(void); ConfigSave();
-                }
-            }
-            break;
-        case SDL_KEYDOWN:   handle_keydown(&ev);        break;
-        case SDL_KEYUP:     g_key_state &= 0xFF00;     break;
-        case SDL_TEXTINPUT: handle_textinput(&ev);      break;
-        case SDL_MOUSEMOTION:      handle_mouse_motion(&ev);      break;
-        case SDL_MOUSEBUTTONDOWN:  handle_mouse_button_down(&ev); break;
-        case SDL_FINGERDOWN:
-#ifdef __ANDROID__
-            wacki_overlay_finger_down(ev.tfinger.fingerId, ev.tfinger.x, ev.tfinger.y);
-#else
-            if (g_touch_mode[0] == 'a') handle_finger_down();
-            else if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
-#endif
-            break;
-        case SDL_FINGERMOTION:
-#ifdef __ANDROID__
-            wacki_overlay_finger_motion(ev.tfinger.fingerId, ev.tfinger.x, ev.tfinger.y);
-#else
-            if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
-#endif
-            break;
-        case SDL_FINGERUP:
-#ifdef __ANDROID__
-            wacki_overlay_finger_up(ev.tfinger.fingerId, ev.tfinger.x, ev.tfinger.y);
-#else
-            if (g_touch_mode[0] == 'a') handle_finger_up();
-            else if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
-#endif
-            break;
-        case SDL_CONTROLLERBUTTONDOWN:
-        case SDL_CONTROLLERDEVICEADDED:
-        case SDL_CONTROLLERDEVICEREMOVED:
-            platform_pad_handle_event(&ev);
-            break;
-        }
-    }
-    if (!g_headless) poll_virtual_cursor();
-#ifdef __ANDROID__
-    if (!g_headless) wacki_overlay_tick();
-#endif
-}
-
-int PlatformShouldQuit(void) { return s_quit; }
-
-/* ---- touch mode cycle ------------------------------------------------- */
-
-void platform_touch_cycle_mode(void)
-{
-    if (strncmp(g_touch_mode, "absolute", 8) == 0)
-        strncpy(g_touch_mode, "relative", 15);
-    else if (strncmp(g_touch_mode, "relative", 8) == 0)
-        strncpy(g_touch_mode, "off", 15);
-    else
-        strncpy(g_touch_mode, "absolute", 15);
-    g_touch_mode[15] = '\0';
-#ifndef __ANDROID__
-    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,
-                g_touch_mode[0] == 'a' ? "1" : "0");
-#endif
-    LOG_INFO("platform", "touch_mode=%s", g_touch_mode);
-    extern void ConfigSave(void); ConfigSave();
-}
-
-/* ---- message box ------------------------------------------------------ */
-
-void PlatformShowMessageBox(const char *title, const char *body)
-{
-    if (g_headless) { LOG_TRACE("msgbox", "%s: %s", title, body); return; }
-    plat_video_message_box(title, body);
-}
+        int spd 
