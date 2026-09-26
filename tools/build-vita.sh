@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tools/build-vita.sh — cross-compile TARGET=vita via vitasdk Docker image.
+# tools/build-vita.sh — cross-compile TARGET=vita via vitasdk Docker.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,12 +11,9 @@ docker run --rm -v "$PWD:/wacki" -w /wacki \
     sh -c '
         set -e
         export PATH=$VITASDK/bin:$PATH
-        # Upewnij się, że SDL2 jest zainstalowane
-        if [ ! -f $VITASDK/arm-vita-eabi/lib/libSDL2.a ]; then
-            echo "Instaluję SDL2..."
-            vdpm install sdl2 sdl2_mixer || true
-        fi
-        make TARGET=vita WACKI_VERSION="'"$WACKI_VERSION"'" -j$(nproc)
+        # opcjonalne pakiety (ignoruj błąd jeśli już są)
+        vdpm install sdl2 sdl2_mixer vitagl vitashark taihen 2>/dev/null || true
+        make TARGET=vita WACKI_VERSION="'"$WACKI_VERSION"'" -j"$(nproc)"
     '
 
 echo "Gotowe: dist/wacki.vpk"
