@@ -28,6 +28,7 @@ SDL_CFG := -I$(VITASDK)/arm-vita-eabi/include/SDL2
 
 # SDL2 w obrazie vitasdk = backend vitaGL (C++) → trzeba libstdc++ + stuby
 SDL_LIB := -L$(VITASDK)/arm-vita-eabi/lib \
+		   -lSceShaccCgExt \
            -lSDL2 -lSDL2_mixer \
            -lvitaGL -lvitashark -lmathneon \
            -lSceShaccCg_stub \
