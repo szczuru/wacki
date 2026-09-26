@@ -1,0 +1,43 @@
+name: Vita build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ port-vita, master ]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'Makefile'
+      - 'mk/**'
+      - 'tools/**'
+      - 'assets/**'
+      - '.github/workflows/Vita.yml'
+
+jobs:
+  build-vita:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Przywroc WACKI.EXE z sekretu (opcjonalne)
+        env:
+          WACKI_EXE_URL: ${{ secrets.WACKI_EXE_URL }}
+        run: |
+          if [ -n "$WACKI_EXE_URL" ]; then
+            mkdir -p data
+            curl -fsSL "$WACKI_EXE_URL" -o data/WACKI.EXE
+            echo "WACKI.EXE pobrano ($(wc -c < data/WACKI.EXE) bajtow)"
+          else
+            echo "Brak sekretu WACKI_EXE_URL – build uzyje dynamicznego ladowania z ux0"
+          fi
+
+      - name: Build (tools/build-vita.sh)
+        run: bash tools/build-vita.sh
+
+      - name: Wgraj artefakt .vpk
+        uses: actions/upload-artifact@v4
+        with:
+          name: wacki-vita
+          path: dist/wacki.vpk
+          if-no-files-found: error
