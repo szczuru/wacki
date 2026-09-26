@@ -15,9 +15,6 @@
 #ifndef WACKI_PLATFORM_INPUT_H
 #define WACKI_PLATFORM_INPUT_H
 
-#ifdef WACKI_VITA
-void vita_touch_handle(const SDL_Event *ev);
-#endif
 
 /* Whether the platform has a real, reliable keyboard. Desktop = yes. On the
  * handhelds (Miyoo / PortMaster) every hardware button is mapped by firmware
