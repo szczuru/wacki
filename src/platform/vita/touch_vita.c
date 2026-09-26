@@ -17,7 +17,6 @@
 
 #include "wacki.h"
 #include "wacki/log.h"
-#include "wacki/platform/input.h"
 
 #include <SDL.h>
 #include <math.h>
