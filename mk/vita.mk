@@ -45,6 +45,7 @@ ENGINE_SRCS += src/platform/vita/vita.c \
                src/platform/sdl/audio_sdl.c \
                src/platform/sdl/flic_host.c \
                src/platform/sdl/video_sdl.c \
+			   src/platform/vita/touch_vita.c \
                src/platform/sdl/system_sdl.c
 
 # ---- VPK packaging ------------------------------------------------------
