@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła / szczuru
  *
- * src/platform/vita/data_root_vita.c — Vita memory-card data-root probe. */
+ * src/platform/vita/data_root_vita.c — Vita data-root probe. */
 
 #include "wacki/platform/storage.h"
 #include <stddef.h>
@@ -11,10 +11,11 @@ int plat_data_roots(int (*probe)(const char *root))
     static const char *const candidates[] = {
         "ux0:/data/wacki/data",
         "ux0:/data/wacki",
-        "ux0:/app/WACKI00001/data",   /* jeśli ktoś spakuje dane do VPK */
+        "ux0:/app/WACKI00001/data",
         "ux0:/app/WACKI00001",
     };
-    for (size_t i = 0; i < sizeof candidates / sizeof candidates[0]; ++i) {
+    size_t i;
+    for (i = 0; i < sizeof candidates / sizeof candidates[0]; ++i) {
         int r = probe(candidates[i]);
         if (r) return r;
     }
@@ -24,5 +25,5 @@ int plat_data_roots(int (*probe)(const char *root))
 int plat_prompt_data_folder(int (*probe)(const char *root))
 {
     (void)probe;
-    return 0;   /* brak folder pickera na Vicie */
+    return 0;
 }
