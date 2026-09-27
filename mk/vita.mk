@@ -26,22 +26,16 @@ LDFLAGS_SIZE := -Wl,--gc-sections
 
 SDL_CFG := -I$(VITASDK)/arm-vita-eabi/include/SDL2
 
-# SDL2 w obrazie vitasdk = backend vitaGL (C++) → trzeba libstdc++ + stuby
+# Oficjalne SDL2 Vita (GXM) — bez vitaGL / OpenGL / C++
 SDL_LIB := -L$(VITASDK)/arm-vita-eabi/lib \
            -lSDL2 -lSDL2_mixer \
-           -lvitaGL -lvitashark -lmathneon \
-           -lSceShaccCg_stub \
-           -lSceGxm_stub -lSceDisplay_stub -lSceCtrl_stub \
-           -lSceTouch_stub -lSceHid_stub -lSceMotion_stub \
+           -lSceDisplay_stub -lSceGxm_stub \
+           -lSceCtrl_stub -lSceTouch_stub -lSceHid_stub -lSceMotion_stub \
            -lSceAudio_stub -lSceAudioIn_stub \
-           -lSceIme_stub \
            -lSceSysmodule_stub -lSceCommonDialog_stub \
            -lSceAppMgr_stub -lSceAppUtil_stub \
            -lScePower_stub -lSceIofilemgr_stub \
-           -lSceKernelThreadMgr_stub -lSceLibKernel_stub \
-           -lSceKernelDmacMgr_stub \
-           -ltaihen_stub \
-           -lstdc++ \
+           -lSceLibKernel_stub \
            -lm -lc
 
 LDFLAGS_STATIC := -Wl,-q
