@@ -50,7 +50,6 @@ ENGINE_SRCS += src/platform/vita/vita.c \
                src/platform/vita/data_root_vita.c \
                src/platform/vita/gamepad_vita.c \
                src/platform/vita/touch_vita.c \
-               src/platform/vita/shacccg_ext_stub.c \
                src/platform/sdl/file_host.c \
                src/platform/sdl/audio_sdl.c \
                src/platform/sdl/flic_host.c \
