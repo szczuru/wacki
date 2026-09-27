@@ -1,4 +1,4 @@
-# mk/vita.mk — PlayStation Vita homebrew (VitaSDK + SDL2 / vitaGL).
+# mk/vita.mk — PlayStation Vita homebrew (VitaSDK + oficjalne SDL2 / GXM).
 
 VITASDK ?= $(shell echo $$VITASDK)
 ifeq ($(VITASDK),)
@@ -6,8 +6,7 @@ ifeq ($(VITASDK),)
 endif
 
 CC       := $(VITASDK)/bin/arm-vita-eabi-gcc
-# Kompilacja C zostaje na gcc; link finalny przez g++ (ciągnie libstdc++ automatycznie)
-LD := $(VITASDK)/bin/arm-vita-eabi-g++
+LD       := $(VITASDK)/bin/arm-vita-eabi-gcc
 BIN_NAME := wacki
 
 CFLAGS += -D__VITA__ -DWACKI_HANDHELD -DWACKI_VITA \
@@ -57,6 +56,7 @@ ENGINE_SRCS += src/platform/vita/vita.c \
                src/platform/sdl/system_sdl.c
 
 # ---- VPK packaging ------------------------------------------------------
+# TITLE_ID: dokładnie 9 znaków (4 litery + 5 cyfr)
 VITA_TITLEID  := WACK10001
 VITA_APP_NAME := "Wacki: Kosmiczna rozgrywka"
 VITA_VPK      := $(DIST)/wacki.vpk
@@ -74,14 +74,28 @@ $(VITA_SELF): $(DIST)/$(BIN_NAME) $(VITA_PARAM)
 	vita-make-fself -s $(DIST)/$(BIN_NAME).velf $@
 
 $(VITA_VPK): $(VITA_SELF) $(VITA_PARAM)
-	@if [ -f $(VITA_SCE_SYS)/icon0.png ]; then \
-	  vita-pack-vpk -s $(VITA_PARAM) -b $(VITA_SELF) \
-	    --add $(VITA_SCE_SYS)/icon0.png=sce_sys/icon0.png \
-	    $$([ -f $(VITA_SCE_SYS)/pic0.png ] && echo --add $(VITA_SCE_SYS)/pic0.png=sce_sys/pic0.png) \
-	    $$([ -f $(VITA_SCE_SYS)/livearea/contents/bg0.png ] && echo --add $(VITA_SCE_SYS)/livearea/contents/bg0.png=sce_sys/livearea/contents/bg0.png) \
-	    $$([ -f $(VITA_SCE_SYS)/livearea/contents/startup.png ] && echo --add $(VITA_SCE_SYS)/livearea/contents/startup.png=sce_sys/livearea/contents/startup.png) \
-	    $$([ -f $(VITA_SCE_SYS)/livearea/contents/template.xml ] && echo --add $(VITA_SCE_SYS)/livearea/contents/template.xml=sce_sys/livearea/contents/template.xml) \
-	    $(VITA_VPK); \
-	else \
-	  vita-pack-vpk -s $(VITA_PARAM) -b $(VITA_SELF) $(VITA_VPK); \
-	fi
+	@set -e; \
+	ADD=""; \
+	if [ -f $(VITA_SCE_SYS)/icon0.png ]; then \
+	  ADD="$$ADD --add $(VITA_SCE_SYS)/icon0.png=sce_sys/icon0.png"; \
+	fi; \
+	if [ -f $(VITA_SCE_SYS)/pic0.png ]; then \
+	  ADD="$$ADD --add $(VITA_SCE_SYS)/pic0.png=sce_sys/pic0.png"; \
+	fi; \
+	if [ -f $(VITA_SCE_SYS)/livearea/contents/bg0.png ]; then \
+	  ADD="$$ADD --add $(VITA_SCE_SYS)/livearea/contents/bg0.png=sce_sys/livearea/contents/bg0.png"; \
+	fi; \
+	if [ -f $(VITA_SCE_SYS)/livearea/contents/startup.png ]; then \
+	  ADD="$$ADD --add $(VITA_SCE_SYS)/livearea/contents/startup.png=sce_sys/livearea/contents/startup.png"; \
+	fi; \
+	if [ -f $(VITA_SCE_SYS)/livearea/contents/template.xml ]; then \
+	  ADD="$$ADD --add $(VITA_SCE_SYS)/livearea/contents/template.xml=sce_sys/livearea/contents/template.xml"; \
+	fi; \
+	if [ -d $(VITA_SCE_SYS)/manual ]; then \
+	  for f in $(VITA_SCE_SYS)/manual/*; do \
+	    [ -f "$$f" ] || continue; \
+	    b=$$(basename "$$f"); \
+	    ADD="$$ADD --add $$f=sce_sys/manual/$$b"; \
+	  done; \
+	fi; \
+	vita-pack-vpk -s $(VITA_PARAM) -b $(VITA_SELF) $$ADD $(VITA_VPK)
