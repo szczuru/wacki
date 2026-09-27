@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * Copyright (C) 2026 Mateusz Szuła / szczuru
  *
- * absolute: pozycja + LMB na tapie (tylko przedni ekran)
- * relative: tylko ruch kursora (bez klików)
+ * absolute: pozycja + LMB na tapie (TYLKO przedni ekran)
+ * relative: ruch kursora bez klików (TYLKO przedni)
  * off:      nic
- * tylny panel w absolute: RMB na tapie
+ * tylny panel: ZAWSZE ignorowany
+ *
+ * SDL2 ≥ 2.30.7: front touchId = 1, rear = 0
  */
 
 #include "wacki.h"
@@ -15,8 +17,8 @@
 
 extern char g_touch_mode[16];
 
-#define VITA_FRONT_TOUCH_ID  0
-#define VITA_REAR_TOUCH_ID   1
+/* Oficjalne SDL2 (GXM): przedni panel ma ID 1. */
+#define VITA_FRONT_TOUCH_ID  1
 #define GAME_W  640
 #define GAME_H  480
 #define TAP_MAX_MOVE  0.025f
@@ -28,12 +30,15 @@ typedef struct {
 } VitaFingerTrack;
 
 static VitaFingerTrack s_front;
-static VitaFingerTrack s_rear;
 
-/* relative (touchpad) state */
 static int          s_rel_active;
 static SDL_FingerID s_rel_id;
 static float        s_rel_last_x, s_rel_last_y;
+
+static int is_front(const SDL_Event *ev)
+{
+    return ev->tfinger.touchId == (SDL_TouchID)VITA_FRONT_TOUCH_ID;
+}
 
 static void set_cursor_from_norm(float nx, float ny)
 {
@@ -52,10 +57,6 @@ static void handle_relative(const SDL_Event *ev)
     float nx = ev->tfinger.x, ny = ev->tfinger.y;
     SDL_FingerID fid = ev->tfinger.fingerId;
 
-    /* tylko przedni panel jako touchpad */
-    if (ev->tfinger.touchId == (SDL_TouchID)VITA_REAR_TOUCH_ID)
-        return;
-
     if (ev->type == SDL_FINGERDOWN || !s_rel_active || fid != s_rel_id) {
         s_rel_active = (ev->type != SDL_FINGERUP);
         s_rel_id = fid;
@@ -67,7 +68,6 @@ static void handle_relative(const SDL_Event *ev)
         s_rel_active = 0;
         return;
     }
-    /* FINGERMOTION — delta → kursor, BEZ klików */
     {
         float dx = (nx - s_rel_last_x) * (float)GAME_W;
         float dy = (ny - s_rel_last_y) * (float)GAME_H;
@@ -86,36 +86,30 @@ static void handle_relative(const SDL_Event *ev)
 
 static void handle_absolute(const SDL_Event *ev)
 {
-    int is_rear = (ev->tfinger.touchId == (SDL_TouchID)VITA_REAR_TOUCH_ID);
-    VitaFingerTrack *t = is_rear ? &s_rear : &s_front;
     float x = ev->tfinger.x, y = ev->tfinger.y;
 
     switch (ev->type) {
     case SDL_FINGERDOWN:
-        t->active  = 1;
-        t->start_x = x;
-        t->start_y = y;
-        t->moved   = 0.f;
-        if (!is_rear) set_cursor_from_norm(x, y);
+        s_front.active  = 1;
+        s_front.start_x = x;
+        s_front.start_y = y;
+        s_front.moved   = 0.f;
+        set_cursor_from_norm(x, y);
         break;
     case SDL_FINGERMOTION:
-        if (!t->active) break;
+        if (!s_front.active) break;
         {
-            float m = fabsf(x - t->start_x) + fabsf(y - t->start_y);
-            if (m > t->moved) t->moved = m;
+            float m = fabsf(x - s_front.start_x) + fabsf(y - s_front.start_y);
+            if (m > s_front.moved) s_front.moved = m;
         }
-        if (!is_rear) set_cursor_from_norm(x, y);
+        set_cursor_from_norm(x, y);
         break;
     case SDL_FINGERUP:
-        if (!t->active) break;
-        t->active = 0;
-        if (t->moved <= TAP_MAX_MOVE) {
-            if (is_rear) {
-                g_rmb_clicked = 1;
-            } else {
-                set_cursor_from_norm(x, y);
-                g_lmb_clicked = 1;
-            }
+        if (!s_front.active) break;
+        s_front.active = 0;
+        if (s_front.moved <= TAP_MAX_MOVE) {
+            set_cursor_from_norm(x, y);
+            g_lmb_clicked = 1;
         }
         break;
     default:
@@ -126,10 +120,15 @@ static void handle_absolute(const SDL_Event *ev)
 void vita_touch_handle(const SDL_Event *ev)
 {
     if (!ev) return;
-    if (g_touch_mode[0] == 'o') /* off */
+
+    /* Tylny panel — zawsze ignoruj */
+    if (!is_front(ev))
         return;
-    if (g_touch_mode[0] == 'r') /* relative / touchpad */
+
+    if (g_touch_mode[0] == 'o')
+        return;
+    if (g_touch_mode[0] == 'r')
         handle_relative(ev);
     else
-        handle_absolute(ev); /* absolute (domyślnie) */
+        handle_absolute(ev);
 }
