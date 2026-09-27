@@ -45,8 +45,13 @@ static int load_wacki_exe_dynamic(void)
 void plat_apply_video_prefs(void)
 {
     g_fullscreen = 1;
+
+    /* Szybkość: nie czekaj na VSync; wymuś prostszy present */
+    SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0"); /* nearest, taniej */
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 
+    /* reszta jak było: PE load… */
     if (g_wacki_pe_slice_count > 0) {
         LOG_INFO("wacki", "WACKI.EXE embedded (%d slices)", g_wacki_pe_slice_count);
         return;
