@@ -11,8 +11,8 @@ int plat_data_roots(int (*probe)(const char *root))
     static const char *const candidates[] = {
         "ux0:/data/wacki/data",
         "ux0:/data/wacki",
-        "ux0:/app/WACKI00001/data",
-        "ux0:/app/WACKI00001",
+        "ux0:/app/WACK10001/data",
+        "ux0:/app/WACK10001",
     };
     size_t i;
     for (i = 0; i < sizeof candidates / sizeof candidates[0]; ++i) {
