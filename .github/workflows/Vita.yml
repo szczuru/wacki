@@ -3,7 +3,7 @@ name: Vita build
 on:
   workflow_dispatch:
   push:
-    branches: [ port-vita, master, port-switch ]
+    branches: [ master, port-switch ]
     paths:
       - 'src/**'
       - 'include/**'
