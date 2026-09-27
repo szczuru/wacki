@@ -57,7 +57,7 @@ ENGINE_SRCS += src/platform/vita/vita.c \
                src/platform/sdl/system_sdl.c
 
 # ---- VPK packaging ------------------------------------------------------
-VITA_TITLEID  := WACKI00001
+VITA_TITLEID  := WACK10001
 VITA_APP_NAME := "Wacki: Kosmiczna rozgrywka"
 VITA_VPK      := $(DIST)/wacki.vpk
 VITA_SELF     := $(DIST)/eboot.bin
