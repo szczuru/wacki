@@ -3,12 +3,13 @@
  *
  * src/platform/sdl/platform_sdl.c — portable platform layer (SDL2).
  *
- * Portable platform layer (SDL2) with Switch / Vita enhancements:
- *   - g_touch_mode ("absolute"/"relative"/"off")
- *   - SDL_FINGER* for touchscreens
- *   - platform_touch_cycle_mode()
- *   - WACKI_SWITCH: stretch-mode coordinate scaling
- *   - WACKI_VITA: front = LMB tap, rear = RMB tap (vita_touch_handle)
+ * Touch modes (g_touch_mode):
+ *   "absolute" — punkt na ekranie = kursor; tap = LMB (Vita: touch_vita.c)
+ *   "relative" — gładzik: delta ruchu = kursor, bez klików z palca
+ *   "off"      — touch wyłączony
+ *
+ * WACKI_VITA: wszystkie SDL_FINGER* → vita_touch_handle()
+ * WACKI_SWITCH: skalowanie myszy w trybie stretch
  */
 
 #include "wacki.h"
@@ -46,6 +47,7 @@ static float s_vcur_rem_x = 0, s_vcur_rem_y = 0;
 extern char g_touch_mode[16];
 
 #ifdef WACKI_VITA
+/* Implemented in src/platform/vita/touch_vita.c */
 void vita_touch_handle(const SDL_Event *ev);
 #endif
 
@@ -62,9 +64,11 @@ void PlatformPushTypedChar(uint8_t c)
 uint8_t PlatformPollTypedChar(void)
 {
     if (s_typed_head == s_typed_tail) return 0;
-    uint8_t c = s_typed_q[s_typed_tail];
-    s_typed_tail = (s_typed_tail + 1) % TYPED_QUEUE_SZ;
-    return c;
+    {
+        uint8_t c = s_typed_q[s_typed_tail];
+        s_typed_tail = (s_typed_tail + 1) % TYPED_QUEUE_SZ;
+        return c;
+    }
 }
 
 void PlatformSetTextInput(int on)
@@ -81,11 +85,10 @@ int PlatformInit(int w, int h, const char *title)
 #ifdef SDL_HINT_APP_NAME
     SDL_SetHint(SDL_HINT_APP_NAME, "Wacki");
 #endif
-#ifdef __ANDROID__
+
+#if defined(__ANDROID__) || defined(WACKI_VITA)
+    /* Własna obsługa touch — SDL nie generuje sztucznych eventów myszy. */
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
-#elif defined(WACKI_VITA)
-    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
-    SDL_setenv("VITA_DISABLE_TOUCH_BACK", "0", 1);
 #else
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,
                 g_touch_mode[0] == 'a' ? "1" : "0");
@@ -95,7 +98,8 @@ int PlatformInit(int w, int h, const char *title)
         LOG_INFO("log", "SDL_Init: %s", SDL_GetError());
         return 0;
     }
-    s_w = w; s_h = h;
+    s_w = w;
+    s_h = h;
 
     plat_restore_system_volume();
     if (!g_headless) platform_pad_open();
@@ -120,16 +124,6 @@ void PlatformPresent(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 }
 
 /* ---- event handlers --------------------------------------------------- */
-
-static int input_debug_enabled(void)
-{
-    static int f = -1;
-    if (f < 0) {
-        const char *e = SDL_getenv("WACKI_INPUT_DEBUG");
-        f = (e && *e && *e != '0');
-    }
-    return f;
-}
 
 #ifdef __APPLE__
 void PlatformMenuQuickSave(void)  { g_quicksave_request  = 1; }
@@ -165,7 +159,8 @@ static void handle_keydown(const SDL_Event *ev)
 
 static void handle_textinput(const SDL_Event *ev)
 {
-    for (const char *p = ev->text.text; *p; ++p) {
+    const char *p;
+    for (p = ev->text.text; *p; ++p) {
         uint8_t c = (uint8_t)*p;
         if (c >= UTF8_MULTIBYTE_MARK) continue;
         PlatformPushTypedChar(c);
@@ -175,18 +170,21 @@ static void handle_textinput(const SDL_Event *ev)
 static void handle_mouse_motion(const SDL_Event *ev)
 {
 #ifdef __ANDROID__
-    if (ev->motion.which == SDL_TOUCH_MOUSEID && wacki_overlay_owns_touch()) return;
+    if (ev->motion.which == SDL_TOUCH_MOUSEID && wacki_overlay_owns_touch())
+        return;
     g_mouse_x = (int16_t)ev->motion.x;
     g_mouse_y = (int16_t)ev->motion.y;
-#elif defined(WACKI_SWITCH)
-    int stretch = 0, win_w = s_w, win_h = s_h, fb_w = s_w, fb_h = s_h;
-    platform_video_get_present_state(&stretch, &win_w, &win_h, &fb_w, &fb_h);
-    if (stretch && win_w > 0 && win_h > 0) {
-        g_mouse_x = (int16_t)(ev->motion.x * fb_w / win_w);
-        g_mouse_y = (int16_t)(ev->motion.y * fb_h / win_h);
-    } else {
-        g_mouse_x = (int16_t)ev->motion.x;
-        g_mouse_y = (int16_t)ev->motion.y;
+#elif defined(WACKI_SWITCH) || defined(WACKI_VITA)
+    {
+        int stretch = 0, win_w = s_w, win_h = s_h, fb_w = s_w, fb_h = s_h;
+        platform_video_get_present_state(&stretch, &win_w, &win_h, &fb_w, &fb_h);
+        if (stretch && win_w > 0 && win_h > 0) {
+            g_mouse_x = (int16_t)(ev->motion.x * fb_w / win_w);
+            g_mouse_y = (int16_t)(ev->motion.y * fb_h / win_h);
+        } else {
+            g_mouse_x = (int16_t)ev->motion.x;
+            g_mouse_y = (int16_t)ev->motion.y;
+        }
     }
 #else
     g_mouse_x = (int16_t)ev->motion.x;
@@ -197,14 +195,15 @@ static void handle_mouse_motion(const SDL_Event *ev)
 static void handle_mouse_button_down(const SDL_Event *ev)
 {
 #ifdef __ANDROID__
-    if (ev->button.which == SDL_TOUCH_MOUSEID && wacki_overlay_owns_touch()) return;
+    if (ev->button.which == SDL_TOUCH_MOUSEID && wacki_overlay_owns_touch())
+        return;
 #endif
     if (ev->button.button == SDL_BUTTON_LEFT)  g_lmb_clicked = 1;
     if (ev->button.button == SDL_BUTTON_RIGHT) g_rmb_clicked = 1;
 }
 
-/* ---- touch ------------------------------------------------------------- */
-#if !defined(__ANDROID__)
+/* ---- touch (Switch / desktop; Vita → touch_vita.c) -------------------- */
+#if !defined(__ANDROID__) && !defined(WACKI_VITA)
 static int          s_touch_fingers = 0, s_touch_peak = 0;
 static int          s_touch_rel_active = 0;
 static SDL_FingerID s_touch_rel_id = 0;
@@ -221,7 +220,10 @@ static void handle_finger_up(void)
 {
     if (s_touch_fingers > 0) --s_touch_fingers;
     if (s_touch_fingers != 0) return;
-    if (s_touch_peak >= 2) { g_rmb_clicked = 1; g_lmb_clicked = 0; }
+    if (s_touch_peak >= 2) {
+        g_rmb_clicked = 1;
+        g_lmb_clicked = 0;
+    }
     s_touch_peak = 0;
 }
 
@@ -230,17 +232,88 @@ static void handle_finger_relative(const SDL_Event *ev)
     float nx = ev->tfinger.x, ny = ev->tfinger.y;
     SDL_FingerID fid = ev->tfinger.fingerId;
     if (ev->type == SDL_FINGERDOWN || !s_touch_rel_active || fid != s_touch_rel_id) {
-        s_touch_rel_active  = (ev->type != SDL_FINGERUP);
-        s_touch_rel_id      = fid;
-        s_touch_rel_last_x  = nx;
-        s_touch_rel_last_y  = ny;
+        s_touch_rel_active = (ev->type != SDL_FINGERUP);
+        s_touch_rel_id     = fid;
+        s_touch_rel_last_x = nx;
+        s_touch_rel_last_y = ny;
         return;
     }
-    if (ev->type == SDL_FINGERUP) { s_touch_rel_active = 0; return; }
-    float dxn = nx - s_touch_rel_last_x, dyn = ny - s_touch_rel_last_y;
-    s_touch_rel_last_x = nx; s_touch_rel_last_y = ny;
-    s_vcur_rem_x += dxn * (float)s_w;
-    s_vcur_rem_y += dyn * (float)s_h;
+    if (ev->type == SDL_FINGERUP) {
+        s_touch_rel_active = 0;
+        return;
+    }
+    {
+        float dxn = nx - s_touch_rel_last_x, dyn = ny - s_touch_rel_last_y;
+        int mvx, mvy;
+        s_touch_rel_last_x = nx;
+        s_touch_rel_last_y = ny;
+        s_vcur_rem_x += dxn * (float)s_w;
+        s_vcur_rem_y += dyn * (float)s_h;
+        mvx = (int)s_vcur_rem_x;
+        s_vcur_rem_x -= (float)mvx;
+        s_vcur_x += mvx;
+        mvy = (int)s_vcur_rem_y;
+        s_vcur_rem_y -= (float)mvy;
+        s_vcur_y += mvy;
+        if (s_vcur_x < 0) s_vcur_x = 0;
+        if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
+        if (s_vcur_y < 0) s_vcur_y = 0;
+        if (s_vcur_y >= s_h) s_vcur_y = s_h - 1;
+        s_vcur_initialized = 1;
+        g_mouse_x = (int16_t)s_vcur_x;
+        g_mouse_y = (int16_t)s_vcur_y;
+    }
+}
+#endif /* !ANDROID && !VITA */
+
+/* ---- virtual cursor (d-pad / analog) ---------------------------------- */
+
+static void poll_virtual_cursor(void)
+{
+    const uint8_t *ks;
+    int dx, dy;
+    float ax, ay;
+
+    if (!s_vcur_initialized) {
+        s_vcur_x = g_mouse_x ? g_mouse_x : s_w / 2;
+        s_vcur_y = g_mouse_y ? g_mouse_y : s_h / 2;
+        s_vcur_initialized = 1;
+        g_mouse_x = (int16_t)s_vcur_x;
+        g_mouse_y = (int16_t)s_vcur_y;
+    }
+
+    ks = SDL_GetKeyboardState(NULL);
+    dx = (int)ks[SDL_SCANCODE_RIGHT] - (int)ks[SDL_SCANCODE_LEFT];
+    dy = (int)ks[SDL_SCANCODE_DOWN]  - (int)ks[SDL_SCANCODE_UP];
+    ax = 0.f;
+    ay = 0.f;
+    platform_pad_read_motion(&dx, &dy, &ax, &ay);
+
+    if (dx == 0 && dy == 0 && ax == 0.f && ay == 0.f) {
+        s_vcur_hold_ticks = 0;
+        s_vcur_rem_x = s_vcur_rem_y = 0.f;
+        return;
+    }
+
+    if (dx != 0 || dy != 0) {
+        int spd;
+        if (dx >  1) dx =  1;
+        if (dx < -1) dx = -1;
+        if (dy >  1) dy =  1;
+        if (dy < -1) dy = -1;
+        spd = VCUR_BASE_PIXELS_PER_TICK +
+            (s_vcur_hold_ticks * (VCUR_MAX_PIXELS_PER_TICK - VCUR_BASE_PIXELS_PER_TICK))
+            / VCUR_ACCEL_TICKS;
+        if (spd > VCUR_MAX_PIXELS_PER_TICK) spd = VCUR_MAX_PIXELS_PER_TICK;
+        s_vcur_x += dx * spd;
+        s_vcur_y += dy * spd;
+        ++s_vcur_hold_ticks;
+    } else {
+        s_vcur_hold_ticks = 0;
+    }
+
+    s_vcur_rem_x += ax;
+    s_vcur_rem_y += ay;
     {
         int mvx = (int)s_vcur_rem_x;
         s_vcur_rem_x -= (float)mvx;
@@ -251,174 +324,102 @@ static void handle_finger_relative(const SDL_Event *ev)
         s_vcur_rem_y -= (float)mvy;
         s_vcur_y += mvy;
     }
+
     if (s_vcur_x < 0) s_vcur_x = 0;
-    if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
     if (s_vcur_y < 0) s_vcur_y = 0;
+    if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
     if (s_vcur_y >= s_h) s_vcur_y = s_h - 1;
-    s_vcur_initialized = 1;
+
     g_mouse_x = (int16_t)s_vcur_x;
     g_mouse_y = (int16_t)s_vcur_y;
 }
-#endif /* !__ANDROID__ */
 
-/* ---- virtual cursor ---------------------------------------------------- */
-
-static void poll_virtual_cursor(void)
-{
-    if (!s_vcur_initialized) {
-        s_vcur_x = g_mouse_x ? g_mouse_x : s_w / 2;
-        s_vcur_y = g_mouse_y ? g_mouse_y : s_h / 2;
-        s_vcur_initialized = 1;
-        g_mouse_x = (int16_t)s_vcur_x;
-        g_mouse_y = (int16_t)s_vcur_y;
-    }
-    {
-        const uint8_t *ks = SDL_GetKeyboardState(NULL);
-        int dx = (int)ks[SDL_SCANCODE_RIGHT] - (int)ks[SDL_SCANCODE_LEFT];
-        int dy = (int)ks[SDL_SCANCODE_DOWN]  - (int)ks[SDL_SCANCODE_UP];
-        float ax = 0.f, ay = 0.f;
-        platform_pad_read_motion(&dx, &dy, &ax, &ay);
-        if (dx == 0 && dy == 0 && ax == 0.f && ay == 0.f) {
-            s_vcur_hold_ticks = 0;
-            s_vcur_rem_x = s_vcur_rem_y = 0.f;
-            return;
-        }
-        if (dx != 0 || dy != 0) {
-            if (dx >  1) dx =  1;
-            if (dx < -1) dx = -1;
-            if (dy >  1) dy =  1;
-            if (dy < -1) dy = -1;
-            {
-                int spd = VCUR_BASE_PIXELS_PER_TICK +
-                    (s_vcur_hold_ticks * (VCUR_MAX_PIXELS_PER_TICK - VCUR_BASE_PIXELS_PER_TICK))
-                    / VCUR_ACCEL_TICKS;
-                if (spd > VCUR_MAX_PIXELS_PER_TICK) spd = VCUR_MAX_PIXELS_PER_TICK;
-                s_vcur_x += dx * spd;
-                s_vcur_y += dy * spd;
-                ++s_vcur_hold_ticks;
-            }
-        } else {
-            s_vcur_hold_ticks = 0;
-        }
-
-        s_vcur_rem_x += ax;
-        s_vcur_rem_y += ay;
-        {
-            int mvx = (int)s_vcur_rem_x;
-            s_vcur_rem_x -= (float)mvx;
-            s_vcur_x += mvx;
-        }
-        {
-            int mvy = (int)s_vcur_rem_y;
-            s_vcur_rem_y -= (float)mvy;
-            s_vcur_y += mvy;
-        }
-
-        if (s_vcur_x < 0) s_vcur_x = 0;
-        if (s_vcur_y < 0) s_vcur_y = 0;
-        if (s_vcur_x >= s_w) s_vcur_x = s_w - 1;
-        if (s_vcur_y >= s_h) s_vcur_y = s_h - 1;
-
-        g_mouse_x = (int16_t)s_vcur_x;
-        g_mouse_y = (int16_t)s_vcur_y;
-    }
-}
-
-/* ---- event pump -------------------------------------------------------- */
+/* ---- event pump ------------------------------------------------------- */
 
 void PlatformPumpEvents(void)
 {
+    SDL_Event ev;
+
     if (!g_headless) SDL_ShowCursor(SDL_DISABLE);
-    {
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            switch (ev.type) {
-            case SDL_QUIT:
+
+    while (SDL_PollEvent(&ev)) {
+        switch (ev.type) {
+        case SDL_QUIT:
+            s_quit = 1;
+            break;
+
+        case SDL_WINDOWEVENT:
+            if (ev.window.event == SDL_WINDOWEVENT_CLOSE)
                 s_quit = 1;
-                break;
-            case SDL_WINDOWEVENT:
-                if (ev.window.event == SDL_WINDOWEVENT_CLOSE)
-                    s_quit = 1;
-                else if (ev.window.event == SDL_WINDOWEVENT_RESIZED &&
-                         !g_fullscreen && s_w > 0) {
-                    int sc = (ev.window.data1 + s_w / 2) / s_w;
-                    if (sc < 1) sc = 1;
-                    if (sc > 8) sc = 8;
-                    if (sc != g_scale_factor) {
-                        g_scale_factor = sc;
-                        {
-                            extern void ConfigSave(void);
-                            ConfigSave();
-                        }
+            else if (ev.window.event == SDL_WINDOWEVENT_RESIZED &&
+                     !g_fullscreen && s_w > 0) {
+                int sc = (ev.window.data1 + s_w / 2) / s_w;
+                if (sc < 1) sc = 1;
+                if (sc > 8) sc = 8;
+                if (sc != g_scale_factor) {
+                    g_scale_factor = sc;
+                    {
+                        extern void ConfigSave(void);
+                        ConfigSave();
                     }
                 }
-                break;
-            case SDL_KEYDOWN:
-                handle_keydown(&ev);
-                break;
-            case SDL_KEYUP:
-                g_key_state &= 0xFF00;
-                break;
-            case SDL_TEXTINPUT:
-                handle_textinput(&ev);
-                break;
-            case SDL_MOUSEMOTION:
-                handle_mouse_motion(&ev);
-                break;
-            case SDL_MOUSEBUTTONDOWN:
-                handle_mouse_button_down(&ev);
-                break;
-            case SDL_FINGERDOWN:
+            }
+            break;
+
+        case SDL_KEYDOWN:
+            handle_keydown(&ev);
+            break;
+        case SDL_KEYUP:
+            g_key_state &= 0xFF00;
+            break;
+        case SDL_TEXTINPUT:
+            handle_textinput(&ev);
+            break;
+        case SDL_MOUSEMOTION:
+            handle_mouse_motion(&ev);
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+            handle_mouse_button_down(&ev);
+            break;
+
+        case SDL_FINGERDOWN:
+        case SDL_FINGERMOTION:
+        case SDL_FINGERUP:
 #ifdef __ANDROID__
+            if (ev.type == SDL_FINGERDOWN)
                 wacki_overlay_finger_down(ev.tfinger.fingerId,
                                           ev.tfinger.x, ev.tfinger.y);
-#elif defined(WACKI_VITA)
-                if (g_touch_mode[0] == 'r')
-                    handle_finger_relative(&ev);
-                else
-                    vita_touch_handle(&ev);
-#else
-                if (g_touch_mode[0] == 'a') handle_finger_down();
-                else if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
-#endif
-                break;
-            case SDL_FINGERMOTION:
-#ifdef __ANDROID__
+            else if (ev.type == SDL_FINGERMOTION)
                 wacki_overlay_finger_motion(ev.tfinger.fingerId,
-                                            ev.tfinger.x, ev.tfinger.y);
-#elif defined(WACKI_VITA)
-                if (g_touch_mode[0] == 'r')
-                    handle_finger_relative(&ev);
-                else
-                    vita_touch_handle(&ev);
-#else
-                if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
-#endif
-                break;
-            case SDL_FINGERUP:
-#ifdef __ANDROID__
+                                             ev.tfinger.x, ev.tfinger.y);
+            else
                 wacki_overlay_finger_up(ev.tfinger.fingerId,
-                                        ev.tfinger.x, ev.tfinger.y);
+                                         ev.tfinger.x, ev.tfinger.y);
 #elif defined(WACKI_VITA)
-                if (g_touch_mode[0] == 'r')
-                    handle_finger_relative(&ev);
-                else
-                    vita_touch_handle(&ev);
+            /* off / absolute / relative — wszystko w touch_vita.c */
+            vita_touch_handle(&ev);
 #else
-                if (g_touch_mode[0] == 'a') handle_finger_up();
-                else if (g_touch_mode[0] == 'r') handle_finger_relative(&ev);
-#endif
-                break;
-            case SDL_CONTROLLERBUTTONDOWN:
-            case SDL_CONTROLLERDEVICEADDED:
-            case SDL_CONTROLLERDEVICEREMOVED:
-                platform_pad_handle_event(&ev);
-                break;
-            default:
-                break;
+            if (g_touch_mode[0] == 'a') {
+                if (ev.type == SDL_FINGERDOWN) handle_finger_down();
+                else if (ev.type == SDL_FINGERUP) handle_finger_up();
+            } else if (g_touch_mode[0] == 'r') {
+                handle_finger_relative(&ev);
             }
+            /* 'o' = off → ignoruj */
+#endif
+            break;
+
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERDEVICEADDED:
+        case SDL_CONTROLLERDEVICEREMOVED:
+            platform_pad_handle_event(&ev);
+            break;
+
+        default:
+            break;
         }
     }
+
     if (!g_headless) poll_virtual_cursor();
 #ifdef __ANDROID__
     if (!g_headless) wacki_overlay_tick();
@@ -430,7 +431,7 @@ int PlatformShouldQuit(void)
     return s_quit;
 }
 
-/* ---- touch mode cycle -------------------------------------------------- */
+/* ---- touch mode cycle ------------------------------------------------- */
 
 void platform_touch_cycle_mode(void)
 {
@@ -441,10 +442,12 @@ void platform_touch_cycle_mode(void)
     else
         strncpy(g_touch_mode, "absolute", 15);
     g_touch_mode[15] = '\0';
+
 #if !defined(__ANDROID__) && !defined(WACKI_VITA)
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS,
                 g_touch_mode[0] == 'a' ? "1" : "0");
 #endif
+
     LOG_INFO("platform", "touch_mode=%s", g_touch_mode);
     {
         extern void ConfigSave(void);
@@ -452,7 +455,7 @@ void platform_touch_cycle_mode(void)
     }
 }
 
-/* ---- message box ------------------------------------------------------- */
+/* ---- message box ------------------------------------------------------ */
 
 void PlatformShowMessageBox(const char *title, const char *body)
 {
