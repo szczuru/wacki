@@ -33,7 +33,7 @@ static int load_wacki_exe_dynamic(void)
             "ux0:/data/wacki/wacki.exe",
             "ux0:/data/wacki/data/WACKI.EXE",
             "ux0:/data/wacki/data/wacki.exe",
-            "ux0:/app/WACKI00001/WACKI.EXE",
+            "ux0:/app/WACK10001/WACKI.EXE",
         };
         size_t i;
         for (i = 0; i < sizeof fb / sizeof fb[0]; ++i)
