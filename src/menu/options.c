@@ -56,7 +56,8 @@ static uint8_t s_opt_gfx1 = 1;        /* video_mode */
 static uint8_t s_opt_gfx2 = 1;        /* fast-transitions flag */
 
 /* Exposed for the render path: gfx1 (video_mode) gates the alpha-plane
- * positional tint/lighting effect. */
+ * positional tint/lighting effect — and, on the 3DS GPU backend
+ * (video_3ds_c3d.c), smoothing (linear filtering). Default on. */
 int GraphicsAlphaFxEnabled(void) { return s_opt_gfx1; }
 
 /* SceneDefs are defined further down; forward-declared here so the

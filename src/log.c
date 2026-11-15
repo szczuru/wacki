@@ -37,8 +37,18 @@ static const char *const k_level_name[] = {
 };
 #endif
 
+void (*g_log_sink)(WackiLogLevel lvl, const char *tag, const char *msg) = NULL;
+
 void wacki_log(WackiLogLevel lvl, const char *tag, const char *fmt, ...)
 {
+    if (g_log_sink && lvl >= WL_WARN) {
+        char    msg[512];
+        va_list sp;
+        va_start(sp, fmt);
+        vsnprintf(msg, sizeof msg, fmt, sp);
+        va_end(sp);
+        g_log_sink(lvl, tag ? tag : "?", msg);
+    }
     if (lvl < g_log_min_level) return;
     if (lvl < WL_TRACE || lvl > WL_ERROR) lvl = WL_INFO;
 

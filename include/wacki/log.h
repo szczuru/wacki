@@ -40,6 +40,11 @@ typedef enum WackiLogLevel {
  * WL_INFO under -DWACKI_VERBOSE (dev). Override via -v/-q or WACKI_LOG_LEVEL. */
 extern WackiLogLevel g_log_min_level;
 
+/* Optional extra destination for WARN and ERROR lines (NULL = none). Gets
+ * every WARN/ERROR, even below g_log_min_level, already formatted. Set by
+ * a platform that keeps its own log file (3DS: wacki_perf.log). */
+extern void (*g_log_sink)(WackiLogLevel lvl, const char *tag, const char *msg);
+
 /* The one printf-style helper. Adds the level/tag prefix + trailing
  * newline; the call site supplies only the body. Format and varargs
  * are checked at compile time. */

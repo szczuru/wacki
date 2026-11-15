@@ -10,20 +10,26 @@
 #include "wacki/log.h"
 #include "wacki/platform/system.h"
 #include "audio_3ds.h"
+#include "perf_log_3ds.h"
 #include <3ds.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <malloc.h>
 
+/* WARN/ERROR lines of the engine log → wacki_perf.log. */
+static void perf_log_sink(WackiLogLevel lvl, const char *tag, const char *msg)
+{
+    perf_log_msg("%s/%s: %s", lvl >= WL_ERROR ? "error" : "warn", tag, msg);
+}
+
 /* Called before any other init - setup environment */
 void plat_system_early_init(void)
 {
-    /* Initialize 3DS services. gfxInitDefault() is called here (not by
-     * picaGL) because we need hid/fs/romfs up before video_3ds_gl.c's
-     * pglInit() runs — picaGL itself only owns the GPU/citro3d side.
-     * NOTE: no consoleInit() — the bottom screen is picaGL's zoom
-     * viewport (video_3ds_gl.c), a text console there would fight it
-     * for the framebuffer. */
+    /* Initialize 3DS services. gfxInitDefault() is called here, before
+     * the video backend (video_3ds_c3d.c: citro3d; or the old CPU
+     * framebuffer one, video_3ds_gl.c), because hid/fs/romfs must be up
+     * first. NOTE: no consoleInit() — the bottom screen is the zoom
+     * view, a text console there would fight it for the framebuffer. */
     gfxInitDefault();
     gfxSet3D(false); /* Disable stereoscopic 3D — irrelevant for a 2D game,
                        * and halves the GPU work pglSwapBuffers does. */
@@ -49,6 +55,12 @@ void plat_system_early_init(void)
     } else {
         LOG_INFO("platform", "chdir(sdmc:/3ds/wacki) failed");
     }
+
+    /* Performance + error log (sdmc:/3ds/wacki/wacki_perf.log), written
+     * by its own low-priority thread every 0.5 s — see perf_log_3ds.c.
+     * Started this early so warnings/errors from boot are in it too. */
+    perf_log_init();
+    g_log_sink = perf_log_sink;
     
     /* Initialize RomFS if available (for embedded data) */
     Result rc = romfsInit();
@@ -67,6 +79,9 @@ void plat_system_exit(int rc)
      * a --headless run, or one that crashes before touching audio,
      * never calls ndspInit and must not call ndspExit either). */
     if (g_ndsp_ready) ndspExit();
+
+    g_log_sink = NULL;
+    perf_log_shutdown();
 
     /* Shutdown RomFS */
     romfsExit();
