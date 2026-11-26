@@ -56,6 +56,7 @@
 #include "wacki.h"
 #include "wacki/log.h"
 #include "wacki/platform/video.h"
+#include "perf_log_3ds.h"
 #include <3ds.h>
 #include <malloc.h>
 #include <string.h>
@@ -269,20 +270,17 @@ static void blit_top_screen_stereo_right(const uint8_t *indexed,
         uint16_t *dst = fb + fb_pixel_index(0, dy);
         for (int dx = 0; dx < TOP_WIDTH; ++dx) {
             int sx = src_x_lut[dx];
-            int shifted = sx - disparity_px;
             uint8_t v;
-            if (shifted >= 0 && shifted < src_w &&
-                row[shifted] != bg_row[shifted]) {
-                /* The shifted source position is foreground (this
-                 * frame's composite disagrees with the clean bg
-                 * snapshot there) — show that shifted foreground
-                 * pixel, achieving the eye-to-eye disparity. */
-                v = row[shifted];
+            /* Same model as video_3ds_c3d.c: foreground stays on the
+             * screen's surface (unshifted), the background layer is
+             * shifted right = behind the screen. (Shifting the
+             * foreground right, as before, put the characters BEHIND
+             * the background.) */
+            if (row[sx] != bg_row[sx]) {
+                v = row[sx];
             } else {
-                /* Either off the shifted-lookup edge or genuinely
-                 * background there — show the UNSHIFTED background
-                 * pixel (depth 0, matches the left eye exactly). */
-                v = bg_row[sx];
+                int bx = sx - disparity_px;
+                v = bg_row[bx < 0 ? 0 : bx];
             }
             *dst = s_palette_lut[v];
             dst += PHYS_ROW_LEN;
@@ -430,7 +428,7 @@ void platform_video_toggle_aspect_mode(void)
  * jagged silhouette edges more visible/distracting. 6 px out of 640
  * (~1%) at full slider is a modest, comfortable pop — this is the
  * first knob to retune if real-hardware testing wants more/less depth. */
-#define STEREO_MAX_DISPARITY_SRC_PX  6
+#define STEREO_MAX_DISPARITY_SRC_PX  18   /* was 6: barely visible */
 
 static int s_prev_stereo_enabled = -1;   /* -1 = force dirty on first frame */
 static int s_prev_disparity_px   = -1;
@@ -512,6 +510,7 @@ int plat_video_init(int w, int h, const char *title)
 void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
 {
     if (!shadow || !pal) return;
+    uint64_t t_enter = perf_now();   /* wacki_perf.log: CPU time of this present */
 
     /* ---- Dirty-frame check --------------------------------------- *
      *
@@ -598,7 +597,10 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
     if (stereo_enabled && disparity_px_now != s_prev_disparity_px)
         top_dirty = 1;
 
-    if (!top_dirty && !bot_dirty) return;
+    if (!top_dirty && !bot_dirty) {
+        perf_log_present(0, 0, 0, 0.0f);
+        return;
+    }
 
     memcpy(s_shadow, shadow, (size_t)w * h);
     memcpy(s_palette, pal, 256 * 3);
@@ -739,6 +741,7 @@ void plat_video_present(const uint8_t *shadow, const uint8_t *pal, int w, int h)
      * was dirty is harmless — the untouched screen's "swap" just
      * re-presents the same buffer it was already showing. */
     gfxSwapBuffers();
+    perf_log_present(1, perf_now() - t_enter, 0, 0.0f);
 }
 
 void plat_video_shutdown(void)

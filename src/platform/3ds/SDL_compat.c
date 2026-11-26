@@ -8,6 +8,7 @@
  * the engine core (src/*.c) still calls directly on every platform. */
 
 #include "SDL.h"
+#include "perf_log_3ds.h"
 #include <3ds.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +34,10 @@ const char *SDL_GetError(void)
 
 void SDL_Delay(uint32_t ms)
 {
+    uint64_t t0 = svcGetSystemTick();
     svcSleepThread((s64)ms * 1000000LL);
+    /* Counted as "sleep", not engine work, in wacki_perf.log. */
+    perf_log_sleep(svcGetSystemTick() - t0);
 }
 
 /* 3DS ARM11 tick counter runs at 268,111,856 Hz (3dbrew "Hardware": CPU

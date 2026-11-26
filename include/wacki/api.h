@@ -230,7 +230,8 @@ void     SoundQueueEnqueue(int16_t x, int16_t y, uint32_t rgb,
 uint32_t AlphaTintForListener(int16_t lx, int16_t ly);
 
 /* Grafika menu "video_mode" toggle — gates the alpha-plane tint/lighting
- * effect. Non-zero = effect on. */
+ * effect. Non-zero = effect on. The 3DS GPU backend (video_3ds_c3d.c)
+ * also reads it every frame as "smoothing on" (linear filtering). */
 int      GraphicsAlphaFxEnabled(void);
 
 /* ---- archive.c / depack.c ---------------------------------------- */

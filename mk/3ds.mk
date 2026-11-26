@@ -1,4 +1,4 @@
-# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + picaGL).
+# mk/3ds.mk — Nintendo 3DS homebrew (devkitARM + libctru + citro3d).
 
 DEVKITPRO ?= /opt/devkitpro
 DEVKITARM ?= $(DEVKITPRO)/devkitARM
@@ -7,15 +7,12 @@ CC       := $(DEVKITARM)/bin/arm-none-eabi-gcc
 BIN_NAME := wacki
 
 # -D__3DS__ is libctru's CURRENT platform define (3ds.h #warns and asks
-# for it instead of the old -DARM11 -D_3DS pair — deliberately NOT passed
-# here, only picaGL's OWN build needs that historical fixup, applied by
-# tools/build-3ds.sh via sed on picaGL's Makefile before `make install`).
+# for it instead of the old -DARM11 -D_3DS pair).
 CFLAGS += -D__3DS__ -DWACKI_HANDHELD -DWACKI_3DS \
           -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft \
           -I src/platform/3ds \
           -I$(DEVKITPRO)/libctru/include \
-          -I$(DEVKITPRO)/portlibs/3ds/include \
-          -I/opt/devkitpro/picaGL/include
+          -I$(DEVKITPRO)/portlibs/3ds/include
 
 # -O2 (NOT -Os): the base Makefile's CFLAGS already sets -O2, but the
 # engine-link recipe passes CFLAGS then CFLAGS_SIZE on the SAME command
@@ -35,19 +32,31 @@ LDFLAGS_SIZE := -Wl,--gc-sections
 
 LDFLAGS_STATIC := -L$(DEVKITPRO)/libctru/lib \
                    -L$(DEVKITPRO)/portlibs/3ds/lib \
-                   -L/opt/devkitpro/picaGL/lib \
                    -specs=3dsx.specs
 
 # The engine-link rule (Makefile) passes $(SDL_LIB) to the linker — that
 # var defaults to `sdl2-config --libs`, which doesn't exist on this
-# toolchain, so it'd otherwise be empty and every libctru/picaGL symbol
+# toolchain, so it'd otherwise be empty and every libctru/citro3d symbol
 # below would come back "undefined reference". Overriding it here (rather
 # than introducing a separate LIBS_3DS the Makefile doesn't know about) is
 # exactly how mk/switch.mk and mk/ps2.mk redirect the same hook for their
-# own non-SDL2 link lines. picaGL installed to /opt/devkitpro/picaGL by
-# tools/build-3ds.sh; -lm last since libctru's own deps (romfs, gfx, hid,
-# fs) all resolve within libctru itself.
-SDL_LIB := -L/opt/devkitpro/picaGL/lib -lpicaGL -lcitro3d -lctru -lm
+# own non-SDL2 link lines. citro3d (the GPU backend, video_3ds_c3d.c) comes
+# with devkitPro's 3ds-dev group; picaGL is no longer used by anything.
+# -lm last since libctru's own deps all resolve within libctru itself.
+SDL_LIB := -lcitro3d -lctru -lm
+
+# Video backend:
+#   VIDEO_3DS=c3d (default) — src/platform/3ds/video_3ds_c3d.c, the GPU
+#                             (citro3d): smoothing, 4:3/stretch, stereo.
+#   VIDEO_3DS=fb            — src/platform/3ds/video_3ds_gl.c, the old
+#                             CPU nearest-neighbour framebuffer writes
+#                             (kept for comparison; same perf log).
+VIDEO_3DS ?= c3d
+ifeq ($(VIDEO_3DS),fb)
+    VIDEO_3DS_SRC := src/platform/3ds/video_3ds_gl.c
+else
+    VIDEO_3DS_SRC := src/platform/3ds/video_3ds_c3d.c
+endif
 
 # Jesli data/WACKI.EXE istnieje, uzywamy embed-pe-data. W przeciwnym razie - pusty stub.
 ifeq ($(wildcard data/WACKI.EXE),)
@@ -66,7 +75,8 @@ PLATFORM_MAIN_SRC :=
 ENGINE_SRCS += src/platform/3ds/3ds.c \
                src/platform/3ds/platform_3ds.c \
                src/platform/3ds/SDL_compat.c \
-               src/platform/3ds/video_3ds_gl.c \
+               $(VIDEO_3DS_SRC) \
+               src/platform/3ds/perf_log_3ds.c \
                src/platform/3ds/gamepad_3ds.c \
                src/platform/3ds/storage_3ds.c \
                src/platform/3ds/data_root_3ds.c \
